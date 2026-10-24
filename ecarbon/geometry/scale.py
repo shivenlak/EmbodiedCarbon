@@ -88,6 +88,7 @@ class ScaleSource(StrEnum):
 
 # 7000   915mm   (SKMB writes the unit, most regions do not)
 _METRIC_RE = re.compile(r"^(\d{2,6})\s*(?:mm)?$", re.I)
+_METRIC_M_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*m$", re.I)
 # 23' - 0"   9'-10 1/8"   7' 10"   14'-3"   12'   3 7/8"   (and in [brackets])
 _IMPERIAL_RE = re.compile(
     r"""^(?:
@@ -115,14 +116,17 @@ _SCALE_IMPERIAL_RE = re.compile(
 
 
 def parse_metric(text: str) -> float | None:
-    """A millimetre dimension, in mm. Accepts a bare number or an 'mm' suffix."""
-    m = _METRIC_RE.match(text.strip())
-    if not m:
-        return None
-    v = float(m.group(1))
-    # Below 20mm or above 100m is not a plausible building run; such strings are
-    # usually sheet numbers, revision marks or detail callouts.
-    return v if 20.0 <= v <= 100_000.0 else None
+    """A millimetre dimension, in mm. Accepts bare number, 'mm' suffix, or decimal 'm'."""
+    t = text.strip()
+    m = _METRIC_RE.match(t)
+    if m:
+        v = float(m.group(1))
+        return v if 20.0 <= v <= 100_000.0 else None
+    mm = _METRIC_M_RE.match(t)
+    if mm:
+        v = float(mm.group(1)) * 1000.0
+        return v if 20.0 <= v <= 100_000.0 else None
+    return None
 
 
 def parse_imperial(text: str) -> float | None:
@@ -145,6 +149,32 @@ def parse_imperial(text: str) -> float | None:
 def parse_dimension(text: str) -> tuple[float | None, str]:
     """Parse any dimension label. Returns (mm, which_unit_system)."""
     t = text.strip()
+
+    # Multiline dual dimension blocks (stacked imperial / metric or metric / imperial)
+    lines = [l.strip() for l in t.splitlines() if l.strip()]
+    if len(lines) == 2:
+        m1 = parse_metric(lines[0])
+        i1 = parse_imperial(lines[1])
+        if m1 and i1:
+            return (m1, "dual") if abs(m1 - i1) / m1 < 0.03 else (None, "conflict")
+        m2 = parse_metric(lines[1])
+        i2 = parse_imperial(lines[0])
+        if m2 and i2:
+            return (m2, "dual") if abs(m2 - i2) / m2 < 0.03 else (None, "conflict")
+
+    # Slash-separated dual dimension (metric / imperial OR imperial / metric)
+    if "/" in t:
+        parts = t.split("/", 1)
+        p0, p1 = parts[0].strip(), parts[1].strip()
+        m0 = parse_metric(p0)
+        i1 = parse_imperial(p1)
+        if m0 and i1:
+            return (m0, "dual") if abs(m0 - i1) / m0 < 0.03 else (None, "conflict")
+        i0 = parse_imperial(p0)
+        m1 = parse_metric(p1)
+        if i0 and m1:
+            return (m1, "dual") if abs(i0 - m1) / m1 < 0.03 else (None, "conflict")
+
     dual = _DUAL_RE.match(t)
     if dual:
         metric = parse_metric(dual.group(1))
@@ -153,6 +183,7 @@ def parse_dimension(text: str) -> tuple[float | None, str]:
             # Both present in one label: prefer metric, but only if they agree.
             return (metric, "dual") if abs(metric - imperial) / metric < 0.02 else (None, "conflict")
         return (metric or imperial, "dual" if (metric or imperial) else "none")
+
     v = parse_metric(t)
     if v:
         return v, "metric"

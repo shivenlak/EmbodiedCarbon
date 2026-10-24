@@ -21,7 +21,10 @@ import {
   Printer,
   X,
   Eye,
-  FileText
+  FileText,
+  Scale,
+  GitCompare,
+  TrendingDown
 } from 'lucide-react';
 
 const API_BASE = 'http://127.0.0.1:8000';
@@ -46,6 +49,16 @@ export default function App() {
   const [updating, setUpdating] = useState(false);
   const [tracingLine, setTracingLine] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Phase 2 Differentiators (Benchmark, Uncertainty, Variants)
+  const [showBenchmark, setShowBenchmark] = useState(false);
+  const [benchmarkData, setBenchmarkData] = useState(null);
+  const [showUncertainty, setShowUncertainty] = useState(false);
+  const [uncertaintyData, setUncertaintyData] = useState(null);
+  const [showVariants, setShowVariants] = useState(false);
+  const [variantData, setVariantData] = useState(null);
+  const [variantUploading, setVariantUploading] = useState(false);
+  const variantFileInputRef = useRef(null);
 
   useEffect(() => {
     fetchProjectData();
@@ -83,6 +96,53 @@ export default function App() {
       setError('Backend API not reached. Ensure FastAPI is running at http://127.0.0.1:8000.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function openBenchmark() {
+    setShowBenchmark(true);
+    if (!benchmarkData) {
+      try {
+        const res = await fetch(`${API_BASE}/benchmark`);
+        if (res.ok) setBenchmarkData(await res.json());
+      } catch (err) {
+        console.warn('Failed to fetch benchmark data:', err);
+      }
+    }
+  }
+
+  async function openUncertainty() {
+    setShowUncertainty(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${projectId}/uncertainty`);
+      if (res.ok) setUncertaintyData(await res.json());
+    } catch (err) {
+      console.warn('Failed to fetch uncertainty data:', err);
+    }
+  }
+
+  async function handleVariantUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setVariantUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${projectId}/variants/compare`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVariantData(data);
+        setShowVariants(true);
+      } else {
+        alert('Variant comparison failed. Please ensure valid blueprint PDF.');
+      }
+    } catch (err) {
+      console.warn('Variant comparison failed:', err);
+    } finally {
+      setVariantUploading(false);
     }
   }
 
@@ -247,6 +307,56 @@ export default function App() {
           >
             {uploading ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
             {uploading ? 'Processing Takeoff...' : 'Upload Blueprint PDF'}
+          </button>
+
+          {/* Benchmark Accuracy Dashboard */}
+          <button
+            onClick={openBenchmark}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--text-main)',
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '8px 14px',
+              cursor: 'pointer'
+            }}
+          >
+            <Scale size={14} color="var(--accent-green)" />
+            Benchmark Accuracy
+          </button>
+
+          {/* Variant Delta Compare */}
+          <input 
+            type="file" 
+            ref={variantFileInputRef} 
+            onChange={handleVariantUpload} 
+            accept=".pdf" 
+            style={{ display: 'none' }} 
+          />
+          <button
+            onClick={() => variantFileInputRef.current?.click()}
+            disabled={variantUploading}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--text-main)',
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '8px 14px',
+              cursor: variantUploading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {variantUploading ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <GitCompare size={14} color="var(--accent-blue)" />}
+            {variantUploading ? 'Comparing Variant...' : 'Compare Variant Delta'}
           </button>
 
           {/* View Audit Report */}
@@ -530,8 +640,23 @@ export default function App() {
               </span>
               <span style={{ fontSize: '14px', color: 'var(--text-dim)', fontWeight: 600 }}>kg CO₂e</span>
             </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '8px' }}>
-              Uncertainty range: <span className="mono">{Number(carbon?.range_low_kg_co2e || 0).toLocaleString()} – {Number(carbon?.range_high_kg_co2e || 0).toLocaleString()}</span>
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Range: <span className="mono">{Number(carbon?.range_low_kg_co2e || 0).toLocaleString()} – {Number(carbon?.range_high_kg_co2e || 0).toLocaleString()}</span></span>
+              <button 
+                onClick={openUncertainty}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--accent-blue)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: 0,
+                  textDecoration: 'underline'
+                }}
+              >
+                Sensitivity Drivers &rarr;
+              </button>
             </div>
           </div>
 
@@ -1024,6 +1149,404 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Step 26 Published Benchmark Matrix Modal */}
+      {showBenchmark && benchmarkData && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(5, 8, 15, 0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '24px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            border: '2px solid var(--accent-green)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '1000px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
+          }}>
+            <div style={{
+              padding: '16px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              backgroundColor: 'rgba(23, 32, 48, 0.7)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Scale size={20} color="var(--accent-green)" />
+                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Published Accuracy Benchmark vs 3D IFC Ground Truth</h3>
+                <span style={{
+                  fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.2)', color: 'var(--accent-green)'
+                }}>
+                  {benchmarkData.actual_pass_rate_pct}% Pass Rate (Target: &ge;80%)
+                </span>
+              </div>
+              <button onClick={() => setShowBenchmark(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                {Object.values(benchmarkData.headline_metrics).map((m, i) => (
+                  <div key={i} style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>{m.metric}</div>
+                    <div style={{ fontSize: '26px', fontWeight: 800, color: 'var(--accent-green)', marginTop: '4px' }}>
+                      {m.median_error_pct}% <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-muted)' }}>median err</span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                      Worst Case: <b>{m.worst_case_error_pct}%</b> &bull; Target: &le;10%
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Toolchain Performance Breakdown</h4>
+                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
+                      <th style={{ padding: '8px' }}>Toolchain Group</th>
+                      <th style={{ padding: '8px' }}>Sample Sets</th>
+                      <th style={{ padding: '8px' }}>Wall Med. Err</th>
+                      <th style={{ padding: '8px' }}>Slab Med. Err</th>
+                      <th style={{ padding: '8px' }}>Window Med. Err</th>
+                      <th style={{ padding: '8px' }}>Avg Runtime</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {benchmarkData.toolchain_breakdown.map((tc, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '8px', fontWeight: 600 }}>{tc.toolchain}</td>
+                        <td style={{ padding: '8px' }}>{tc.samples} designs</td>
+                        <td style={{ padding: '8px', color: 'var(--accent-green)' }}>{tc.wall_median_err}%</td>
+                        <td style={{ padding: '8px', color: 'var(--accent-green)' }}>{tc.slab_median_err}%</td>
+                        <td style={{ padding: '8px', color: 'var(--accent-green)' }}>{tc.window_median_err}%</td>
+                        <td style={{ padding: '8px', fontFamily: 'var(--font-mono)' }}>{tc.speed_s}s</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Individual Evaluation Designs vs 3D IFC Truth</h4>
+                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
+                      <th style={{ padding: '8px' }}>Design Package</th>
+                      <th style={{ padding: '8px' }}>Typology</th>
+                      <th style={{ padding: '8px' }}>Wall TO / IFC</th>
+                      <th style={{ padding: '8px' }}>Wall Err</th>
+                      <th style={{ padding: '8px' }}>Slab TO / IFC</th>
+                      <th style={{ padding: '8px' }}>Slab Err</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>A1–A3 kgCO₂e</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {benchmarkData.eval_designs.map((d, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '8px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{d.design}</td>
+                        <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{d.typology}</td>
+                        <td style={{ padding: '8px' }}>{d.wall_to_m2} / {d.wall_ifc_m2} m²</td>
+                        <td style={{ padding: '8px', color: d.wall_err_pct <= 10.0 ? 'var(--accent-green)' : 'var(--accent-amber)', fontWeight: 700 }}>
+                          {d.wall_err_pct}%
+                        </td>
+                        <td style={{ padding: '8px' }}>{d.slab_to_m2} / {d.slab_ifc_m2} m²</td>
+                        <td style={{ padding: '8px', color: d.slab_err_pct <= 10.0 ? 'var(--accent-green)' : 'var(--accent-amber)', fontWeight: 700 }}>
+                          {d.slab_err_pct}%
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700 }}>{d.carbon_kg.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '8px', padding: '12px 16px', fontSize: '12px', color: '#A7F3D0' }}>
+                <b>Methodological Philosophy:</b> {benchmarkData.stance}
+              </div>
+            </div>
+
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-subtle)', textAlign: 'right' }}>
+              <button onClick={() => setShowBenchmark(false)} style={{ backgroundColor: 'var(--accent-green)', color: '#042F2E', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
+                Close Benchmark
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 21 Statistical Uncertainty & Sensitivity Modal */}
+      {showUncertainty && uncertaintyData && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(5, 8, 15, 0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '24px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            border: '2px solid var(--accent-blue)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '1000px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
+          }}>
+            <div style={{
+              padding: '16px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              backgroundColor: 'rgba(23, 32, 48, 0.7)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <TrendingDown size={20} color="var(--accent-blue)" />
+                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Statistical Uncertainty & Sensitivity Ranking</h3>
+                <span style={{
+                  fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
+                  backgroundColor: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent-blue)'
+                }}>
+                  &plusmn;{(uncertaintyData.relative_uncertainty_pct * 1.96).toFixed(1)}% (95% CI)
+                </span>
+              </div>
+              <button onClick={() => setShowUncertainty(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Expected A1–A3 Total</div>
+                  <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px' }}>
+                    {uncertaintyData.total_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>kg CO₂e</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    Standard Error &sigma;: <b>{uncertaintyData.std_err_sigma_kg_co2e.toLocaleString()} kg</b>
+                  </div>
+                </div>
+
+                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>68% Confidence Band (1&sigma;)</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-blue)', marginTop: '4px' }}>
+                    {uncertaintyData.range_68_low_kg_co2e.toLocaleString()} – {uncertaintyData.range_68_high_kg_co2e.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    &plusmn;{uncertaintyData.relative_uncertainty_pct.toFixed(1)}% typical deviation
+                  </div>
+                </div>
+
+                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>95% Confidence Band (1.96&sigma;)</div>
+                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)', marginTop: '4px' }}>
+                    {uncertaintyData.range_95_low_kg_co2e.toLocaleString()} – {uncertaintyData.range_95_high_kg_co2e.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    Regulatory compliance reporting interval
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>Sensitivity Drivers: Which Assumptions Move the Total Most?</h4>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                  Ranked by share of total variance. Reflects compound effect of factor uncertainty (EPD statistical distribution) and measurement confidence.
+                </p>
+
+                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
+                      <th style={{ padding: '8px' }}>Rank</th>
+                      <th style={{ padding: '8px' }}>Material / Assembly</th>
+                      <th style={{ padding: '8px' }}>Quantity</th>
+                      <th style={{ padding: '8px' }}>Confidence</th>
+                      <th style={{ padding: '8px' }}>Factor &plusmn;%</th>
+                      <th style={{ padding: '8px' }}>Qty &plusmn;%</th>
+                      <th style={{ padding: '8px' }}>Combined &sigma;</th>
+                      <th style={{ padding: '8px' }}>Variance Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uncertaintyData.top_drivers.map((d) => (
+                      <tr key={d.rank} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '8px', fontWeight: 700 }}>#{d.rank}</td>
+                        <td style={{ padding: '8px', fontWeight: 600 }}>
+                          <div>{d.material}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{d.element_class} &bull; {d.assumption}</div>
+                        </td>
+                        <td style={{ padding: '8px' }}>{d.quantity} {d.unit}</td>
+                        <td style={{ padding: '8px' }}>
+                          <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', backgroundColor: d.confidence === 'measured' ? '#DCFCE7' : '#DBEAFE', color: d.confidence === 'measured' ? '#166534' : '#1E40AF' }}>
+                            {d.confidence}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px', color: 'var(--text-muted)' }}>&plusmn;{d.factor_uncertainty_pct}%</td>
+                        <td style={{ padding: '8px', color: 'var(--text-muted)' }}>&plusmn;{d.quantity_uncertainty_pct}%</td>
+                        <td style={{ padding: '8px', fontFamily: 'var(--font-mono)' }}>{d.combined_sigma_kg_co2e.toLocaleString()} kg</td>
+                        <td style={{ padding: '8px', fontWeight: 700, color: 'var(--accent-blue)' }}>{d.variance_contribution_pct}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-subtle)', textAlign: 'right' }}>
+              <button onClick={() => setShowUncertainty(false)} style={{ backgroundColor: 'var(--accent-blue)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
+                Close Analysis
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 23 Variant Delta Comparison Modal */}
+      {showVariants && variantData && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(5, 8, 15, 0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '24px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            border: '2px solid var(--accent-blue)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '1050px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
+          }}>
+            <div style={{
+              padding: '16px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              backgroundColor: 'rgba(23, 32, 48, 0.7)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <GitCompare size={20} color="var(--accent-blue)" />
+                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Variant Delta: {variantData.variant_project_name} vs {variantData.base_project_name}</h3>
+                <span style={{
+                  fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
+                  backgroundColor: variantData.net_carbon_delta_kg_co2e > 0 ? 'rgba(244, 63, 94, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                  color: variantData.net_carbon_delta_kg_co2e > 0 ? 'var(--accent-rose)' : 'var(--accent-green)'
+                }}>
+                  {variantData.net_carbon_delta_kg_co2e > 0 ? '+' : ''}{variantData.net_carbon_delta_kg_co2e.toLocaleString()} kg CO₂e ({variantData.net_carbon_pct_change > 0 ? '+' : ''}{variantData.net_carbon_pct_change}%)
+                </span>
+              </div>
+              <button onClick={() => setShowVariants(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Base Design Carbon</div>
+                  <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '4px' }}>{variantData.base_total_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>kg</span></div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{variantData.base_intensity_kg_per_m2} kg/m²</div>
+                </div>
+
+                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Variant Plan Carbon</div>
+                  <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '4px' }}>{variantData.variant_total_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>kg</span></div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{variantData.variant_intensity_kg_per_m2} kg/m²</div>
+                </div>
+
+                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Net Differential</div>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: variantData.net_carbon_delta_kg_co2e > 0 ? 'var(--accent-rose)' : 'var(--accent-green)', marginTop: '4px' }}>
+                    {variantData.net_carbon_delta_kg_co2e > 0 ? '+' : ''}{variantData.net_carbon_delta_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px' }}>kg</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{variantData.delta_intensity_kg_per_m2 > 0 ? '+' : ''}{variantData.delta_intensity_kg_per_m2} kg/m²</div>
+                </div>
+
+                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Line Delta Counts</div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '6px' }}>
+                    <span style={{ color: 'var(--accent-blue)' }}>{variantData.modified_lines_count} mod</span> &bull; <span style={{ color: 'var(--accent-green)' }}>{variantData.added_lines_count} add</span> &bull; <span style={{ color: 'var(--text-muted)' }}>{variantData.unchanged_lines_count} same</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Line-by-Line Quantity & Carbon Deltas</h4>
+                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
+                      <th style={{ padding: '8px' }}>Status</th>
+                      <th style={{ padding: '8px' }}>Line ID & Material</th>
+                      <th style={{ padding: '8px' }}>Base Qty</th>
+                      <th style={{ padding: '8px' }}>Variant Qty</th>
+                      <th style={{ padding: '8px' }}>Delta Qty</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>Base kg</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>Variant kg</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>Carbon &Delta;</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {variantData.lines.map((l) => (
+                      <tr key={l.line_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: l.change_type === 'modified' ? 'rgba(59, 130, 246, 0.05)' : l.change_type === 'added' ? 'rgba(16, 185, 129, 0.05)' : 'transparent' }}>
+                        <td style={{ padding: '8px' }}>
+                          <span style={{
+                            fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase',
+                            backgroundColor: l.change_type === 'modified' ? '#DBEAFE' : l.change_type === 'added' ? '#DCFCE7' : l.change_type === 'removed' ? '#FEE2E2' : 'rgba(255,255,255,0.1)',
+                            color: l.change_type === 'modified' ? '#1E40AF' : l.change_type === 'added' ? '#166534' : l.change_type === 'removed' ? '#991B1B' : 'var(--text-dim)'
+                          }}>
+                            {l.change_type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <div style={{ fontWeight: 600 }}>{l.description}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{l.material} ({l.element_class})</div>
+                        </td>
+                        <td style={{ padding: '8px' }}>{l.base_quantity !== null ? `${l.base_quantity} ${l.unit}` : '—'}</td>
+                        <td style={{ padding: '8px' }}>{l.variant_quantity !== null ? `${l.variant_quantity} ${l.unit}` : '—'}</td>
+                        <td style={{ padding: '8px', fontWeight: 600, color: l.quantity_delta !== 0 ? 'var(--text-main)' : 'var(--text-dim)' }}>
+                          {l.quantity_delta > 0 ? `+${l.quantity_delta}` : l.quantity_delta} {l.unit}
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{l.base_kg_co2e !== null ? l.base_kg_co2e.toLocaleString() : '—'}</td>
+                        <td style={{ padding: '8px', textAlign: 'right' }}>{l.variant_kg_co2e !== null ? l.variant_kg_co2e.toLocaleString() : '—'}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: l.carbon_delta_kg_co2e > 0 ? 'var(--accent-rose)' : l.carbon_delta_kg_co2e < 0 ? 'var(--accent-green)' : 'var(--text-dim)' }}>
+                          {l.carbon_delta_kg_co2e > 0 ? `+${l.carbon_delta_kg_co2e.toLocaleString()}` : l.carbon_delta_kg_co2e.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-subtle)', textAlign: 'right' }}>
+              <button onClick={() => setShowVariants(false)} style={{ backgroundColor: 'var(--accent-blue)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
+                Close Variant Delta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
     </div>
   );

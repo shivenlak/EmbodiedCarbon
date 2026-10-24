@@ -148,10 +148,11 @@ def generate_takeoff(
             gross_ext_wall_area_m2 = (footprint.perimeter_m * wall_h) + (footprint.demising_wall_length_m * wall_h)
             net_ext_wall_area_m2 = max(gross_ext_wall_area_m2 - openings_summary.total_exterior_opening_area_m2, 50.0)
         else:
-            # Multiplex: perimeter * effective wall height (7.0m for 3-storey low-rise)
-            effective_wall_height = storeys * 2.334
+            # Multiplex / Apartment / ADU
+            effective_wall_height = 2.65 if storeys == 1 else (storeys * 2.334)
+            min_wall = 20.0 if storeys == 1 else 50.0
             gross_ext_wall_area_m2 = footprint.perimeter_m * effective_wall_height
-            net_ext_wall_area_m2 = max(gross_ext_wall_area_m2 - openings_summary.total_exterior_opening_area_m2, 50.0)
+            net_ext_wall_area_m2 = max(gross_ext_wall_area_m2 - openings_summary.total_exterior_opening_area_m2, min_wall)
 
         # Confidence determination:
         is_measured = (

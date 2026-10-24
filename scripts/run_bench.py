@@ -28,11 +28,13 @@ from ecarbon.models import ElementClass
 from ecarbon.takeoff import generate_takeoff
 
 
-def run_benchmark(region_filter: str | None = None) -> dict:
+def run_benchmark(region_filter: str | None = None, design_filter: list[str] | None = None) -> dict:
     designs = discover()
     target_designs = []
     for d in designs:
         if region_filter and d.region != region_filter:
+            continue
+        if design_filter and not any(f.lower() in d.key.lower() for f in design_filter):
             continue
         if d.drawings_pdf and d.ifc:
             target_designs.append(d)
@@ -45,6 +47,7 @@ def run_benchmark(region_filter: str | None = None) -> dict:
     slab_errors = []
     roof_errors = []
     window_errors = []
+    by_toolchain: dict[str, dict[str, list[float]]] = {}
 
     hdr = "%-24s %-12s %8s %8s %7s | %8s %8s %7s | %6s %6s | %10s %8s"
     print(
@@ -114,6 +117,10 @@ def run_benchmark(region_filter: str | None = None) -> dict:
             window_errors.append(win_err)
 
             tc_name = to.sheets[0].toolchain.value if to.sheets else "unknown"
+            tc_stats = by_toolchain.setdefault(tc_name, {"wall": [], "slab": [], "win": []})
+            tc_stats["wall"].append(wall_err)
+            tc_stats["slab"].append(slab_err)
+            tc_stats["win"].append(win_err)
 
             print(
                 hdr
@@ -163,6 +170,15 @@ def run_benchmark(region_filter: str | None = None) -> dict:
     if window_errors:
         print(f"  Window Count:        Median Error = {statistics.median(window_errors):.1f}%,  Worst = {max(window_errors):.1f}%")
 
+    if by_toolchain:
+        print("\nBREAKDOWN BY TOOLCHAIN (Step 17 requirement):")
+        for tc, s in sorted(by_toolchain.items()):
+            n = len(s["wall"])
+            w_med = statistics.median(s["wall"]) if s["wall"] else 0.0
+            sl_med = statistics.median(s["slab"]) if s["slab"] else 0.0
+            wn_med = statistics.median(s["win"]) if s["win"] else 0.0
+            print(f"  {tc[:16]:16} (n={n}): Wall Med={w_med:.1f}%, Slab Med={sl_med:.1f}%, Win Med={wn_med:.1f}%")
+
     all_errs = wall_errors + slab_errors + window_errors
     if all_errs:
         within_10 = sum(1 for e in all_errs if e <= 10.0) / len(all_errs) * 100.0
@@ -174,6 +190,15 @@ def run_benchmark(region_filter: str | None = None) -> dict:
         "median_wall_error_pct": round(statistics.median(wall_errors), 2) if wall_errors else None,
         "median_slab_error_pct": round(statistics.median(slab_errors), 2) if slab_errors else None,
         "median_window_error_pct": round(statistics.median(window_errors), 2) if window_errors else None,
+        "by_toolchain": {
+            tc: {
+                "samples": len(s["wall"]),
+                "wall_median_err": round(statistics.median(s["wall"]), 2) if s["wall"] else 0.0,
+                "slab_median_err": round(statistics.median(s["slab"]), 2) if s["slab"] else 0.0,
+                "window_median_err": round(statistics.median(s["win"]), 2) if s["win"] else 0.0,
+            }
+            for tc, s in by_toolchain.items()
+        },
         "results": results,
     }
 
@@ -181,10 +206,12 @@ def run_benchmark(region_filter: str | None = None) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run accuracy benchmark against IFC ground truth.")
     parser.add_argument("--region", type=str, default=None, help="Filter by region (e.g. AB, BC, QC)")
+    parser.add_argument("--designs", type=str, default=None, help="Comma-separated design key fragments")
     parser.add_argument("--json", type=str, default=None, help="Output JSON results to file")
     args = parser.parse_args()
 
-    bench_data = run_benchmark(region_filter=args.region)
+    filter_list = [d.strip() for d in args.designs.split(",")] if args.designs else None
+    bench_data = run_benchmark(region_filter=args.region, design_filter=filter_list)
 
     if args.json:
         out_path = Path(args.json)

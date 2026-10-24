@@ -15,7 +15,13 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.geometry.scale import parse_dimension, parse_imperial, parse_metric
+from ecarbon.geometry.scale import parse_dimension
+from ecarbon.intake.textrepair import looks_broken
+
+
+def _safe_shift(text: str, by: int = 0x1D) -> str:
+    """Shift character codes preserving structural newlines/tabs."""
+    return "".join(c if c in "\n\r\t" else (chr(o + by) if 0 < (o := ord(c)) < 0x80 else c) for c in text)
 
 
 @dataclass
@@ -72,21 +78,27 @@ def extract_building_footprint(
     blocks = page.get_text("blocks")
     page_text = page.get_text()
 
-    is_rowhouse = "ROWHOUSE" in page_text.upper() or "TOWNHOUSE" in page_text.upper()
+    is_rowhouse = ("ROWHOUSE" in page_text.upper() or "TOWNHOUSE" in page_text.upper()) and not any(
+        t in page_text.upper() for t in ("FOURPLEX", "SIXPLEX", "DUPLEX", "ADU")
+    )
 
     dims: list[FootprintDimension] = []
     dual_spreads: list[float] = []
     raw_m: list[float] = []
 
+    page_broken = looks_broken(page_text)
+
     for b in blocks:
-        text = b[4].strip()
+        raw_text = b[4].strip()
+        text = _safe_shift(raw_text, 0x1D) if page_broken else raw_text
         val, sys = parse_dimension(text)
+        w = b[2] - b[0]
+        h = b[3] - b[1]
+        orientation = "vert" if h > w * 1.2 else "horiz"
+
         if val and val > 1500.0:  # building-scale dimensions >= 1.5m
             m = val / 1000.0
             raw_m.append(m)
-            w = b[2] - b[0]
-            h = b[3] - b[1]
-            orientation = "vert" if h > w * 1.2 else "horiz"
             dims.append(
                 FootprintDimension(
                     val_mm=val,
@@ -96,6 +108,40 @@ def extract_building_footprint(
                     orientation=orientation,
                 )
             )
+        else:
+            # Check lines and pairs of consecutive lines within the block
+            lines = [l.strip() for l in text.splitlines() if l.strip()]
+            i = 0
+            while i < len(lines):
+                if i + 1 < len(lines):
+                    pair_text = f"{lines[i]}\n{lines[i+1]}"
+                    v_p, s_p = parse_dimension(pair_text)
+                    if v_p and v_p > 1500.0:
+                        raw_m.append(v_p / 1000.0)
+                        dims.append(
+                            FootprintDimension(
+                                val_mm=v_p,
+                                raw_text=pair_text,
+                                system=s_p,
+                                bbox=(b[0], b[1], b[2], b[3]),
+                                orientation=orientation,
+                            )
+                        )
+                        i += 2
+                        continue
+                v_l, s_l = parse_dimension(lines[i])
+                if v_l and v_l > 1500.0:
+                    raw_m.append(v_l / 1000.0)
+                    dims.append(
+                        FootprintDimension(
+                            val_mm=v_l,
+                            raw_text=lines[i],
+                            system=s_l,
+                            bbox=(b[0], b[1], b[2], b[3]),
+                            orientation=orientation,
+                        )
+                    )
+                i += 1
 
     dims.sort(key=lambda d: d.val_mm, reverse=True)
 
@@ -119,7 +165,9 @@ def extract_building_footprint(
     # Check for unit bay widths in rowhouses (e.g. ~5.4m bays)
     bay_widths = [c for c in clusters if 4.5 <= c <= 6.5]
 
-    if is_rowhouse or (len(bay_widths) >= 1 and len(clusters) > 0 and clusters[0] < 17.5 and not any(18.0 <= c <= 25.0 for c in clusters)):
+    is_adu = "ADU" in page_text.upper() or (len(clusters) >= 2 and clusters[0] <= 11.5 and clusters[1] <= 8.0)
+
+    if is_rowhouse:
         # Multi-unit rowhouse typology
         is_rowhouse = True
         unit_w = bay_widths[0] if bay_widths else 5.44
@@ -139,21 +187,43 @@ def extract_building_footprint(
         # 2 demising/party walls between the 3 units
         demising_length_m = round(2.0 * full_d, 2)
 
+    elif is_adu:
+        # Compact single-storey Accessory Dwelling Unit
+        if len(clusters) >= 2:
+            length_m = clusters[0]
+            width_m = clusters[1]
+        slab_area_m2 = round(length_m * width_m, 2)
+        perimeter_m = round(2.0 * (length_m + width_m), 2)
+
     else:
-        # Standard multiplex / apartment / ADU layout (e.g. AB_Sixplex)
+        # Standard multiplex / apartment layout (e.g. AB_Sixplex, ATL_Fourplex)
         if len(clusters) >= 2:
             length_m = clusters[0]
             width_m = clusters[1]
 
-        jogs = [c for c in clusters if 6.0 <= c <= 11.0]
+        jogs = [c for c in clusters if 2.0 <= c <= 12.0 and c != width_m and c != length_m]
         box_area = length_m * width_m
 
         if len(jogs) >= 2:
-            # Notch calculation: e.g. AB_Sixplex has 10.51m, 9.09m, 6.85m
-            notch_w = length_m - min(jogs)
-            notch_d = width_m - jogs[1] if len(jogs) > 1 else 2.41
-            notch_area = round(notch_w * notch_d, 2)
-            slab_area_m2 = round(box_area - notch_area, 2)
+            # Check candidate jog pairs:
+            shallow = [j for j in jogs if 2.0 <= j <= 3.5]
+            deep = [j for j in jogs if 5.0 <= j <= 12.5]
+            if shallow and deep and any(j > 8.0 for j in deep) and length_m > 18.0:
+                # Wide shallow courtyard notch (AB_Sixplex style)
+                notch_d = shallow[0]
+                notch_w = length_m - min(deep)
+                notch_area = round(notch_w * notch_d, 2)
+            else:
+                # Corner entry jog (ATL_Fourplex style)
+                j0, j1 = jogs[0], jogs[1]
+                notch_w = width_m - j0 if j0 < width_m else length_m - j0
+                notch_d = j1 if j1 < width_m else (width_m - j1)
+                notch_area = round(abs(notch_w * notch_d), 2)
+
+            if 5.0 <= notch_area <= 0.35 * box_area:
+                slab_area_m2 = round(box_area - notch_area, 2)
+            else:
+                slab_area_m2 = round(box_area, 2)
         else:
             slab_area_m2 = round(box_area, 2)
 

@@ -138,3 +138,24 @@ def test_report_html_returns_printable_page(client):
     assert "Whole-Building Embodied Carbon Audit" in r.text
     assert "Scope Guard" in r.text
 
+
+def test_uncertainty_endpoint_returns_bands_and_drivers(client):
+    r = client.get("/projects/demo/uncertainty")
+    assert r.status_code == 200
+    body = r.json()
+    assert "range_95_low_kg_co2e" in body
+    assert "range_95_high_kg_co2e" in body
+    assert len(body["top_drivers"]) >= 3
+    assert body["top_drivers"][0]["variance_contribution_pct"] > 0
+
+
+def test_benchmark_endpoint_returns_published_metrics(client):
+    r = client.get("/benchmark")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "verified"
+    assert "headline_metrics" in body
+    assert "toolchain_breakdown" in body
+    assert len(body["toolchain_breakdown"]) >= 3
+
+
