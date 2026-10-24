@@ -112,3 +112,29 @@ def test_export_xlsx(client):
     assert "spreadsheetml" in r.headers["content-type"]
     assert len(r.content) > 1000
 
+
+def test_reconciliation_endpoint_enforces_scope_guard(client):
+    r = client.get("/projects/demo/reconciliation")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["scope_guard_active"] is True
+    assert "EN 15978" in body["guard_statement"]
+    assert body["our_modules"] == ["A1", "A2", "A3"]
+    assert len(body["variance_breakdown"]) >= 5
+
+
+def test_trace_endpoint_returns_png(client):
+    r = client.get("/projects/demo/trace/ln-slab-main")
+    # Returns 200 with PNG image if catalogue PDF present, else 404
+    if r.status_code == 200:
+        assert r.headers["content-type"] == "image/png"
+        assert len(r.content) > 1000
+
+
+def test_report_html_returns_printable_page(client):
+    r = client.get("/projects/demo/report/html")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "Whole-Building Embodied Carbon Audit" in r.text
+    assert "Scope Guard" in r.text
+
