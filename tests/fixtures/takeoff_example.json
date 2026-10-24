@@ -1,0 +1,215 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "name": "AB_Fourplex_01",
+    "jurisdiction": "Edmonton, AB (NBC(AE) 2020, CZ 7A)",
+    "gfa_m2": 306.0,
+    "gfa_basis": "gross",
+    "storeys": 2,
+    "units": 4,
+    "known_product_specs": {}
+  },
+  "source_file": "AB_Fourplex_01_Drawings.pdf",
+  "sheets": [
+    {
+      "page": 2,
+      "sheet_no": "A003",
+      "title": "ASSEMBLIES SCHEDULE",
+      "discipline": "A",
+      "sheet_type": "assembly_schedule",
+      "toolchain": "revit_tagged",
+      "readable": true,
+      "width_in": 36.0,
+      "height_in": 24.0,
+      "scale": null,
+      "scale_source": null,
+      "classified_by": "revit_metadata",
+      "layer_names": [],
+      "n_paths": 9812,
+      "n_text": 1204,
+      "n_images": 0
+    },
+    {
+      "page": 10,
+      "sheet_no": "A101",
+      "title": "MAIN FLOOR PLAN - ACCESSIBLE READY",
+      "discipline": "A",
+      "sheet_type": "floor_plan",
+      "toolchain": "revit_tagged",
+      "readable": true,
+      "width_in": 36.0,
+      "height_in": 24.0,
+      "scale": 8.4667,
+      "scale_source": "dim_text_metric",
+      "classified_by": "revit_metadata",
+      "layer_names": [],
+      "n_paths": 22140,
+      "n_text": 419,
+      "n_images": 0
+    },
+    {
+      "page": 20,
+      "sheet_no": "S201",
+      "title": "FOUNDATION PLAN",
+      "discipline": "S",
+      "sheet_type": "foundation_plan",
+      "toolchain": "flattened",
+      "readable": true,
+      "width_in": 36.0,
+      "height_in": 24.0,
+      "scale": 8.4667,
+      "scale_source": "dim_text_imperial",
+      "classified_by": null,
+      "layer_names": [],
+      "n_paths": 18003,
+      "n_text": 362,
+      "n_images": 0
+    }
+  ],
+  "gaps": [
+    {
+      "code": "section_detail_missing",
+      "severity": "warning",
+      "message": "Assembly 'P3' is tagged on A300 but has no row in the A003 assemblies schedule; its layer build-up is unknown.",
+      "page": 16,
+      "sheet_no": "A300",
+      "affects": [
+        "ln-exterior-wall-p3"
+      ]
+    },
+    {
+      "code": "project_fact_required",
+      "severity": "info",
+      "message": "Conditioned floor area basis was not stated on the drawings; gross floor area was supplied by the user and is used for intensity.",
+      "page": null,
+      "sheet_no": null,
+      "affects": []
+    }
+  ],
+  "lines": [
+    {
+      "id": "ln-slab-main",
+      "element_class": "slab_on_grade",
+      "quantity": 30.6,
+      "unit": "m3",
+      "confidence": "measured",
+      "basis": {
+        "sources": [
+          "vector_path",
+          "dim_text_metric",
+          "dim_text_imperial"
+        ],
+        "agreement": 0.012,
+        "note": "Footprint polygon area agreed with both dimension strings to 1.2%."
+      },
+      "provenance": {
+        "page": 20,
+        "sheet_no": "S201",
+        "detail": "FOUNDATION PLAN",
+        "bbox": [
+          1180.0,
+          420.0,
+          2010.0,
+          1150.0
+        ]
+      },
+      "assembly_tag": "N1",
+      "material": "CMHC_Concrete",
+      "description": "Slab on grade, 100 mm, main floor footprint",
+      "assumptions": [],
+      "user_override": null,
+      "override_note": null
+    },
+    {
+      "id": "ln-exterior-wall-w2",
+      "element_class": "exterior_wall",
+      "quantity": 271.4,
+      "unit": "m2",
+      "confidence": "measured",
+      "basis": {
+        "sources": [
+          "vector_path",
+          "section_note",
+          "hot2000"
+        ],
+        "agreement": 0.043,
+        "note": "Perimeter x storey height from A300 datums; HOT2000 envelope area within 4.3%."
+      },
+      "provenance": {
+        "page": 10,
+        "sheet_no": "A101",
+        "detail": "1/A101",
+        "bbox": [
+          640.0,
+          300.0,
+          2180.0,
+          1320.0
+        ]
+      },
+      "assembly_tag": "W2",
+      "material": "CMHC_Wood Framing",
+      "description": "W2 rated exterior envelope wall, gross area less openings",
+      "assumptions": [],
+      "user_override": null,
+      "override_note": null
+    },
+    {
+      "id": "ln-exterior-wall-p3",
+      "element_class": "exterior_wall",
+      "quantity": 18.0,
+      "unit": "m2",
+      "confidence": "assumed",
+      "basis": {
+        "sources": [
+          "vector_path",
+          "default_rule"
+        ],
+        "agreement": null,
+        "note": "Area measured; material composition defaulted."
+      },
+      "provenance": {
+        "page": 16,
+        "sheet_no": "A300",
+        "detail": "2/A300",
+        "bbox": null
+      },
+      "assembly_tag": "P3",
+      "material": null,
+      "description": "P3 wall area; build-up unknown",
+      "assumptions": [
+        "P3 has no row in the A003 assemblies schedule; assumed identical to P2 (2x6 stud) pending a readable detail."
+      ],
+      "user_override": null,
+      "override_note": null
+    },
+    {
+      "id": "ln-cavity-insulation-w2",
+      "element_class": "insulation",
+      "quantity": 271.4,
+      "unit": "m2",
+      "confidence": "inferred",
+      "basis": {
+        "sources": [
+          "schedule",
+          "vector_path"
+        ],
+        "agreement": null,
+        "note": "Area inherited from ln-exterior-wall-w2; layer from A003."
+      },
+      "provenance": {
+        "page": 2,
+        "sheet_no": "A003",
+        "detail": "W2 row",
+        "bbox": null
+      },
+      "assembly_tag": "W2",
+      "material": "CMHC_Batt Insulation",
+      "description": "R-22 batt in W2 stud cavity, from the W2 layer build-up",
+      "assumptions": [],
+      "user_override": null,
+      "override_note": null
+    }
+  ],
+  "extracted_at": "2026-10-23",
+  "duration_s": 41.2
+}

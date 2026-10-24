@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------------------
+# LICENCE-RESTRICTED DATA — NEVER COMMIT
+#
+# CMHC Housing Design Catalogue Terms and Conditions grant only a limited
+# licence to use/adapt the Designs to create Derived Designs for a specific
+# Canadian building project. Redistribution is expressly prohibited:
+#   "you are expressly restricted and prohibited from distributing,
+#    licensing, selling, or otherwise making available any Designs"
+# Pushing these files to GitHub is distribution. See RESEARCH.md §7.
+#
+# The catalogue lives OUTSIDE this repo. Point $EC_DATA at it.
+# Default: ~/ec-data/cmhc
+# ---------------------------------------------------------------------------
+CMHC Plans/
+cmhc/
+ec-data/
+data/
+*.ifc
+*.h2k
+*.dwg
+*.dwl
+*.dwl2
+*.ctb
+
+# Challenge materials (sponsor-provided, not ours to redistribute)
+Embodied Carbon Assignment Details/
+
+# Downloaded third-party references (Kootenay guide, NRC guidelines, EC3 primer…)
+reference/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Node / frontend
+# ---------------------------------------------------------------------------
+node_modules/
+web/dist/
+web/.vite/
+*.tsbuildinfo
+.npm/
+
+# ---------------------------------------------------------------------------
+# Local artefacts
+# ---------------------------------------------------------------------------
+# Derived benchmark output is committed selectively via `git add -f`;
+# raw run output and caches are not.
+out/
+runs/
+*.sqlite
+*.sqlite3
+*.duckdb
+.cache/
+uploads/
+
+# ---------------------------------------------------------------------------
+# Environment / secrets
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------------------
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

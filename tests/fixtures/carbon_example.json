@@ -1,0 +1,110 @@
+{
+  "schema_version": "1.0.0",
+  "takeoff_source": "AB_Fourplex_01_Drawings.pdf",
+  "modules": [
+    "A1",
+    "A2",
+    "A3"
+  ],
+  "total_kg_co2e": 9612.6,
+  "intensity_kg_co2e_per_m2": 31.4,
+  "intensity_basis": "gross",
+  "lines": [
+    {
+      "line_id": "ln-slab-main",
+      "quantity": 30.6,
+      "unit": "m3",
+      "factor": {
+        "factor_id": "koot-concrete-gu-30",
+        "name": "Concrete, Portland Type GU, 30 MPa",
+        "source": "Kootenay Construction Material Impact Guide (2026)",
+        "source_id": "concrete/portland-gu/30mpa",
+        "declared_unit": "m3",
+        "gwp_value": 276.0,
+        "gwp_unit": "kgCO2e",
+        "modules": [
+          "A1",
+          "A2",
+          "A3"
+        ],
+        "geography": "CA-BC",
+        "data_type": "industry_avg",
+        "valid_from": "2026-02-20",
+        "valid_to": null,
+        "uncertainty_pct": 15.0,
+        "attribution": "Builders for Climate Action / City of Nelson, funded by FortisBC",
+        "density_kg_m3": 2400.0
+      },
+      "kg_co2e": 8445.6,
+      "conversion_note": "m3 x kgCO2e/m3, declared unit matches directly.",
+      "missing_reason": null
+    },
+    {
+      "line_id": "ln-cavity-insulation-w2",
+      "quantity": 271.4,
+      "unit": "m2",
+      "factor": {
+        "factor_id": "koot-cavity-insul-fibreglass-r13",
+        "name": "Cavity insulation, fibreglass batt, R-13",
+        "source": "Kootenay Construction Material Impact Guide (2026)",
+        "source_id": null,
+        "declared_unit": "100m2",
+        "gwp_value": 430.0,
+        "gwp_unit": "kgCO2e",
+        "modules": [
+          "A1",
+          "A2",
+          "A3"
+        ],
+        "geography": "CA-BC",
+        "data_type": "industry_avg",
+        "valid_from": null,
+        "valid_to": null,
+        "uncertainty_pct": 20.0,
+        "attribution": "Builders for Climate Action / City of Nelson",
+        "density_kg_m3": null
+      },
+      "kg_co2e": 1167.0,
+      "conversion_note": "Declared unit is 100m2; quantity divided by 100.",
+      "missing_reason": null
+    },
+    {
+      "line_id": "ln-exterior-wall-w2",
+      "quantity": 271.4,
+      "unit": "m2",
+      "factor": null,
+      "kg_co2e": null,
+      "conversion_note": null,
+      "missing_reason": "No A1-A3 factor yet mapped for CMHC_Wood Framing at the assembly level; the W2 build-up must be expanded into its layers first. This line is reported and excluded from the total."
+    }
+  ],
+  "by_assembly": [
+    {
+      "key": "N1 foundation",
+      "kg_co2e": 8445.6,
+      "pct_of_total": 87.9
+    },
+    {
+      "key": "W2 exterior envelope",
+      "kg_co2e": 1167.0,
+      "pct_of_total": 12.1
+    }
+  ],
+  "by_material_category": [
+    {
+      "key": "concrete",
+      "kg_co2e": 8445.6,
+      "pct_of_total": 87.9
+    },
+    {
+      "key": "insulation",
+      "kg_co2e": 1167.0,
+      "pct_of_total": 12.1
+    }
+  ],
+  "uncounted_lines": [
+    "ln-exterior-wall-w2"
+  ],
+  "range_low_kg_co2e": 8170.7,
+  "range_high_kg_co2e": 11054.5
+}
