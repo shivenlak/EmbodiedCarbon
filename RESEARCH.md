@@ -510,3 +510,101 @@ Step 8's bar 2 flagged SKMB_ADU_01 as a 1.9 x 1.7 m "building". Chasing that
 implausible number exposed the regex error. It is a direct example of the rule in
 §14: **no stage is trusted without a scored benchmark behind it** — including the
 research itself.
+
+---
+
+## 16. The CMHC resources page — what the cost estimates actually are, and a carbon table we did not know existed
+
+§6 flagged the Construction Cost Estimates as the highest-value missing asset, on the
+strength of the User Guide §10 saying *"detailed unit costs and quantity take-offs have
+been incorporated into the estimates."* That is now settled, and the answer is no.
+
+**No browser was needed.** The *design listing* is an Angular SPA, but
+`/how-it-works/resources` is server-rendered and links 17 files directly on
+`assets.cmhc-schl.gc.ca`. `scripts/fetch_cmhc_resources.py` downloads them.
+
+### The cost estimates contain no quantities
+
+Seven regional PDFs, 7–8 pages each, prepared by **Vermeulens**, Q1-2025. Each gives a
+**Class B cost range only**: total hard cost, cost per unit, cost per sq ft, gross
+building area, unit count, unit mix with leasable area. The detailed takeoff behind the
+estimate was not published.
+
+**So the convention-calibration set described in §6 does not exist publicly.** Close that
+risk as unobtainable and commit to the fallback: IFC geometry plus HOT2000 envelope
+areas as two independent measurement conventions, with our own measurement basis stated
+explicitly in the output. That was always the backup; it is now the plan.
+
+What the estimates *do* give us, which is still worth having:
+
+- **Gross building area per design**, independently of the Building Performance Reports.
+  AB Fourplex 01: 3,293 sq ft = **305.9 m²**, against the BPR's **306 m²**. Two
+  independent CMHC sources agreeing gives us a trustworthy intensity denominator.
+- **Leasable area per unit.** AB Fourplex 01 units sum to 264.2 m² leasable against
+  305.9 m² gross — **86%**. If a builder quotes intensity per leasable area and we quote
+  per gross, that is a 16% discrepancy with nobody in error. The UI must name the basis.
+- **A material specification per building element**, keyed to the *same assembly tags*
+  as the drawings and the IFC — a third independent confirmation of the tag system:
+
+  | Element | CMHC's costed assumption |
+  |---|---|
+  | Foundations / excavation | **Grade beam on screw piles** (not strip footings) |
+  | Lowest floor | Concrete slab-on-grade |
+  | Exterior cladding | Cementitious panel + outboard rigid insulation, **per W1–W2** |
+  | Windows & doors | Residential grade, **double glazed** |
+  | Sloped roof | **Asphalt shingles, per R1** |
+  | Flat roof | **Modified bitumen, per R3** |
+  | Interior partitions | Wood stud + gypsum board |
+  | HVAC | Gas furnace, A/C condenser, gas DHW |
+
+  Note the foundation: **grade beam on screw piles**, which is a very different concrete
+  quantity from strip footings. Worth checking against what the drawings show before
+  Step 10 assumes a footing type.
+
+### The Materials Guide is a published Canadian carbon factor table
+
+16 pages, authored for CMHC by **Ha/f Climate Design**, with a Sources section. Columns:
+material, thickness, **embodied carbon kgCO₂e/m²**, **biogenic carbon kgCO₂e/m²**,
+relative cost, **expected life span**, relative life-cycle cost. Categories: cladding,
+roofing (sloped and flat), rigid and cavity insulation, membranes, sheathing, windows,
+plus structural elements.
+
+**It covers all four Stage 4 substitutions the scope names, with CMHC's own numbers:**
+
+| Scope's example | Options (kgCO₂e/m², biogenic in brackets) | Δ |
+|---|---|---|
+| cellulose vs spray foam | Blown-in cellulose R20 **0.4** (+2.8) vs closed-cell sprayfoam R39 **22.2** | 55× — but normalise per R-value, the R's differ |
+| fibre cement vs vinyl | Fibre cement 19mm **13.7** vs vinyl siding **25.6** | −47%, and 60-year life vs 25 |
+| window frame | Wood **76.2** (+13.7) vs vinyl **248.8** vs anodized aluminium **277.2** | −69% wood vs vinyl |
+| lower-carbon concrete | not in this guide — use the Kootenay guide's mix table | −37% |
+
+### ⚠️ The module-scope trap, and why it is a differentiator
+
+The guide states plainly: *"This guide presents both **A-C** Global Warming Potential
+(GWP)."* Its embodied carbon column spans **production, use-stage repair and
+replacement, and end of life** — explicitly aligned to EN 15978 / ISO 21930 and the NRC
+guidelines. Only the **biogenic** column is scoped to A1–A3.
+
+**So these figures cannot be summed as A1–A3.** A team that reaches for CMHC's own
+material table, calls the numbers "embodied carbon" and totals them would produce a
+confidently wrong A1–A3 figure that *looks* impeccably sourced. This is precisely what
+criterion 3's "only like-for-like modules may be summed" is testing, and our factor
+store already carries `modules[]` per row with a guard that raises on a mixed sum.
+
+How we use it, then:
+
+- **Not** as A1–A3 factors. Rows are stored with `modules = [A1..C4]` and the guard
+  excludes them from the A1–A3 total.
+- **Yes** for substitution *ranking*, where the ordering is stable across module scope,
+  shown beside the A1–A3 total with the scope labelled.
+- **Yes** for the `expected_life_span` column, which is exactly the input A4–A5 and
+  B4–B5 would need — the architecture the scope asks us to leave room for.
+- **Yes** as an independent cross-check on BEAM and the Kootenay guide.
+- `data_type = industry_avg`, `geography = CA` — *"averages from suppliers across
+  Canada"*, with a documented instruction to prefer manufacturer EPDs where available.
+
+### Also downloaded
+
+**Climate Resilience Guide** (19 pp) and five regional **Site Design Examples**
+(Alberta and SK/MB listed "Coming Soon"). Not carbon-relevant; retained for the
+implementation-plan narrative.
