@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import csv
 import io
+import shutil
+import tempfile
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 import pandas as pd
@@ -23,6 +26,7 @@ from ecarbon.carbon.calculate import calculate_carbon
 from ecarbon.carbon.store import LocalSnapshotProvider
 from ecarbon.fixtures import example_takeoff
 from ecarbon.models import CarbonResult, Gap, SheetInfo, TakeoffResult
+from ecarbon.takeoff.builder import generate_takeoff
 
 app = FastAPI(
     title="ecarbon",
@@ -132,8 +136,7 @@ def list_projects() -> list[dict[str, object]]:
 
 @app.post("/projects", status_code=201)
 def create_project(body: CreateProject) -> dict[str, str]:
-    """Upload lands here in Step 13. For now it clones the fixture so the UI
-    can exercise the create -> read -> edit loop."""
+    """Create project from body or clone fixture."""
     t = example_takeoff()
     t.project.name = body.name
     if body.jurisdiction:
@@ -144,6 +147,28 @@ def create_project(body: CreateProject) -> dict[str, str]:
     pid = uuid.uuid4().hex[:8]
     _PROJECTS[pid] = Project(id=pid, takeoff=t)
     return {"id": pid}
+
+
+@app.post("/projects/upload", status_code=201)
+async def upload_project(file: UploadFile = File(...)) -> dict[str, str]:
+    """Upload a vector PDF blueprint and run automated takeoff pipeline."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are supported.")
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        shutil.copyfileobj(file.file, tmp)
+
+    try:
+        takeoff = generate_takeoff(tmp_path, project_name=file.filename.replace(".pdf", ""))
+        pid = uuid.uuid4().hex[:8]
+        _PROJECTS[pid] = Project(id=pid, takeoff=takeoff)
+        return {"id": pid}
+    except Exception as exc:
+        raise HTTPException(500, f"Extraction failed: {exc}") from exc
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 @app.get("/projects/{project_id}/intake", response_model=IntakeSummary)
