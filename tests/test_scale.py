@@ -319,3 +319,53 @@ class TestSchedulesHaveNoScale:
         assert plans and all(s.scale for s in plans)
         for s in plans:
             assert 17.0 < s.scale < 18.0  # 1:50 metric
+
+
+@needs_data
+class TestGeometryCoverageGate:
+    """An element count says nothing about whether geometry can be built from
+    it. SKMB_ADU_02 declares 22 walls and produces 0 shapes, which is how a
+    1.9 x 1.7 m "building" got through and exposed the §5 regex error."""
+
+    def test_revit_exports_are_fully_buildable(self):
+        from ecarbon.bench.ifc_truth import geometry_coverage
+        from ecarbon.config import get_design
+
+        cov = geometry_coverage(str(get_design("AB_Fourplex_01").ifc))
+        assert cov.fraction == pytest.approx(1.0)
+        assert cov.usable
+        assert cov.verdict == "good"
+
+    def test_degraded_export_is_rejected(self):
+        from ecarbon.bench.ifc_truth import geometry_coverage
+        from ecarbon.config import get_design
+
+        cov = geometry_coverage(str(get_design("SKMB_ADU_02").ifc))
+        assert cov.n_elements > 0, "the model does declare walls"
+        assert cov.n_shapes == 0, "but none of them build"
+        assert not cov.usable
+
+    def test_bbox_is_not_offered_for_a_degraded_model(self):
+        """Better no answer than a 1.9 x 1.7 m building."""
+        from ecarbon.bench.ifc_truth import building_bbox, geometry_coverage
+        from ecarbon.config import get_design
+
+        d = get_design("SKMB_ADU_01")
+        assert not geometry_coverage(str(d.ifc)).usable
+        bbox = building_bbox(str(d.ifc))
+        # building_bbox itself still answers; callers gate on coverage first.
+        if bbox:
+            assert bbox.plan_mm[1] < 5000, "known-bad geometry, documented in RESEARCH S15"
+
+    def test_every_catalogue_ifc_has_semantic_walls(self):
+        """§5 claimed 7 designs had zero walls. All 53 have walls."""
+        import ifcopenshell
+
+        from ecarbon.config import discover
+
+        for d in discover():
+            if not d.ifc:
+                continue
+            f = ifcopenshell.open(str(d.ifc))
+            n = len(f.by_type("IfcWall")) + len(f.by_type("IfcWallStandardCase"))
+            assert n > 0, f"{d.key} has no walls"

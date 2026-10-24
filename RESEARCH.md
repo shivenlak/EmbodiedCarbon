@@ -162,6 +162,16 @@ All 53 are **IFC2X3**. 46 are Autodesk Revit exports; 7 (all SKMB) are **Vectorw
 
 That is **39 designs with usable element-level ground truth**, not 52 — which materially changes your proposed 25–30 / 10–12 / 10–12 split.
 
+> ### ⚠️ THE TWO PARAGRAPHS ABOVE ARE WRONG — corrected in §15
+>
+> The "zero walls" finding was an artifact of the stdlib survey's regex
+> (`=IFCWALL\(`), which misses the space-separated `= IFCWALL(` that Vectorworks
+> writes, and which also undercounted walls everywhere by roughly half.
+> IfcOpenShell finds walls, slabs, windows, doors and material layer sets in
+> **all 53 models**. The real limit is geometry coverage, not semantics, and
+> usable ground truth is **46 designs, not 39**. Left in place rather than
+> edited out, because the mistake is instructive.
+
 ---
 
 ## 6. The `Energy and Carbon` folder is the hidden prize
@@ -437,3 +447,66 @@ measured-vs-inferred labelling depends on text we can actually prove we read.
 - **The index is not always complete.** Several sets contain more pages than their
   index lists (BC_Duplex: 34 pages vs 29 listed; ON_ADU_01: 34 vs 25), so the index is
   usable as ground truth but not as a contents guarantee.
+
+---
+
+## 15. IFC ground truth, re-measured with IfcOpenShell
+
+§5 surveyed the IFCs with a stdlib regex before the real toolchain existed. Two of
+its conclusions were wrong, and both were wrong in our favour. Re-measured
+2026-10-24 with IfcOpenShell 0.9.
+
+### Correction 1 — every model has semantic elements
+
+The regex `=IFCWALL\(` misses `= IFCWALL(`, which is how Vectorworks writes it, and
+it also failed to combine `IfcWall` with `IfcWallStandardCase`. Real counts:
+
+| | §5 regex | IfcOpenShell |
+|---|---|---|
+| AB_Fourplex_01 walls | 92 | **166** |
+| SKMB_ADU_01 walls | **0** | **21** |
+| SKMB_Fourplex_01 walls | **0** | **194** |
+| Designs with zero walls | 7 | **0** |
+
+**All 53 models carry walls, slabs, windows, doors and material layer sets.** The SKMB
+models in fact carry far *more* material detail than any other region — 152–1286
+`IfcMaterial` and 96–1094 `IfcMaterialLayerSet`, against 16–77 and 9–42 elsewhere.
+
+Still true from §5: **no model has pre-computed quantities** (`IfcElementQuantity`)
+except ATL_Fourplex_03, so quantities must be derived from geometry either way.
+SKMB additionally has **zero `IfcFooting` and zero `IfcRoof`** across all 7 designs —
+roofs there appear to be modelled as `IfcSlab`.
+
+### Correction 2 — the real limit is geometry coverage
+
+An element count says nothing about whether geometry can be built from it.
+SKMB_ADU_02 declares 22 walls and produces **0** shapes. Fraction of building walls
+(site elements excluded) that yield buildable geometry:
+
+| Coverage | Designs | Which |
+|---|---|---|
+| **100%** | **46** | all AB, ATL, BC, NOR, ON, QC |
+| 64–74% | 3 | SKMB_Fourplex_01/02, SKMB_Sixplex |
+| 0–26% | 4 | SKMB_ADU_01/02, SKMB_Triplex, skmb_rowhouse |
+
+So **usable element-level ground truth is 46 designs, not 39** — the Revit exports are
+flawless and only the 7 Vectorworks exports are degraded, by geometry rather than by
+semantics. `ecarbon/bench/ifc_truth.geometry_coverage()` is the gate, and it is
+checked before a design is used for quantity scoring.
+
+**Revised benchmark split** (supersedes §11 adj. 1): draw dev / validation / held-out
+from the **46**, grouped by dominant toolchain. The 7 SKMB designs become a
+*geometry-degraded* slice — still fully usable for PDF-extraction scoring, which needs
+no IFC, and their 1286 material layer sets are the best material data in the catalogue
+for Stage 3.
+
+Note the useful pairing this exposes: the 8 NOR designs have **textless PDFs but 100%
+usable IFCs**, so they are the ideal test of geometry-only extraction — the PDF gives
+us nothing to cheat with and the IFC scores us honestly.
+
+### Why this was caught
+
+Step 8's bar 2 flagged SKMB_ADU_01 as a 1.9 x 1.7 m "building". Chasing that
+implausible number exposed the regex error. It is a direct example of the rule in
+§14: **no stage is trusted without a scored benchmark behind it** — including the
+research itself.
