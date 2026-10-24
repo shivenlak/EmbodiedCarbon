@@ -94,3 +94,21 @@ def test_create_project_then_read_it_back(client):
     assert t["project"]["gfa_m2"] == 500.0
     c = client.get(f"/projects/{pid}/carbon").json()
     assert c["intensity_kg_co2e_per_m2"] == pytest.approx(c["total_kg_co2e"] / 500.0, rel=1e-2)
+
+
+def test_export_csv(client):
+    r = client.get("/projects/demo/export/csv")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    text = r.text
+    assert "line_id,element_class" in text
+    assert "ln-slab-main" in text
+    assert "koot-concrete-gu-30" in text
+
+
+def test_export_xlsx(client):
+    r = client.get("/projects/demo/export/xlsx")
+    assert r.status_code == 200
+    assert "spreadsheetml" in r.headers["content-type"]
+    assert len(r.content) > 1000
+
