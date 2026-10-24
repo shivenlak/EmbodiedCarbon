@@ -707,3 +707,57 @@ footings 6.8).
 - These are thermal envelope areas: gross, by orientation, exterior only. No interior
   partitions, no structural quantities. They validate the two biggest envelope
   quantities and nothing else.
+
+### Building Performance Reports — parsed, with their scope attached
+
+73 of 74 reports fully parsed; the 74th is reported unreadable rather than silently
+empty. Each yields location and climate zone, gross and conditioned floor area,
+storeys and units, total EC, EC/GFA, biogenic carbon, the A1–A5 / B4–B5 / C2–C4 split,
+operational energy, nominal assembly RSI values, and the element breakdown.
+
+**The element breakdown is the find.** CMHC publishes a per-design contribution
+analysis by building element — exactly the Stage 3 output criterion 3 asks for. Mean
+normalised shares across all reports:
+
+| Element | Mean | Range | n |
+|---|---|---|---|
+| Foundations | **32.0%** | 15–61% | 72 |
+| External walls | **20.2%** | 5–35% | 72 |
+| Interiors | 14.9% | 6–36% | 51 |
+| Upper floors | 14.8% | 3–27% | 60 |
+| Roofs and terraces | 14.7% | 6–42% | 72 |
+| Windows and doors | 9.3% | 3–33% | 72 |
+| Stairs and elevators | 1.6% | 0–35% | 43 |
+
+Foundations at 32% corroborates the Kootenay guide's concrete-at-35%
+(`docs/element_priority.md`) from an independent source and on a different axis
+(element rather than material). It confirms the build order: **slab, footings and
+foundation wall first.** Note the ranges are wide — foundations span 15–61% — so this
+sets priorities, never a default.
+
+Intensity across the catalogue: **141 to 731 kgCO₂e/m²**, at A1–A5 + B4–B5 + C2–C4.
+
+Four parsing traps:
+
+1. **Position fails, reading order works.** The carbon-over-time chart sits beside the
+   metric column, so a nearest-numeric-span search returned **2085** — an x-axis year —
+   for every module figure. Reading order pairs each labelled metric with its own value.
+2. **Every numeric field needs plausibility bounds.** A dashboard has numbers
+   everywhere; without bounds, gross floor area came out as **6 m²** on eight reports.
+3. **Element labels vary by region**, as the schedule names did in Step 7: BC writes
+   `Roof & Terraces` and `Windows & Doors`. An exact whitelist silently returned 3 of 5
+   elements on every BC report. Labels are now matched by pattern.
+4. **Some legends do not sum to 100%.** AB_ADU_01 reaches 182%, with every entry a
+   constant 1.82x its pie slice — internally consistent, scaled against a different
+   denominator. Shares are normalised for comparison and `breakdown_sum_pct` keeps the
+   raw total visible.
+
+Five reports' parsed floor area disagrees with total/intensity by 5–8%. Both of those
+are unambiguously labelled, so `best_gfa_m2` prefers the implied value and the
+discrepancy is reported.
+
+`NOR_ADU_Municipal_Garage`'s report embeds fonts with no ToUnicode map **and a custom
+glyph ordering** — not a constant offset, so `textrepair` cannot shift it (`'`→T is +45,
+`(`→h is +64). It is a solvable substitution cipher, with the boilerplate sentence
+common to all 74 reports as a crib, but not worth a solver for one report. It is
+flagged `unreadable`.
