@@ -398,3 +398,171 @@ class TestBprAgainstRealReports:
         ]
         assert min(vals) == pytest.approx(141, abs=5)
         assert max(vals) == pytest.approx(731, abs=5)
+
+
+class TestWallRoleClassification:
+    """By the WORDS in the tag, not its code prefix. A W* prefix rule found
+    11 m2 of soffit bulkhead on AB_ADU_01 and missed 129 m2 of envelope named
+    'CPH-2-STANDARD EXTERIOR ENVELOPE WALL'."""
+
+    @pytest.mark.parametrize(
+        ("tag", "role"),
+        [
+            ("CPH-2-STANDARD EXTERIOR ENVELOPE WALL", "exterior"),
+            # ATL and QC describe envelope walls by their FRAMING, not their
+            # position, so a flat "STUD -> interior" rule read every one of
+            # them as interior and dropped those designs to 0.21-0.47 of
+            # their HOT2000 wall area.
+            ("W1* - 2x6 Stud w Wood Shingles Cladding", "exterior"),
+            ("W2 - 2x6 Stud w Metal Cladding", "exterior"),
+            ("W1 - 2x6 Stud w Brick", "exterior"),
+            ("W1a - 2x6 Stud w Double Brick", "exterior"),
+            ("W1 - Exterior Envelope Wall, Cladding 1", "exterior"),
+            ("W3 - Balcony Wall", "exterior"),
+            ("W7", "exterior"),
+            # ... but a W prefix is not sufficient on its own: these separate
+            # units or are clad on both faces, so they have no outdoor side.
+            ("W8 - RATED DEMISING", "interior"),
+            ("W3 - 2x4 Stud w Metal Cladding (both sides) 2", "interior"),
+            ("W9 - 2x8 Stud w Metal Cladding_(both sides)", "interior"),
+            ("P4 - Demising wall", "interior"),
+            ("P5 - Plumbing Chase", "interior"),
+            ("P1a - 2x4 Furring wall", "interior"),
+            ("P3 - Asymmetric Rated Wall (Stairs)", "interior"),
+            ("N1B - Foundation_no insulation", "foundation"),
+            ("W1 -STANDARD EXTERIOR ENVELOPE WALL - SOFFIT BULKHEAD", "exterior"),
+            ("W2 -RATED EXTERIOR ENVELOPE WALL", "exterior"),
+            ("W2-STANDARD EXTERIOR ENVELOPE WALL", "exterior"),
+            ("N1 - Foundation", "foundation"),
+            ("P1 - 2x4 Stud", "interior"),
+            ("P2 - 2x6 Stud (Rated)", "interior"),
+            ("P3 - Rated Wall", "interior"),
+            ("P3 - Demising Wall, Non-Load Bearing (Rated)", "interior"),
+            ("P5 - 2x6 PLUMBING WALL", "interior"),
+            ("P5 - 2x4 Stud - Plumbing chase", "interior"),
+        ],
+    )
+    def test_roles(self, tag, role):
+        from ecarbon.bench.ifc_quantities import wall_role
+
+        assert wall_role(tag) == role
+
+    def test_a_bare_w_code_still_reads_as_envelope(self):
+        from ecarbon.bench.ifc_quantities import wall_role
+
+        assert wall_role("W4") == "exterior"
+
+    def test_roles_partition_the_total(self):
+        from ecarbon.bench.ifc_quantities import wall_role
+
+        tags = ["W2 -RATED EXTERIOR ENVELOPE WALL", "N1 - Foundation", "P1 - 2x4 Stud"]
+        assert {wall_role(t) for t in tags} == {"exterior", "foundation", "interior"}
+
+
+@needs_data
+class TestWallRoleOnRealModels:
+    def test_adu_envelope_is_not_missed(self):
+        """The regression: 11 m2 instead of 175 m2."""
+        from ecarbon.bench.ifc_quantities import model_quantities
+
+        q = model_quantities(str(get_design("AB_ADU_01").ifc))
+        assert q.exterior_wall_area_m2() > 100
+
+    def test_roles_sum_to_the_whole(self):
+        from ecarbon.bench.ifc_quantities import model_quantities
+
+        q = model_quantities(str(get_design("AB_Fourplex_01").ifc))
+        by_role = q.area_by_role()
+        total = sum(q.area_by_tag("IfcWall").values())
+        assert sum(by_role.values()) == pytest.approx(total)
+        assert set(by_role) <= {"exterior", "foundation", "interior"}
+
+
+class TestManifestTiering:
+    """The tier is the binding constraint on using a design for quantity
+    scoring, so these rules decide what our accuracy claims rest on."""
+
+    def _truth(self, **kw):
+        from ecarbon.bench.manifest import DesignTruth
+
+        base = dict(key="X", region="AB", typology="fourplex", ifc_geometry_coverage=1.0)
+        return DesignTruth(**{**base, **kw})
+
+    def test_corroborated_agreement_is_gold(self):
+        from ecarbon.bench.manifest import Tier, _tier
+
+        t = self._truth(wall_agreement_pct=1.2)
+        assert _tier(t) == Tier.GOLD
+        t.tier = _tier(t)
+        assert t.scoreable_for_quantities
+
+    def test_wide_disagreement_is_still_scoreable(self):
+        """HOT2000 agreement annotates the reference; it does not gate it.
+
+        HOT2000 models the thermal envelope and, for rowhouses, a single unit,
+        so it legitimately disagrees with a complete architectural model.
+        Gating on it discarded 25 designs with perfect geometry.
+        """
+        from ecarbon.bench.manifest import Tier, _tier
+
+        t = self._truth(wall_agreement_pct=41.0)
+        t.tier = _tier(t)
+        assert t.tier == Tier.SILVER
+        assert t.scoreable_for_quantities
+        # The disagreement is recorded, not discarded.
+        assert t.wall_agreement_pct == 41.0
+
+    def test_no_second_source_is_silver_not_gold(self):
+        """The 7 BC designs ship Step Code checklists instead of HOT2000, so
+        complete geometry with nothing to corroborate it is scoreable but not
+        the highest confidence."""
+        from ecarbon.bench.manifest import Tier, _tier
+
+        t = self._truth(wall_agreement_pct=None)
+        assert _tier(t) == Tier.SILVER
+        t.tier = _tier(t)
+        assert t.scoreable_for_quantities
+
+    def test_geometry_coverage_is_the_real_gate(self):
+        from ecarbon.bench.manifest import Tier, _tier
+
+        t = self._truth(ifc_geometry_coverage=0.26, wall_agreement_pct=1.0)
+        assert _tier(t) == Tier.GEOMETRY_ONLY
+        t.tier = _tier(t)
+        assert not t.scoreable_for_quantities
+
+    def test_unreadable_pdf_is_robustness_regardless_of_ifc(self):
+        """The 8 NOR sets have perfect IFCs and textless PDFs, so they are
+        scored on reporting what they cannot read, not on accuracy."""
+        from ecarbon.bench.manifest import Tier, _tier
+
+        t = self._truth(flags=["pdf_text_unreadable"], wall_agreement_pct=0.5)
+        assert _tier(t) == Tier.ROBUSTNESS
+
+    def test_a1_a3_ceiling_comes_from_a1_a5(self):
+        t = self._truth(bpr_a1_a5_t=107.0)
+        assert t.a1_a3_ceiling_kg == pytest.approx(107_000.0)
+
+
+class TestManifestRoundTrip:
+    def test_save_and_load(self, tmp_path):
+        from ecarbon.bench.manifest import DesignTruth, load_manifest, save_manifest
+
+        rows = [
+            DesignTruth(key="A", region="AB", typology="fourplex", tier="gold"),
+            DesignTruth(key="B", region="BC", typology="adu", tier="silver", flags=["no_hot2000"]),
+        ]
+        p = save_manifest(rows, tmp_path / "t.json")
+        back = load_manifest(p)
+        assert [r.key for r in back] == ["A", "B"]
+        assert back[1].flags == ["no_hot2000"]
+
+    def test_summary_mentions_every_populated_tier(self):
+        from ecarbon.bench.manifest import DesignTruth, summarise
+
+        rows = [
+            DesignTruth(key="A", region="AB", typology="x", tier="gold"),
+            DesignTruth(key="B", region="AB", typology="x", tier="robustness"),
+        ]
+        s = summarise(rows)
+        assert "gold" in s and "robustness" in s and "2 designs" in s

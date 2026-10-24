@@ -761,3 +761,150 @@ glyph ordering** — not a constant offset, so `textrepair` cannot shift it (`'`
 `(`→h is +64). It is a solvable substitution cipher, with the boilerplate sentence
 common to all 74 reports as a crib, but not worth a solver for one report. It is
 flagged `unreadable`.
+
+---
+
+## 18. The ground-truth manifest, and two bugs that would have faked our accuracy
+
+`ecarbon/bench/manifest.py` joins all three reference sources per design and tiers
+each one by whether its ground truth is good enough to attribute an error to the
+pipeline. `docs/PLAN.md` asked for exactly this — "a per-design data-quality check ...
+and exclude weak ground truth from accuracy scoring".
+
+| Tier | Meaning |
+|---|---|
+| **GOLD** | IFC geometry complete, HOT2000 present, and the two agree within 5%. A 10% pipeline error on these is unambiguously ours. |
+| **SILVER** | Geometry complete but nothing corroborates it (the 7 BC designs have no HOT2000), or the sources agree within 15%. |
+| **BRONZE** | Sources disagree by more than 15%, so a quantity error cannot be attributed. |
+| **GEOMETRY_ONLY** | IFC geometry degraded (the 7 Vectorworks exports). Still fully usable for PDF-extraction scoring, which needs no IFC. |
+| **ROBUSTNESS** | PDF has no readable text (the 8 NOR sets). Scored on whether we correctly *report* what we cannot read. |
+
+### Bug 1 — classifying walls by code prefix
+
+`exterior_wall_area_m2()` originally selected tags starting with `W`. That looked like
+the catalogue's convention because `W1` and `W2` are everywhere. Then AB_ADU_01:
+
+```
+CPH-2-STANDARD EXTERIOR ENVELOPE WALL                   129.0 m2   <- missed
+W1 -STANDARD EXTERIOR ENVELOPE WALL - SOFFIT BULKHEAD    11.0 m2   <- the only hit
+```
+
+The prefix rule returned **11 m² of soffit bulkhead as the entire building envelope**,
+against a true 175 m².
+
+Replacing it with flat keyword matching — `EXTERIOR`/`ENVELOPE` for exterior,
+`STUD`/`PARTITION` for interior — fixed Alberta and **broke ATL and QC**, which name
+envelope walls by their *framing* rather than their position:
+
+```
+ATL  W1* - 2x6 Stud w Wood Shingles Cladding     185.0 m2  -> read as interior
+ATL  W2 - 2x6 Stud w Metal Cladding              184.8 m2  -> read as interior
+QC   W1 - 2x6 Stud w Brick                       104.2 m2  -> read as interior
+```
+
+Those designs dropped to **0.21–0.47** of their HOT2000 wall area. But a `W` prefix is
+not sufficient either, because ATL also uses it for walls that are not envelope:
+
+```
+ATL  W8 - RATED DEMISING                          53.4 m2  -> separates units
+ATL  W9 - 2x8 Stud w Metal Cladding_(both sides)  11.4 m2  -> no outdoor face
+```
+
+So the rule needs **ordered precedence**, not keyword presence: foundation first, then
+interior *overrides* (`DEMISING`, `BOTH SIDES`, `PARTY`, `PLUMBING`, `CHASE`,
+`FURRING`), then exterior evidence (`EXTERIOR`, `ENVELOPE`, `CLADDING`, `BRICK`,
+`SHINGLE`, `SIDING`, `STUCCO`), then framing, then a bare `W` code as the fallback.
+Twenty real tags across all three conventions are pinned in
+`tests/test_ground_truth.py::TestWallRoleClassification`.
+
+This is the fourth appearance of the same lesson — regional schedule names in §14,
+element labels in §17, and wall tags twice here. **The catalogue's naming varies, so
+match meaning rather than form — and the first attempt at matching meaning will be
+calibrated on one firm's vocabulary.** Every such rule needs to be checked against all
+seven regions before it is believed.
+
+This one was quiet in the worst way. An 11 m² envelope would not have crashed anything
+— it would have made the PDF extraction look wildly *over*-estimated on every ADU, and
+the obvious reaction would have been to "fix" the extraction.
+
+### Bug 2 — the sources do not always describe the same building
+
+Wall-area ratio, IFC against HOT2000, Alberta:
+
+| Design | BPR units | BPR GFA | IFC wall | HOT2000 wall | Ratio |
+|---|---|---|---|---|---|
+| AB_Fourplex_01 | 4 | 306 m² | 349.7 | 354.0 | **0.99** |
+| AB_Fourplex_02 | 4 | 431 m² | 426.8 | 380.1 | 1.12 |
+| AB_Sixplex | 6 | 492 m² | 479.6 | 427.9 | 1.12 |
+| AB_ADU_01 | 1 | 73 m² | 175.0 | 124.0 | 1.41 |
+| AB_Rowhouse_01 | 1 | 74 m² | 410.9 | 68.3 | **6.01** |
+| AB_Rowhouse_02 | 1 | 131 m² | 547.8 | 70.9 | **7.73** |
+
+**For rowhouses the Building Performance Report and HOT2000 model ONE UNIT while the
+IFC models the whole terrace.** Confirmed three ways: the BPR reports `units=1`; the
+Construction Cost Estimate gives Rowhouse 02 as 394 m² for a 3-unit block and
+131 × 3 = 393; and its footnote says costing is "based on three rowhouse buildings of
+one unit each repeated side by side".
+
+So a naive cross-check marks every rowhouse 500–700% wrong when nothing is wrong at
+all. The manifest flags `source_extent_mismatch_ratio_Nx` and tiers the design out of
+quantity scoring, rather than leaving it as an unexplained bad score.
+
+The ADUs sit at 1.33–1.41, which is a genuine difference in what the two sources
+measure — most likely walls adjacent to unconditioned space, which HOT2000 excludes
+from the thermal envelope and the IFC counts. Not forced into agreement; they land in
+BRONZE and are excluded from accuracy scoring, which is the honest outcome.
+
+### Why this matters for the pitch
+
+Three of the four accuracy-destroying problems found so far were **silent**: the
+glyph-ID fonts (§14), the 11 m² envelope, and the rowhouse extent mismatch. None
+crashed, none looked wrong, and each would have produced a confident number that was
+badly incorrect. That is the argument for the benchmark harness existing at all, and
+for the gap report being a first-class output rather than a log.
+
+### The tiering gate had to change: the IFC is the reference, not the agreement
+
+The manifest first gated on IFC/HOT2000 agreement, on the assumption that a
+disagreement meant our parsing was wrong. Chasing that assumption found three real
+bugs — the wall-role prefix rule, its flat-keyword replacement, and the rowhouse
+extent mismatch — and after all three the median disagreement still sat at **29% on
+exterior wall area alone** (36% including foundations).
+
+It does not shrink further, because the two sources genuinely measure different things:
+
+- HOT2000 models the **thermal envelope only**, so walls bounding a garage, breezeway
+  or unheated store are excluded while the IFC counts them.
+- Its wall height is the **thermal** height, not the structural height.
+- For rowhouses and stacked townhouses it models **one unit** while the IFC models the
+  whole block.
+
+Agreement distribution across the 45 designs with both sources:
+
+| Disagreement | Designs |
+|---|---|
+| 0–5% | 4 |
+| 5–15% | 5 |
+| 15–30% | 8 |
+| 30–60% | 11 |
+| >60% | 17 |
+
+Gating on that threw away **25 designs with 100%-buildable architectural models**
+because a second source with a different measurement basis disagreed. So the gate is
+now the IFC — complete geometry plus a readable PDF — and HOT2000 agreement is a
+recorded confidence annotation. **Scoreable set: 13 designs → 38.**
+
+| Tier | n | Meaning |
+|---|---|---|
+| GOLD | 6 | Complete geometry, readable PDF, HOT2000 corroborates ≤15% |
+| SILVER | 32 | Complete geometry, readable PDF; HOT2000 absent or different basis |
+| GEOMETRY_ONLY | 7 | Degraded IFC (Vectorworks) — PDF-extraction scoring only |
+| ROBUSTNESS | 8 | Textless PDF (NOR) — scored on reporting what it cannot read |
+
+The lesson generalises past this project: **`wall_agreement_pct` is an uncertainty on
+the ground truth, not a pass/fail on the design.** Two professional measurements of the
+same building differ by a median of 29%, which is the same phenomenon as Handoff's
+human estimators reaching only 87.9% precision against each other (§8), and the same
+phenomenon as gross-vs-leasable floor area (§16). It is the central difficulty of this
+challenge, not an artefact: **there is no single true takeoff, only a basis.** Stating
+ours explicitly is worth more than matching any one reference.

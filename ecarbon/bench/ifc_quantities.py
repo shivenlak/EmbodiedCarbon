@@ -38,6 +38,7 @@ falls out that per-layer volume is simply `area * layer_thickness`.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -75,6 +76,47 @@ def assembly_tag(name: str | None) -> str:
         return "?"
     parts = name.split(":")
     return parts[1].strip() if len(parts) > 1 else name.strip()
+
+
+# Words that make a wall interior no matter what else the tag says. A demising
+# or party wall separates units; cladding applied to BOTH sides means the wall
+# has no outdoor face.
+_INTERIOR_OVERRIDE = ("DEMISING", "BOTH SIDES", "PARTY", "PLUMBING", "CHASE", "FURRING")
+# Words that mark an outdoor face.
+_EXTERIOR_WORDS = ("EXTERIOR", "ENVELOPE", "CLADDING", "BRICK", "SHINGLE", "SIDING", "STUCCO")
+
+
+def wall_role(tag: str) -> str:
+    """Classify a wall assembly tag as exterior / foundation / interior.
+
+    Ordered precedence, not flat keyword presence -- that distinction is the
+    whole difficulty. Three naming conventions had to be reconciled:
+
+      AB  `W2 -RATED EXTERIOR ENVELOPE WALL`, `P1 - 2x4 Stud`
+      AB  `CPH-2-STANDARD EXTERIOR ENVELOPE WALL`   (no W prefix at all)
+      ATL `W2 - 2x6 Stud w Metal Cladding`          (envelope, but says Stud)
+      ATL `W8 - RATED DEMISING`                     (W prefix, but interior)
+      ATL `W9 - 2x8 Stud w Metal Cladding_(both sides)`  (clad, but interior)
+      QC  `W1 - 2x6 Stud w Brick`
+
+    A code-prefix rule returned 11 m2 of soffit bulkhead as AB_ADU_01's entire
+    envelope. Replacing it with flat keywords then misread every ATL and QC
+    envelope wall as interior, because they are described by their framing
+    ("2x6 Stud") rather than their position -- which dropped those designs to
+    0.21-0.47 of their HOT2000 wall area. Hence: foundation first, then
+    interior OVERRIDES, then exterior evidence, then framing.
+    """
+    up = tag.upper()
+    if "FOUNDATION" in up or "FOOTING" in up or re.match(r"^N\d", up):
+        return "foundation"
+    if any(w in up for w in _INTERIOR_OVERRIDE):
+        return "interior"
+    if any(w in up for w in _EXTERIOR_WORDS):
+        return "exterior"
+    if re.match(r"^P\d", up) or "STUD" in up or "PARTITION" in up or "RATED WALL" in up:
+        return "interior"
+    # A bare W code with nothing else to go on is the envelope convention.
+    return "exterior" if up.startswith("W") else "interior"
 
 
 def short_tag(name: str | None) -> str:
@@ -186,15 +228,31 @@ class ModelQuantities:
         return out
 
     def exterior_wall_area_m2(self, gross: bool = True) -> float:
-        """Walls whose tag starts with W -- the catalogue's envelope convention."""
         return sum(
-            a for tag, a in self.area_by_tag("IfcWall", gross).items() if tag.upper().startswith("W")
+            a
+            for tag, a in self.area_by_tag("IfcWall", gross).items()
+            if wall_role(tag) == "exterior"
         )
 
     def foundation_wall_area_m2(self, gross: bool = True) -> float:
         return sum(
-            a for tag, a in self.area_by_tag("IfcWall", gross).items() if tag.upper().startswith("N")
+            a
+            for tag, a in self.area_by_tag("IfcWall", gross).items()
+            if wall_role(tag) == "foundation"
         )
+
+    def interior_wall_area_m2(self, gross: bool = True) -> float:
+        return sum(
+            a
+            for tag, a in self.area_by_tag("IfcWall", gross).items()
+            if wall_role(tag) == "interior"
+        )
+
+    def area_by_role(self, gross: bool = True) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for tag, a in self.area_by_tag("IfcWall", gross).items():
+            out[wall_role(tag)] = out.get(wall_role(tag), 0.0) + a
+        return out
 
     def opening_area_m2(self) -> float:
         return sum(o.area_m2 or 0.0 for o in self.openings)
