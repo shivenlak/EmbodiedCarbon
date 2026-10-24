@@ -101,7 +101,9 @@ def generate_takeoff(
         for s in sheets:
             if s.sheet_type == SheetType.ASSEMBLY_SCHEDULE or (s.sheet_no in ("A002", "A003")):
                 specs = parse_assembly_schedule_page(doc[s.page], s.page, s.sheet_no or "A003")
-                assembly_specs.update(specs)
+                for k, v in specs.items():
+                    if k not in assembly_specs or len(v.layers) > len(assembly_specs[k].layers):
+                        assembly_specs[k] = v
 
         scheduled_openings = {}
         for s in sheets:
