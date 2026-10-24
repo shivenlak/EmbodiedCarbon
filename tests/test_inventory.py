@@ -16,7 +16,7 @@ from ecarbon.intake.inventory import (
     _split_revit_view_name,
     classify_toolchain,
 )
-from ecarbon.models import Toolchain
+from ecarbon.models import SheetType, Toolchain
 
 
 def probe(**kw) -> PageProbe:
@@ -224,3 +224,113 @@ class TestGapReport:
         assert len(gaps) == 6
         assert all(g.severity is GapSeverity.BLOCKING for g in gaps)
         assert any("assembly schedule" in g.message for g in gaps)
+
+
+class TestSheetTyping:
+    """Title -> SheetType, including the cases that disagree across regions."""
+
+    @pytest.mark.parametrize(
+        ("title", "want"),
+        [
+            ("ASSEMBLIES SCHEDULE", SheetType.ASSEMBLY_SCHEDULE),
+            ("EXTERIOR ASSEMBLIES SCHEDULE", SheetType.ASSEMBLY_SCHEDULE),  # BC splits these
+            ("INTERIOR ASSEMBLIES SCHEDULE", SheetType.ASSEMBLY_SCHEDULE),
+            ("OPENINGS SCHEDULE", SheetType.OPENING_SCHEDULE),  # AB
+            ("DOOR & WINDOW SCHEDULE", SheetType.OPENING_SCHEDULE),  # ATL/NOR/ON/QC/SKMB
+            ("DOOR AND WINDOW SCHEDULE", SheetType.OPENING_SCHEDULE),  # BC
+            ("MAIN FLOOR PLAN - ACCESSIBLE READY", SheetType.FLOOR_PLAN),
+            ("SECOND FLOOR PLAN", SheetType.FLOOR_PLAN),
+            ("ROOF PLAN", SheetType.ROOF_PLAN),
+            ("FOUNDATION PLAN", SheetType.FOUNDATION_PLAN),
+            ("FRAMING PLANS", SheetType.FRAMING_PLAN),
+            ("SITE PLAN & CODE MATRIX", SheetType.SITE_PLAN),
+            ("ELEVATIONS", SheetType.ELEVATION),
+            ("SECTIONS", SheetType.SECTION),
+            ("TYP. DETAILS", SheetType.DETAIL),
+            # A detail sheet that mentions sections is a detail sheet.
+            ("TYPICAL SECTION DETAILS", SheetType.DETAIL),
+            ("STRUCTURAL SPECIFICATIONS", SheetType.SPECIFICATION),
+            ("GENERAL NOTES AND TYPICAL DETAILS", SheetType.DETAIL),
+            ("COVER SHEET", SheetType.COVER),
+            ("TITLE PAGE", SheetType.TITLE),
+        ],
+    )
+    def test_titles(self, title, want):
+        from ecarbon.intake.classify import sheet_type_of
+
+        assert sheet_type_of(title) is want
+
+    def test_mechanical_discipline_overrides_the_title(self):
+        """'M100 FOUNDATION PLAN' is a mechanical sheet, not our concrete source."""
+        from ecarbon.intake.classify import discipline_of, sheet_type_of
+
+        disc = discipline_of("M100")
+        assert sheet_type_of("FOUNDATION PLAN", disc) is SheetType.MECHANICAL
+
+    def test_structural_discipline_keeps_the_title(self):
+        from ecarbon.intake.classify import discipline_of, sheet_type_of
+
+        disc = discipline_of("S201")
+        assert sheet_type_of("FOUNDATION PLAN", disc) is SheetType.FOUNDATION_PLAN
+
+    def test_unknown_title_is_not_guessed(self):
+        from ecarbon.intake.classify import sheet_type_of
+
+        assert sheet_type_of(None) is SheetType.UNKNOWN
+        assert sheet_type_of("WIDGET DIAGRAM") is SheetType.UNKNOWN
+
+
+class TestSheetNumberRanges:
+    """The List of Drawings lists repeated detail sheets as ranges."""
+
+    @pytest.mark.parametrize(
+        ("token", "want"),
+        [
+            ("A006-A009", ["A006", "A007", "A008", "A009"]),
+            ("A200-A201", ["A200", "A201"]),
+            ("A003-A004", ["A003", "A004"]),
+            ("S102-S104", ["S102", "S103", "S104"]),
+            ("A101", ["A101"]),
+        ],
+    )
+    def test_expand(self, token, want):
+        from ecarbon.bench.sheet_truth import _expand
+
+        assert _expand(token) == want
+
+
+@needs_data
+class TestSheetTruth:
+    def test_list_of_drawings_parses(self):
+        from ecarbon.bench.sheet_truth import truth_for
+
+        truth = truth_for(get_design("AB_Fourplex_01"))
+        by_no = {t.sheet_no: t for t in truth}
+        assert by_no["A003"].sheet_type is SheetType.ASSEMBLY_SCHEDULE
+        assert by_no["A004"].sheet_type is SheetType.OPENING_SCHEDULE
+        assert by_no["A104"].sheet_type is SheetType.ROOF_PLAN
+        assert by_no["S201"].sheet_type is SheetType.FOUNDATION_PLAN
+        # A006-A009 is a range in the index and must expand to four sheets.
+        assert all(f"A00{n}" in by_no for n in (6, 7, 8, 9))
+
+    def test_every_region_has_parseable_ground_truth(self):
+        from ecarbon.bench.sheet_truth import truth_for
+
+        seen = {}
+        for d in discover():
+            if d.list_of_drawings and d.region not in seen:
+                seen[d.region] = len(truth_for(d))
+        assert len(seen) == 7, f"missing regions: {seen}"
+        assert all(n >= 15 for n in seen.values()), seen
+
+    def test_mojibake_sets_now_identify_their_sheets(self):
+        """ON_Fourplex_01 scored 40% before glyph-ID repair existed."""
+        from ecarbon.bench.sheet_truth import truth_for
+        from ecarbon.intake import inventory
+
+        d = get_design("ON_Fourplex_01")
+        truth = {t.sheet_no.upper() for t in truth_for(d)}
+        sheets, _, _ = inventory(d.drawings_pdf)
+        claimed = [s for s in sheets if s.readable and s.toolchain is not Toolchain.RASTER]
+        hits = [s for s in claimed if s.sheet_no and s.sheet_no.upper() in truth]
+        assert len(hits) / len(claimed) > 0.85

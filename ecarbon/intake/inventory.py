@@ -119,6 +119,7 @@ class DrawingSet:
         self.path = Path(path)
         self.doc = pymupdf.open(self.path)
         self._ocg_names: dict[int, str] | None = None
+        self._repair = None
         self._producer = (self.doc.metadata or {}).get("producer") or ""
         self._creator = (self.doc.metadata or {}).get("creator") or ""
 
@@ -133,6 +134,15 @@ class DrawingSet:
 
     def __len__(self) -> int:
         return self.doc.page_count
+
+    @property
+    def repair(self):
+        """Font-shift map for this document, solved once (see textrepair)."""
+        if self._repair is None:
+            from ecarbon.intake.textrepair import FontRepair
+
+            self._repair = FontRepair().learn(self.doc)
+        return self._repair
 
     @property
     def producer_tag(self) -> str:
@@ -298,36 +308,48 @@ def inventory(path: str | Path) -> tuple[list[SheetInfo], list[PageProbe], str]:
     Returns (sheets, raw probes, producer tag). Sheet type classification is
     Step 7's job; this fills in everything that is free and exact.
     """
+    from ecarbon.intake.classify import classify_page
+
+    sheets: list[SheetInfo] = []
     with DrawingSet(path) as ds:
         producer = ds.producer_tag
         probes = ds.probe()
 
-    sheets: list[SheetInfo] = []
-    for p in probes:
-        tc = classify_toolchain(p, producer)
-        no_from_name, title_from_name = _split_revit_view_name(p.revit_view_name)
-        sheet_no = p.revit_sheet_no or no_from_name
-        # Revit's sheet_number key is sometimes truncated ('A2' for 'A200');
-        # prefer the number parsed out of the fuller view name when it is longer.
-        if no_from_name and (not sheet_no or len(no_from_name) > len(sheet_no)):
-            sheet_no = no_from_name
+        for p in probes:
+            tc = classify_toolchain(p, producer)
+            no_from_name, title_from_name = _split_revit_view_name(p.revit_view_name)
+            revit_no = p.revit_sheet_no
+            # Revit's sheet_number key is sometimes truncated ('A2' for 'A200');
+            # prefer the number parsed out of the fuller view name when longer.
+            if no_from_name and (not revit_no or len(no_from_name) > len(revit_no)):
+                revit_no = no_from_name
 
-        sheets.append(
-            SheetInfo(
-                page=p.page,
-                sheet_no=sheet_no,
-                title=title_from_name,
-                discipline=_discipline_from_sheet_no(sheet_no),
-                toolchain=tc,
-                readable=p.readable,
-                width_in=p.width_in,
-                height_in=p.height_in,
-                layer_names=p.meaningful_layers[:40],
-                n_paths=p.n_paths,
-                n_text=p.n_text,
-                n_images=p.n_images,
+            sheet_no, title, stype, disc, src = classify_page(
+                ds.doc[p.page],
+                revit_sheet_no=revit_no,
+                revit_title=title_from_name,
+                repair=ds.repair,
             )
-        )
+
+            sheets.append(
+                SheetInfo(
+                    page=p.page,
+                    sheet_no=sheet_no,
+                    title=title,
+                    discipline=disc,
+                    sheet_type=stype,
+                    toolchain=tc,
+                    readable=p.readable,
+                    width_in=p.width_in,
+                    height_in=p.height_in,
+                    scale=None,
+                    classified_by=src,
+                    layer_names=p.meaningful_layers[:40],
+                    n_paths=p.n_paths,
+                    n_text=p.n_text,
+                    n_images=p.n_images,
+                )
+            )
     return sheets, probes, producer
 
 

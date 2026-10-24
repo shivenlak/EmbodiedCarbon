@@ -358,3 +358,82 @@ explaining why the gap report exists.
 This also firms up the benchmark grouping from §11: group by **dominant toolchain**
 (23 / 19 / 8 / 2 / 1) and hold out whole groups, since per-page mixing inside a file
 means a region-based split leaks conventions across the boundary.
+
+---
+
+## 14. Step 7 — sheet identification, and a font bug that would have cost us the takeoff
+
+**Result against the `List of Drawings` ground truth (51 designs, 1,465 pages scored):**
+
+| Metric | Bar | Result |
+|---|---|---|
+| Sheet number exact match | 90% | **97.9%** |
+| Sheet type match | 85% | **94.1%** |
+| Textless sets reporting the gap instead of guessing | 8/8 | **8/8** |
+
+Median sheet-number match is **100%** for every toolchain group that has readable
+text; worst single set is 90–91%. The 8 `distiller_outlined` sets score 0% **by
+design** — they have no text to read, and the gap report says so rather than
+inventing titles.
+
+### The bug worth knowing about
+
+Several sets — the whole ON multiplex family, ATL_Fourplex_01 Option 2, and others —
+embed Type0/Identity-H subset fonts with **`/ToUnicode null`**. With no map, any PDF
+reader can only return raw glyph IDs, so `A003 TYPICAL DETAILS` comes back as:
+
+```
+$\x13\x13\x16   7<3,&$/\x03'(7$,/6
+```
+
+Those glyph IDs are ASCII shifted by a constant (0x1D in every case observed). **This
+is the dangerous class of failure**: text extraction *appears* to succeed, returns
+plausible-looking strings, and silently drops sheet identification to ~40% on the
+affected sets. Nothing crashes and nothing looks wrong.
+
+`ecarbon/intake/textrepair.py` solves the shift **per span** and only accepts a
+decisive result. Per-font solving was tried first and is wrong: the same font program
+appears in one document under many subset encodings, so a font-wide sample mixes
+encodings and produces a confidently incorrect answer.
+
+Three guards exist because each one was a real regression caught by a test:
+
+| Input | Naive result | Why it must be protected |
+|---|---|---|
+| `A003` | `aPPS` | A valid sheet number is itself shiftable into plausible nonsense |
+| `2592` | `ORVO` | A dimension would become a word |
+| `R-22` | `oJOO` | An R-value would become a word |
+
+The rule that resolves all three: only attempt a shift when the text is **letter-free**
+(uppercase drawing text maps entirely into punctuation and control characters under
+the inverse shift), with a single exception for a trailing lowercase sheet suffix
+(`A101a` arrives as `$\x14\x13\x14D`). Then accept only if the result reads as words
+*or* is a well-formed sheet number.
+
+**Effect: 91.4% → 97.9% sheet-number match; worst affected set 36% → 91%.**
+
+**Implication for Landmark's sets.** This was invisible until scored against ground
+truth. Any set they hand us could carry the same defect, so (a) the repair pass stays
+in the pipeline, (b) a page whose text cannot be decoded is reported, never guessed,
+and (c) **no extraction stage is trusted without a scored benchmark behind it** — the
+measured-vs-inferred labelling depends on text we can actually prove we read.
+
+### Other Step 7 findings
+
+- **Mechanical and electrical sheets are exported with `/Rotate 90`**, which moves the
+  title block and re-flows its columns. A "title sits above the sheet number in the
+  same column" rule loses every M- and E- sheet. The sheet number is instead found as
+  the largest sheet-number-shaped token on the page (~51 pt vs 8–24 pt body text), and
+  the title as the nearest run of large non-boilerplate text — both rotation-agnostic.
+- **Discipline must override the title.** `M100 FOUNDATION PLAN` is a mechanical sheet,
+  not a source of concrete quantities. Without the override it would be mistaken for
+  the structural foundation plan.
+- **Schedule naming varies by region** and the type rules must cover all of it: AB uses
+  `OPENINGS SCHEDULE`, most regions `DOOR & WINDOW SCHEDULE`, BC `DOOR AND WINDOW
+  SCHEDULE` — and BC splits assemblies across `EXTERIOR ASSEMBLIES SCHEDULE` and
+  `INTERIOR ASSEMBLIES SCHEDULE`.
+- The `List of Drawings` lists repeated detail sheets as **ranges** (`A006-A009`,
+  `S102-S104`), which expand to one sheet each.
+- **The index is not always complete.** Several sets contain more pages than their
+  index lists (BC_Duplex: 34 pages vs 29 listed; ON_ADU_01: 34 vs 25), so the index is
+  usable as ground truth but not as a contents guarantee.
