@@ -608,3 +608,102 @@ How we use it, then:
 **Climate Resilience Guide** (19 pp) and five regional **Site Design Examples**
 (Alberta and SK/MB listed "Coming Soon"). Not carbon-relevant; retained for the
 implementation-plan narrative.
+
+---
+
+## 17. Step 9 — the ground-truth store, and three IFC traps
+
+Two modules: `ecarbon/bench/ifc_quantities.py` and `ecarbon/bench/hot2000.py`.
+Both are scoring-only; the pipeline never reads them.
+
+### The cross-check works
+
+AB_Fourplex_01, IFC against HOT2000 — two independent professional measurements
+of the same building, one by the architect and one by the energy modeller:
+
+| Quantity | IFC | HOT2000 | Diff |
+|---|---|---|---|
+| Exterior wall (above grade) | 287.6 m² | 290.6 m² | **1.0%** |
+| Foundation wall | 62.1 m² | 63.4 m² | **2.2%** |
+| All walls | 349.7 m² | 354.0 m² | **1.2%** |
+| Windows | 38.2 m² | 41.2 m² | 7.1% |
+
+That is the Step 9 deliverable: a benchmark whose two sources agree to ~1% on the
+largest envelope quantities, so a Stage 2 error of 10% will be unambiguously ours.
+
+### How area is derived, and why not from faces
+
+`area = volume / total_layer_thickness`. Volume from the mesh (signed tetrahedron
+sum, exact for a closed mesh), thickness from `IfcMaterialLayerSet`. For a layered
+prismatic element the division is exact, and per-layer volume falls out as
+`area x layer_thickness`. Summing mesh face areas instead would count both faces
+plus the edge returns, and picking "the wall face" out of a triangle soup is fragile.
+
+### Trap 1 — `by_type("IfcWall")` already includes `IfcWallStandardCase`
+
+It is a subtype, so adding the two double-counts. **AB_Fourplex_01 has 92 walls, not
+166.** §15's corrected counts were themselves inflated 2x by exactly this; §5's
+original regex figure of 92 for AB was right all along. The SKMB part of §15 stands —
+those models genuinely do have walls, which the regex missed.
+
+Corrected wall counts are whatever `by_type("IfcWall")` alone reports; §15's table
+should be read as roughly halved for every Revit export.
+
+### Trap 2 — 18 of 92 walls carry no material association at all
+
+Nine of them are **W2 exterior envelope** walls, the single most important assembly.
+They are plain `IfcWall` rather than `IfcWallStandardCase` and have no
+`IfcRelAssociatesMaterial` at all. Taking only walls that declare a build-up gives
+**78 m² of exterior wall for a 7 x 22 m two-storey building** — obviously wrong, and
+wrong in the quiet direction.
+
+The build-up is recovered from other walls sharing the same assembly tag, since walls
+of one tag share a build-up by definition, and the result is flagged
+`thickness_inferred`. That lifts exterior wall area from 78 m² to 287.6 m², which is
+the figure that then matches HOT2000 to 1.0%. It is also our own
+measured/inferred distinction applied to our own ground truth.
+
+### Trap 3 — openings are not cut from the exterior walls
+
+W2 measures 287.3 m² net against 287.6 gross, so the window voids are not subtracted,
+while interior P1 walls do show door voids (198.1 vs 259.0). **An exterior wall figure
+from this geometry is a GROSS area.** Net-of-openings must come from subtracting the
+window and door schedule explicitly, so both are reported — which convention a
+reference takeoff uses is exactly what we cannot see in advance (§16).
+
+### Elements with no build-up still yield a volume
+
+Footings and roofs carry no layer set in these models. An earlier version dropped them,
+which silently discarded **the largest carbon contributor** — concrete is ~35%
+(`docs/element_priority.md`). Volume needs no thickness, so volume is always recorded
+and only area is left `None`. AB_Fourplex_01: 6 footings at 6.76 m³.
+
+`IfcRoof` is an aggregate with no geometry of its own; its `IfcSlab` children carry it.
+The two `R2` slabs look like duplicates by name but have distinct GlobalIds — two roof
+planes, correctly counted once each.
+
+### :warning: The IFC foundation may not be usable ground truth
+
+`F1 - Slab on Grade` is modelled as **one 454 mm layer of `CMHC_Concrete, CIP`** —
+136.4 m² x 0.454 m = 61.9 m³. A slab on grade is normally 100–150 mm. Meanwhile the
+Construction Cost Estimate (§16) costs Alberta foundations as **grade beam on screw
+piles**, which is a different system entirely.
+
+So three sources disagree about the foundation: the IFC says a very thick concrete
+slab, the cost estimate says grade beams on piles, and the drawings say whatever S201
+shows. Concrete is the #1 carbon item, so **this must be resolved against sheet S201
+before Step 10 benchmarks foundation concrete**, and until then IFC foundation volume
+is a weak reference. Total model concrete: 84.3 m³ (slab 61.9 + foundation wall 15.6 +
+footings 6.8).
+
+### HOT2000 conventions
+
+- A `<Wall>` record has **no `area` attribute** — it carries `height` and `perimeter`,
+  so area is their product. `<Ceiling>` does carry `area`. Looking for `area` on a wall
+  silently yields zero, which is how the first cross-check read 0.0 m².
+- `<Wall>` records lump the above-grade envelope together with the foundation wall.
+  They separate cleanly by height (2.515/2.667 m against 0.305/1.238/1.295 m), which is
+  how the two sets were matched to W2 and N1 above.
+- These are thermal envelope areas: gross, by orientation, exterior only. No interior
+  partitions, no structural quantities. They validate the two biggest envelope
+  quantities and nothing else.
