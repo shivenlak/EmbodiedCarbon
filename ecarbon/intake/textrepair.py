@@ -57,6 +57,11 @@ _NUMERIC_RE = re.compile(r"^[\d.,'\"\-/=:%+ xX°Ø–—]+$")
 _LETTER_RUN_RE = re.compile(rf"[A-Za-z]{{{_MIN_LETTER_RUN},}}")
 # A repaired sheet number: A003, A101a, S102, M000, E201A.
 _SHEET_NO_RE = re.compile(r"^[A-Z]{1,2}\d{2,4}[a-zA-Z]?$")
+# A repaired dimension: 3617, 915mm, 11'-10 3/8", 1500 / 4'-11", [3'-0"].
+# Dimensions are numeric, so they score zero on word-likeness and need their
+# own acceptance test -- without it the ON sets yield 2 dimension labels per
+# floor plan instead of ~180, and scale calibration has nothing to work from.
+_DIM_LIKE_RE = re.compile(r"^[\d\s'\"/\-.,\[\]()mM]+$")
 
 
 def looks_broken(text: str) -> bool:
@@ -119,6 +124,10 @@ def repair(text: str) -> tuple[str, bool]:
     alpha_at = [i for i, c in enumerate(text) if c.isalpha()]
     if alpha_at and not (len(alpha_at) == 1 and alpha_at[0] == len(text) - 1 and len(text) >= 5):
         return text, False
+    # A control character is hard proof this is glyph IDs rather than
+    # characters, which is what lets us accept a purely numeric result.
+    has_control = any(ord(c) < 0x20 and c not in "\n\r\t" for c in text)
+
     for by in _CANDIDATE_SHIFTS:
         cand = _shift(text, by)
         # Either it reads as words (a sheet title) ...
@@ -127,9 +136,17 @@ def repair(text: str) -> tuple[str, bool]:
             and _wordlike(cand) > base + _MIN_GAIN
             and _LETTER_RUN_RE.search(cand)
         )
-        # ... or it is a well-formed sheet number, which is too short to score
-        # as word-like but is unambiguous in shape.
-        if title_ok or _SHEET_NO_RE.match(cand):
+        # ... or it is a well-formed sheet number, too short to score as
+        # word-like but unambiguous in shape ...
+        sheet_ok = bool(_SHEET_NO_RE.match(cand))
+        # ... or it is a dimension, which only counts when the original was
+        # provably broken, since digits alone are weak evidence.
+        dim_ok = (
+            has_control
+            and bool(_DIM_LIKE_RE.match(cand))
+            and sum(1 for c in cand if c.isdigit()) >= 2
+        )
+        if title_ok or sheet_ok or dim_ok:
             # 0x1D is tried first, so the common case stops here.
             return cand, True
     return text, False

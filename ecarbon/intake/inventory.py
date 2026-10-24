@@ -22,7 +22,23 @@ from pathlib import Path
 
 import pymupdf
 
-from ecarbon.models import Discipline, SheetInfo, Toolchain
+from ecarbon.models import BasisSource, Discipline, SheetInfo, SheetType, Toolchain
+
+# Sheet types that are drawn to scale. A schedule, specification or legend has
+# no scale, and asking for one yields nonsense: the size column of an openings
+# schedule reads as a dimension chain and implies 1:418.
+SCALED_SHEET_TYPES = frozenset(
+    {
+        SheetType.FLOOR_PLAN,
+        SheetType.FOUNDATION_PLAN,
+        SheetType.ROOF_PLAN,
+        SheetType.FRAMING_PLAN,
+        SheetType.SITE_PLAN,
+        SheetType.ELEVATION,
+        SheetType.SECTION,
+        SheetType.DETAIL,
+    }
+)
 
 # A page with fewer than this many text-show operators has no usable text.
 # Calibration: the 8 Acrobat-Distiller NOR sets average <1 per page (text was
@@ -302,11 +318,16 @@ def _split_revit_view_name(name: str | None) -> tuple[str | None, str | None]:
     return None, name.strip()
 
 
-def inventory(path: str | Path) -> tuple[list[SheetInfo], list[PageProbe], str]:
+def inventory(
+    path: str | Path, with_scale: bool = False
+) -> tuple[list[SheetInfo], list[PageProbe], str]:
     """Build the Stage 1 sheet inventory for one drawings PDF.
 
-    Returns (sheets, raw probes, producer tag). Sheet type classification is
-    Step 7's job; this fills in everything that is free and exact.
+    Returns (sheets, raw probes, producer tag).
+
+    `with_scale` additionally calibrates each readable sheet (Step 8). It is off
+    by default because calibration re-reads every text span and roughly doubles
+    the time, and the intake inventory is also used where scale is irrelevant.
     """
     from ecarbon.intake.classify import classify_page
 
@@ -331,6 +352,23 @@ def inventory(path: str | Path) -> tuple[list[SheetInfo], list[PageProbe], str]:
                 repair=ds.repair,
             )
 
+            scale_mm_per_pt: float | None = None
+            scale_src = None
+            if with_scale and p.readable and stype in SCALED_SHEET_TYPES:
+                from ecarbon.geometry.scale import ScaleSource, calibrate
+
+                est = calibrate(ds.doc[p.page])
+                # Only publish a scale we can defend; an untrustworthy estimate
+                # left as None makes downstream quantities impossible rather
+                # than quietly wrong, which is the behaviour we want.
+                if est.trustworthy:
+                    scale_mm_per_pt = est.mm_per_pt
+                    scale_src = {
+                        ScaleSource.DIMENSION_CHAIN: BasisSource.VECTOR_PATH,
+                        ScaleSource.SCALE_TEXT: BasisSource.SECTION_NOTE,
+                        ScaleSource.VIEWPORT_MATRIX: BasisSource.VECTOR_PATH,
+                    }.get(est.source)
+
             sheets.append(
                 SheetInfo(
                     page=p.page,
@@ -342,7 +380,8 @@ def inventory(path: str | Path) -> tuple[list[SheetInfo], list[PageProbe], str]:
                     readable=p.readable,
                     width_in=p.width_in,
                     height_in=p.height_in,
-                    scale=None,
+                    scale=scale_mm_per_pt,
+                    scale_source=scale_src,
                     classified_by=src,
                     layer_names=p.meaningful_layers[:40],
                     n_paths=p.n_paths,
