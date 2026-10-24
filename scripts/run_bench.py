@@ -116,7 +116,8 @@ def run_benchmark(region_filter: str | None = None, design_filter: list[str] | N
             slab_errors.append(slab_err)
             window_errors.append(win_err)
 
-            tc_name = to.sheets[0].toolchain.value if to.sheets else "unknown"
+            valid_tc = [s.toolchain.value for s in to.sheets if s.page != 0 and s.toolchain.value != "raster"]
+            tc_name = max(set(valid_tc), key=valid_tc.count) if valid_tc else (to.sheets[0].toolchain.value if to.sheets else "unknown")
             tc_stats = by_toolchain.setdefault(tc_name, {"wall": [], "slab": [], "win": []})
             tc_stats["wall"].append(wall_err)
             tc_stats["slab"].append(slab_err)

@@ -151,6 +151,55 @@ def list_projects() -> list[dict[str, object]]:
     ]
 
 
+@app.get("/presets")
+def list_presets() -> list[dict[str, str]]:
+    """Demo presets for zero-friction live demonstrations and evaluator testing."""
+    return [
+        {"id": "demo", "name": "AB_Fourplex_01 (Standard Demo)", "region": "AB", "typology": "4-Unit Multiplex"},
+        {"id": "ab_sixplex", "name": "AB_Sixplex (Revit Tagged)", "region": "AB", "typology": "6-Unit Multiplex"},
+        {"id": "ab_rowhouse_02", "name": "AB_Rowhouse_02 (AIA Layered)", "region": "AB", "typology": "3-Unit Rowhouse"},
+        {"id": "atl_fourplex_01_opt1", "name": "ATL_Fourplex_01 Opt 1 (Base Multiplex)", "region": "ATL", "typology": "4-Unit Multiplex"},
+    ]
+
+
+@app.post("/presets/{preset_id}/load")
+def load_preset(preset_id: str) -> dict[str, str]:
+    """Load a catalogue preset into active project state."""
+    if preset_id == "demo":
+        return {"id": "demo"}
+
+    if preset_id in _PROJECTS:
+        return {"id": preset_id}
+
+    from ecarbon.config import discover
+
+    key_map = {
+        "ab_sixplex": "AB_Sixplex",
+        "ab_rowhouse_02": "AB_Rowhouse_02",
+        "atl_fourplex_01_opt1": "ATL_Fourplex_01_Technical_Design_Package_Option1",
+    }
+    target_key = key_map.get(preset_id)
+    if not target_key:
+        raise HTTPException(404, f"Unknown preset {preset_id!r}")
+
+    matched = None
+    for d in discover():
+        if target_key.lower() in d.key.lower() and d.drawings_pdf:
+            matched = d
+            break
+
+    if not matched or not matched.drawings_pdf:
+        raise HTTPException(404, f"Design package for {preset_id} not found on disk")
+
+    to = generate_takeoff(
+        matched.drawings_pdf,
+        project_name=matched.key.replace("_Technical_Design_Package", ""),
+    )
+    p = Project(id=preset_id, takeoff=to, pdf_path=matched.drawings_pdf)
+    _PROJECTS[preset_id] = p
+    return {"id": preset_id}
+
+
 @app.post("/projects", status_code=201)
 def create_project(body: CreateProject) -> dict[str, str]:
     """Create project from body or clone fixture."""

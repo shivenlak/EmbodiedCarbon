@@ -172,6 +172,24 @@ def building_bbox(ifc_path: str | Path, types: tuple[str, ...] = BUILDING_WALL_T
     )
 
 
+def get_length_unit_scale(model) -> float:
+    """Return multiplier to convert model length quantities into metres."""
+    for u in model.by_type("IfcUnitAssignment"):
+        for item in u.Units:
+            if getattr(item, "UnitType", None) == "LENGTHUNIT":
+                if item.is_a("IfcSIUnit"):
+                    prefix = getattr(item, "Prefix", None)
+                    if prefix == "MILLI":
+                        return 0.001
+                    return 1.0
+                elif item.is_a("IfcConversionBasedUnit"):
+                    conv = getattr(item, "ConversionFactor", None)
+                    if conv and hasattr(conv, "ValueComponent"):
+                        val = conv.ValueComponent
+                        return float(val.wrappedValue)
+    return 0.001
+
+
 def parse_ifc_takeoff(ifc_path: str | Path) -> IFCTakeoffTruth:
     """Extract ground truth element and material quantities from an IFC model."""
     import ifcopenshell
@@ -203,7 +221,9 @@ def parse_ifc_takeoff(ifc_path: str | Path) -> IFCTakeoffTruth:
     settings = geom.settings()
     settings.set("use-world-coords", True)
 
-    # Map object id -> list of (material_name, thickness_mm)
+    unit_scale = get_length_unit_scale(model)
+
+    # Map object id -> list of (material_name, thickness_m)
     element_layer_map: dict[int, list[tuple[str, float]]] = {}
     for rel in model.by_type("IfcRelAssociatesMaterial"):
         mat = rel.RelatingMaterial
@@ -212,11 +232,11 @@ def parse_ifc_takeoff(ifc_path: str | Path) -> IFCTakeoffTruth:
             ls = mat.ForLayerSet
             for l in ls.MaterialLayers:
                 mname = l.Material.Name if l.Material else "Unknown"
-                layers.append((mname, float(l.LayerThickness)))
+                layers.append((mname, float(l.LayerThickness) * unit_scale))
         elif mat.is_a("IfcMaterialLayerSet"):
             for l in mat.MaterialLayers:
                 mname = l.Material.Name if l.Material else "Unknown"
-                layers.append((mname, float(l.LayerThickness)))
+                layers.append((mname, float(l.LayerThickness) * unit_scale))
         elif mat.is_a("IfcMaterial"):
             layers.append((mat.Name, 0.0))
 
@@ -253,19 +273,28 @@ def parse_ifc_takeoff(ifc_path: str | Path) -> IFCTakeoffTruth:
                 continue
 
             layers = element_layer_map.get(el.id(), [])
-            tot_thickness_mm = sum(th for _, th in layers)
-            thickness_m = tot_thickness_mm / 1000.0 if tot_thickness_mm > 0 else None
+            tot_thickness_m = sum(th for _, th in layers)
+            thickness_m = tot_thickness_m if tot_thickness_m > 0 else None
+
+            # Geometric thickness fallback for slabs only (for walls dz is height)
+            if tname == "IfcSlab":
+                verts = shape.geometry.verts
+                zs = verts[2::3] if verts else []
+                dz = (max(zs) - min(zs)) if zs else 0.0
+                if (thickness_m is None or thickness_m <= 0) and dz > 0.04:
+                    thickness_m = dz
+
             area_m2 = (vol / thickness_m) if (thickness_m and thickness_m > 0) else None
 
             # Distribute layer volumes
             layer_infos: list[IFCLayerInfo] = []
-            if layers and tot_thickness_mm > 0:
-                for mname, th_mm in layers:
-                    frac = th_mm / tot_thickness_mm
+            if layers and tot_thickness_m > 0:
+                for mname, th_m in layers:
+                    frac = th_m / tot_thickness_m
                     l_vol = vol * frac
                     material_vols[mname] += l_vol
                     layer_infos.append(
-                        IFCLayerInfo(material_name=mname, thickness_mm=th_mm, volume_m3=round(l_vol, 4))
+                        IFCLayerInfo(material_name=mname, thickness_mm=th_m * 1000.0, volume_m3=round(l_vol, 4))
                     )
             elif layers:
                 for mname, _ in layers:
@@ -287,7 +316,6 @@ def parse_ifc_takeoff(ifc_path: str | Path) -> IFCTakeoffTruth:
                     if area_m2 is not None:
                         total_ext_wall_area += area_m2
                     else:
-                        # Fallback thickness 240mm if not layered
                         total_ext_wall_area += vol / 0.24
 
             elif tname == "IfcSlab":
@@ -296,7 +324,7 @@ def parse_ifc_takeoff(ifc_path: str | Path) -> IFCTakeoffTruth:
                     if area_m2 is not None:
                         total_sog_area += area_m2
                     else:
-                        total_sog_area += vol / 0.15
+                        total_sog_area += (vol / dz) if dz > 0.04 else (vol / 0.15)
                 elif any(k in up_name for k in ("ROOF", "R1", "R2")):
                     total_roof_vol += vol
                 else:

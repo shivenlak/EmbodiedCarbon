@@ -159,3 +159,17 @@ def test_benchmark_endpoint_returns_published_metrics(client):
     assert len(body["toolchain_breakdown"]) >= 3
 
 
+def test_presets_endpoints(client):
+    r = client.get("/presets")
+    assert r.status_code == 200
+    presets = r.json()
+    assert len(presets) >= 4
+    assert any(p["id"] == "demo" for p in presets)
+    assert any(p["id"] == "ab_sixplex" for p in presets)
+
+    r_load = client.post("/presets/demo/load")
+    assert r_load.status_code == 200
+    assert r_load.json()["id"] == "demo"
+
+
+
