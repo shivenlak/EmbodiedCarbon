@@ -1,63 +1,658 @@
+/* ecarbon — styled as a drawing sheet rather than a dashboard.
+ *
+ * The product's claim is that every quantity is traceable to the sheet it came
+ * from, so the interface borrows the drawing's own conventions: a light
+ * drafting ground, hierarchy carried by lineweight instead of cards and
+ * shadows, a condensed gothic for sheet titles, and tabular figures so a
+ * column of quantities reads straight. Colour is spent almost entirely on one
+ * thing -- whether a number was measured, inferred or assumed -- because that
+ * is the distinction a builder has to defend.
+ */
+
 :root {
-  --bg-main: #0B0F17;
-  --bg-card: #131A26;
-  --bg-card-hover: #1A2332;
-  --bg-subtle: #172030;
-  --border: #233045;
-  --border-light: #31425F;
-  --text-main: #F1F5F9;
-  --text-muted: #94A3B8;
-  --text-dim: #64748B;
-  --accent-green: #10B981;
-  --accent-green-bg: rgba(16, 185, 129, 0.12);
-  --accent-blue: #3B82F6;
-  --accent-blue-bg: rgba(59, 130, 246, 0.12);
-  --accent-amber: #F59E0B;
-  --accent-amber-bg: rgba(245, 158, 11, 0.12);
-  --accent-rose: #F43F5E;
-  --accent-rose-bg: rgba(244, 63, 94, 0.12);
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  /* Ground and ink. Bond paper, not cream; linework, not pure black. */
+  --paper: #fbfaf7;
+  --paper-sunk: #f3f1ec;
+  --ink: #141719;
+  --graphite: #5c6469;
+  --graphite-light: #8b9298;
+
+  /* Lineweights, the only hierarchy device on a drawing. */
+  --hairline: #ddd9d1;
+  --rule: #c3beb3;
+  --heavy: var(--ink);
+
+  /* Confidence, and nothing else uses these. Blueprint blue is the domain's
+   * own colour; the flag orange is for anything a reader must not skip. */
+  --blueprint: #1d4e89;
+  --blueprint-wash: #eaf0f7;
+  --flag: #b4531a;
+  --flag-wash: #fbf0e7;
+
+  --font-display: "Archivo Narrow", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --rail: 310px;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  background-color: var(--bg-main);
-  color: var(--text-main);
-  font-family: var(--font-sans);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
 }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
-  border: none;
-  background: none;
+:focus-visible {
+  outline: 2px solid var(--blueprint);
+  outline-offset: 2px;
 }
 
-input {
-  font-family: inherit;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
-/* Scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--bg-main);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border-light);
-  border-radius: 3px;
+/* ---------------------------------------------------------------- type ---- */
+
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--graphite);
 }
 
-.mono {
+.sheet-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.num {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "zero" 1;
+}
+
+.muted {
+  color: var(--graphite);
+}
+
+/* -------------------------------------------------------------- shell ---- */
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--rail);
+}
+
+.field {
+  min-width: 0;
+  padding: 0 clamp(16px, 4vw, 44px) 80px;
+}
+
+/* The title block. On a real sheet it sits at the edge and carries the facts
+ * you check the drawing against, so it stays fixed rather than scrolling. */
+.titleblock {
+  border-left: 1px solid var(--rule);
+  background: var(--paper-sunk);
+  padding: 0 0 40px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.tb-row {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tb-row:last-child {
+  border-bottom: none;
+}
+
+.tb-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--graphite);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.tb-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------- masthead -- */
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 20px 0 14px;
+  border-bottom: 2px solid var(--heavy);
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.wordmark span {
+  color: var(--blueprint);
+}
+
+/* ---------------------------------------------------------------- hero --- */
+
+/* The thesis, not a stat tile: the total is stated at full size, and the
+ * module scope sits inside it because a carbon number without its scope is
+ * not a number. */
+.hero {
+  padding: 34px 0 26px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.hero-total {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hero-figure {
+  font-family: var(--font-mono);
+  font-size: clamp(42px, 8vw, 76px);
+  font-weight: 500;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+}
+
+.hero-unit {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--graphite);
+}
+
+.hero-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 4px 9px;
+  border: 1px solid var(--blueprint);
+  color: var(--blueprint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.hero-sub {
+  margin-top: 16px;
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.hero-sub-item {
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------- notice -- */
+
+/* A partial result has to say so before the reader scrolls past it. */
+.notice {
+  margin: 22px 0;
+  border-left: 3px solid var(--flag);
+  background: var(--flag-wash);
+  padding: 13px 16px;
+}
+
+.notice-blueprint {
+  border-left-color: var(--blueprint);
+  background: var(--blueprint-wash);
+}
+
+.notice-head {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--flag);
+  margin-bottom: 5px;
+}
+
+.notice-blueprint .notice-head {
+  color: var(--blueprint);
+}
+
+/* -------------------------------------------------------------- section -- */
+
+.section {
+  padding-top: 40px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--heavy);
+}
+
+/* ------------------------------------------------------------------ boq -- */
+
+.boq {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.boq thead th {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--graphite);
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.boq thead th.right,
+.boq td.right {
+  text-align: right;
+}
+
+.boq tbody tr {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.boq tbody tr:hover {
+  background: var(--paper-sunk);
+}
+
+.boq td {
+  padding: 11px 10px;
+  vertical-align: top;
+}
+
+/* The confidence bar: a 3px rule on the leading edge, read the way a drawing
+ * reads a section cut -- weight means importance, colour means look here. */
+.boq td.lead {
+  border-left: 3px solid transparent;
+  padding-left: 13px;
+}
+
+tr.c-measured td.lead {
+  border-left-color: var(--blueprint);
+}
+
+tr.c-inferred td.lead {
+  border-left-color: var(--rule);
+}
+
+tr.c-assumed td.lead {
+  border-left-color: var(--flag);
+}
+
+.el-name {
+  font-weight: 500;
+}
+
+.el-desc {
+  color: var(--graphite);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+/* The signature: every quantity carries the sheet it was read from, set like a
+ * drawing cross-reference. This is the one thing the product is for. */
+.cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--blueprint);
+  border: 1px solid var(--blueprint);
+  border-radius: 999px;
+  overflow: hidden;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cite-sheet {
+  padding: 2px 7px;
+  background: var(--blueprint);
+  color: var(--paper);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.cite-detail {
+  padding: 2px 8px;
+  letter-spacing: 0.02em;
+}
+
+.cite:hover .cite-detail {
+  background: var(--blueprint-wash);
+}
+
+.cite-none {
+  border-color: var(--rule);
+  color: var(--graphite);
+  cursor: default;
+}
+
+.cite-none .cite-sheet {
+  background: var(--rule);
+  color: var(--ink);
+}
+
+.tag {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.tag-measured {
+  color: var(--blueprint);
+}
+
+.tag-inferred {
+  color: var(--graphite);
+}
+
+.tag-assumed {
+  color: var(--flag);
+}
+
+.qty {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.qty-unit {
+  color: var(--graphite);
+  font-size: 11px;
+  margin-left: 3px;
+}
+
+.qty-input {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  width: 92px;
+  text-align: right;
+  padding: 3px 6px;
+  border: 1px solid var(--blueprint);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.uncounted {
+  color: var(--flag);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+/* The assumption, disclosed in place rather than in a tooltip, because the
+ * scope requires assumptions to be viewable. */
+.disclose {
+  background: var(--paper-sunk);
+  border-left: 3px solid var(--rule);
+}
+
+.disclose td {
+  padding: 12px 16px 14px 13px;
+}
+
+.disclose-item {
+  display: flex;
+  gap: 9px;
+  margin-top: 7px;
+  font-size: 12.5px;
+  color: var(--graphite);
+  max-width: 78ch;
+}
+
+.disclose-item:first-child {
+  margin-top: 0;
+}
+
+.disclose-item::before {
+  content: "—";
+  color: var(--rule);
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------- contribution ---- */
+
+.contrib-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.contrib-bar {
+  height: 7px;
+  background: var(--paper-sunk);
+  border: 1px solid var(--hairline);
+  margin-top: 5px;
+}
+
+.contrib-fill {
+  height: 100%;
+  background: var(--blueprint);
+}
+
+/* ------------------------------------------------------- substitutions --- */
+
+.swap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.swap-delta {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  color: var(--blueprint);
+  white-space: nowrap;
+  text-align: right;
+}
+
+.swap-delta-worse {
+  color: var(--flag);
+}
+
+/* -------------------------------------------------------------- control -- */
+
+.btn {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 7px 13px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.btn-primary {
+  background: var(--blueprint);
+  border-color: var(--blueprint);
+  color: var(--paper);
+}
+
+.btn-primary:hover {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.picker {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  max-width: 100%;
+}
+
+/* ---------------------------------------------------------------- state -- */
+
+.state {
+  padding: 72px 0;
+  max-width: 54ch;
+}
+
+.state-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+/* A scale bar, drawn the way a sheet draws one, as the loading indicator. */
+.scalebar {
+  display: flex;
+  margin-top: 20px;
+  width: 190px;
+  border: 1px solid var(--ink);
+}
+
+.scalebar i {
+  height: 9px;
+  flex: 1;
+  animation: tick 1.5s ease-in-out infinite;
+}
+
+.scalebar i:nth-child(odd) {
+  background: var(--ink);
+}
+
+.scalebar i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.scalebar i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+.scalebar i:nth-child(4) {
+  animation-delay: 0.54s;
+}
+.scalebar i:nth-child(5) {
+  animation-delay: 0.72s;
+}
+.scalebar i:nth-child(6) {
+  animation-delay: 0.9s;
+}
+
+@keyframes tick {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------- mobile -- */
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .titleblock {
+    position: static;
+    max-height: none;
+    border-left: none;
+    border-top: 2px solid var(--heavy);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .tb-row {
+    border-right: 1px solid var(--hairline);
+  }
+
+  .boq .hide-sm {
+    display: none;
+  }
 }

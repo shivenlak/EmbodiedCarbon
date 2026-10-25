@@ -1,22 +1,30 @@
 """FastAPI surface.
 
-Serves the fixture until the real pipeline lands, so the UI can be built in
-parallel. Every endpoint shape here is final; only the data behind it changes.
+Serves the real pipeline: every design found under `$EC_DATA` is listed, and
+the first request for one runs the extraction stages and the carbon engine.
+
+Takeoffs are built lazily and cached, because building one opens the PDF and
+measures the geometry -- a few seconds per design, which is fine on demand and
+unacceptable for 53 designs at startup.
 
     uvicorn ecarbon.api.main:app --reload
 """
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ecarbon.fixtures import example_carbon, example_takeoff
+from ecarbon.carbon.calculate import calculate_carbon
+from ecarbon.carbon.store import LocalSnapshotProvider
 from ecarbon.models import CarbonResult, Gap, SheetInfo, TakeoffResult
+
+# One provider for the process: it owns a SQLite connection and the factor
+# snapshot, neither of which is per-request state.
+_FACTORS = LocalSnapshotProvider()
 
 app = FastAPI(
     title="ecarbon",
@@ -44,28 +52,106 @@ class Project:
         self.recompute()
 
     def recompute(self) -> None:
-        # Swapped for the real carbon engine in Step 12. The contract is that
-        # carbon is derived from the takeoff and never mutates it.
-        self.carbon = example_carbon(self.takeoff)
+        # Carbon is derived from the takeoff and never mutates it, so a
+        # recompute after an override cannot corrupt the extraction output.
+        self.carbon = calculate_carbon(self.takeoff, _FACTORS)
 
 
 _PROJECTS: dict[str, Project] = {}
 
+# The catalogue is licence-restricted and cannot be committed, so the service
+# must be useful without it: a fixture-backed project is always present. It is
+# also what the API tests run against, so they need no 2.7 GB download.
+DEMO_ID = "demo"
 
-def _seed() -> Project:
-    """One demo project so GET works on a cold start."""
-    p = Project(id="demo", takeoff=example_takeoff())
-    _PROJECTS[p.id] = p
+
+def _seed_demo() -> None:
+    from ecarbon.fixtures import example_takeoff
+
+    _PROJECTS[DEMO_ID] = Project(id=DEMO_ID, takeoff=example_takeoff())
+
+
+_seed_demo()
+
+
+def _catalogue() -> dict[str, object]:
+    """Designs available on this machine, by key. Empty when $EC_DATA is unset."""
+    try:
+        from ecarbon.config import discover
+
+        return {d.key: d for d in discover()}
+    except Exception:
+        return {}
+
+
+def _resolve(name: str) -> str | None:
+    """Match a plan-set name against the catalogue.
+
+    Catalogue keys carry a packaging suffix (`AB_Sixplex_Technical_Design_
+    Package`), so a caller naming the design itself must still find it.
+    """
+    cat = _catalogue()
+    if name in cat:
+        return name
+    lowered = name.lower()
+    matches = [k for k in cat if k.lower().startswith(lowered)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _build(key: str, stated: CreateProject | None = None) -> Project:
+    """Run the pipeline for one design and cache the result.
+
+    `stated` carries the project facts the caller gave. They take precedence
+    over anything read from the package, because a floor area the builder
+    states is a fact and one we read off a report is a convenience -- and the
+    two use different conventions often enough that silently preferring ours
+    would make the intensity wrong in a way nobody could see.
+    """
+    from ecarbon.models import ProjectFacts
+    from ecarbon.takeoff.builder import build_takeoff
+
+    design = _catalogue().get(key)
+    if design is None:
+        raise HTTPException(404, f"no plan set {key!r} under $EC_DATA")
+
+    facts = ProjectFacts(name=(stated.name if stated else None) or key)
+
+    # The Building Performance Report states floor area, storeys and units --
+    # project facts a builder would otherwise type in. Never its carbon total,
+    # which is A1-A5+B+C and not comparable with our A1-A3 figure.
+    try:
+        from ecarbon.bench.bpr import parse_bpr
+
+        if design.bpr:
+            bp = parse_bpr(str(design.bpr[0]))
+            facts.jurisdiction = bp.location
+            facts.gfa_m2 = bp.best_gfa_m2
+            facts.gfa_basis = "gross"
+            facts.storeys = bp.storeys
+            facts.units = bp.units
+    except Exception:
+        pass
+
+    if stated is not None:
+        if stated.jurisdiction:
+            facts.jurisdiction = stated.jurisdiction
+        if stated.gfa_m2:
+            facts.gfa_m2 = stated.gfa_m2
+            facts.gfa_basis = stated.gfa_basis  # type: ignore[assignment]
+
+    p = Project(id=key, takeoff=build_takeoff(design, facts))
+    _PROJECTS[key] = p
     return p
 
 
-_seed()
-
-
 def _get(project_id: str) -> Project:
-    if project_id not in _PROJECTS:
-        raise HTTPException(404, f"no project {project_id!r}")
-    return _PROJECTS[project_id]
+    if project_id in _PROJECTS:
+        return _PROJECTS[project_id]
+    if project_id in _catalogue():
+        return _build(project_id)
+    raise HTTPException(404, f"no project {project_id!r}")
 
 
 # -- requests / responses --------------------------------------------------
@@ -115,31 +201,53 @@ def health() -> dict[str, str]:
 
 @app.get("/projects")
 def list_projects() -> list[dict[str, object]]:
-    return [
-        {
-            "id": p.id,
-            "name": p.takeoff.project.name,
-            "total_kg_co2e": p.carbon.total_kg_co2e,
-            "n_lines": len(p.takeoff.lines),
-        }
-        for p in _PROJECTS.values()
-    ]
+    """Every plan set on this machine.
+
+    Carbon is reported only for sets already built, since computing it for the
+    whole catalogue would mean opening 53 PDFs to answer a list request.
+    """
+    out: list[dict[str, object]] = []
+    for key in sorted(_catalogue()):
+        p = _PROJECTS.get(key)
+        out.append(
+            {
+                "id": key,
+                "name": key.replace("_", " "),
+                "built": p is not None,
+                "total_kg_co2e": p.carbon.total_kg_co2e if p else None,
+                "n_lines": len(p.takeoff.lines) if p else None,
+            }
+        )
+    for pid, p in _PROJECTS.items():
+        if pid not in _catalogue():
+            out.append(
+                {
+                    "id": pid,
+                    "name": p.takeoff.project.name,
+                    "built": True,
+                    "total_kg_co2e": p.carbon.total_kg_co2e,
+                    "n_lines": len(p.takeoff.lines),
+                }
+            )
+    return out
 
 
 @app.post("/projects", status_code=201)
 def create_project(body: CreateProject) -> dict[str, str]:
-    """Upload lands here in Step 13. For now it clones the fixture so the UI
-    can exercise the create -> read -> edit loop."""
-    t = example_takeoff()
-    t.project.name = body.name
-    if body.jurisdiction:
-        t.project.jurisdiction = body.jurisdiction
-    if body.gfa_m2:
-        t.project.gfa_m2 = body.gfa_m2
-        t.project.gfa_basis = body.gfa_basis  # type: ignore[assignment]
-    pid = uuid.uuid4().hex[:8]
-    _PROJECTS[pid] = Project(id=pid, takeoff=t)
-    return {"id": pid}
+    """Build a plan set found under $EC_DATA.
+
+    `name` is the design key. Uploading an arbitrary PDF is Step 13; the
+    pipeline itself takes any vector set, so this endpoint is the only thing
+    standing between it and an upload.
+    """
+    key = _resolve(body.name)
+    if key is not None:
+        return {"id": _build(key, stated=body).id}
+    raise HTTPException(
+        404,
+        f"no plan set {body.name!r} under $EC_DATA. "
+        f"GET /projects lists what is available.",
+    )
 
 
 @app.get("/projects/{project_id}/intake", response_model=IntakeSummary)
@@ -191,28 +299,40 @@ def override_line(project_id: str, line_id: str, body: OverrideQuantity) -> Carb
 def get_substitutions(project_id: str) -> list[Substitution]:
     """Stage 4: ranked by computed impact, never listed arbitrarily.
 
-    Real options arrive in Step 15; the concrete mix swap below uses the
-    published Kootenay figures so the ranking is honest from day one.
+    Every option comes from the factor store, so a swap can only be offered
+    when both the current and the replacement factor are real records with a
+    source and a module scope. A swap whose replacement is not in the store is
+    not shown rather than estimated.
     """
-    from ecarbon.fixtures import FACTOR_CONCRETE_GU, FACTOR_CONCRETE_GUL40
-
     p = _get(project_id)
     out: list[Substitution] = []
-    for cl in p.carbon.lines:
-        if cl.factor and cl.factor.factor_id == FACTOR_CONCRETE_GU.factor_id:
-            delta = cl.quantity * (
-                FACTOR_CONCRETE_GUL40.gwp_value - FACTOR_CONCRETE_GU.gwp_value
-            )
+
+    for swap in _FACTORS.list_substitutions():
+        src = _FACTORS.get_factor(swap["from_factor_id"])
+        dst = _FACTORS.get_factor(swap["to_factor_id"])
+        if src is None or dst is None:
+            continue
+        # Only like-for-like module scopes can be compared, for the same reason
+        # they cannot be summed.
+        if src.modules != dst.modules:
+            continue
+        for cl in p.carbon.lines:
+            if not cl.is_counted or not cl.factor:
+                continue
+            if cl.factor.factor_id != src.factor_id:
+                continue
+            delta = cl.quantity * (dst.gwp_value - src.gwp_value)
             out.append(
                 Substitution(
                     line_id=cl.line_id,
-                    from_material=FACTOR_CONCRETE_GU.name,
-                    to_material=FACTOR_CONCRETE_GUL40.name,
+                    from_material=src.name,
+                    to_material=dst.name,
                     delta_kg_co2e=round(delta, 1),
                     pct_of_total=round(100 * delta / p.carbon.total_kg_co2e, 1)
                     if p.carbon.total_kg_co2e
                     else 0.0,
                 )
             )
+
     out.sort(key=lambda s: s.delta_kg_co2e)  # biggest saving first
     return out
