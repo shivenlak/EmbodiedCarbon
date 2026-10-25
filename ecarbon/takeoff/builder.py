@@ -43,6 +43,13 @@ from datetime import date
 
 import pymupdf
 
+from ecarbon.extract.assemblies import (
+    Assembly,
+    assemblies_for,
+    assembly_tags_used,
+    cmhc_material,
+    dominant_tag,
+)
 from ecarbon.extract.levels import StoreyHeights, storey_heights_for
 from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
 from ecarbon.geometry.footprint import Footprint, detect_footprint
@@ -81,6 +88,20 @@ class TakeoffInputs:
     footprint_page: int | None = None
     spec: FoundationSpec = field(default_factory=FoundationSpec)
     heights: StoreyHeights = field(default_factory=StoreyHeights)
+    assemblies: dict[str, Assembly] = field(default_factory=dict)
+    tag_refs: dict[str, int] = field(default_factory=dict)
+
+    def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
+        """The assembly of one group that this design actually uses."""
+        tag = dominant_tag(self.tag_refs, letter, set(self.assemblies), exclude)
+        return self.assemblies.get(tag) if tag else None
+
+    @property
+    def slab_assembly(self) -> Assembly | None:
+        """The F assembly that is the ground slab, if the schedule has one."""
+        slabs = {t: a for t, a in self.assemblies.items() if a.is_slab_on_grade}
+        tag = dominant_tag(self.tag_refs, "F", set(slabs))
+        return slabs.get(tag) if tag else None
 
 
 def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs, list, list[Gap]]:
@@ -110,6 +131,26 @@ def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs
                 )
     finally:
         doc.close()
+
+    # The assemblies schedule turns an element area into materials. Without it
+    # a wall is only its studs, which is about a sixth of its carbon.
+    try:
+        inputs.assemblies = assemblies_for(design)
+        inputs.tag_refs = assembly_tags_used(design)
+    except Exception:
+        inputs.assemblies, inputs.tag_refs = {}, {}
+    if not inputs.assemblies:
+        gaps.append(
+            Gap(
+                code=GapCode.ASSEMBLY_SCHEDULE_MISSING,
+                severity=GapSeverity.BLOCKING,
+                message=(
+                    "No assemblies schedule could be read, so element areas cannot be "
+                    "resolved into materials. Only quantities with a thickness stated "
+                    "elsewhere on the drawings are produced."
+                ),
+            )
+        )
 
     inputs.spec = foundation_spec_for(design)
     # The floor assembly depth is what separates a gross wall height from a
@@ -286,28 +327,93 @@ def _wall_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
         )
     ]
 
-    # The stud volume inside that wall area, which is what a carbon factor for
-    # framing lumber applies to.
-    if inputs.spec.slab_thickness_mm:  # proxy for "we read the structural sheets"
-        lines.append(
+    return lines
+
+
+def _assembly_lines(
+    asm: Assembly,
+    area_m2: float,
+    element_class: ElementClass,
+    *,
+    confidence: Confidence,
+    area_note: str,
+    extra_assumptions: list[str] | None = None,
+) -> tuple[list[TakeoffLine], list[Gap]]:
+    """Expand one assembly over an area into a line per material layer.
+
+    This is what turns "exterior wall, 309 m2" into cladding, sheathing,
+    insulation and gypsum. A layer produces a line only when the schedule gives
+    enough to compute one: a stated thickness, a specified material, a known
+    coverage, and no deferral to another discipline. Everything else becomes a
+    gap, so the reason a material is absent stays on the record rather than
+    just leaving the total quietly low.
+    """
+    out: list[TakeoffLine] = []
+    gaps: list[Gap] = []
+    slug = element_class.value.replace("_", "-")
+
+    for layer in asm.layers:
+        material = cmhc_material(layer)
+        volume = layer.volume_m3(area_m2, STUD_FRAMING_FRACTION)
+        if volume is None or material is None:
+            continue
+
+        coverage, coverage_note = layer.coverage
+        notes = [area_note]
+        if coverage_note:
+            notes.append(coverage_note)
+        if layer.note:
+            notes.append(layer.note)
+        if layer.shares_cavity_with is not None:
+            partner = asm.layers[layer.shares_cavity_with]
+            share = STUD_FRAMING_FRACTION if layer.is_framing else 1 - STUD_FRAMING_FRACTION
+            notes.append(
+                f"Shares the {layer.thickness_mm:.0f} mm cavity with "
+                f"'{partner.material}', so it takes {share:.0%} of it rather than the "
+                f"full depth; counting both at full depth would put "
+                f"{2 * layer.thickness_mm:.0f} mm of material in a "
+                f"{layer.thickness_mm:.0f} mm space."
+            )
+
+        out.append(
             TakeoffLine(
-                id="ln-exterior-wall-framing",
-                element_class=ElementClass.EXTERIOR_WALL,
-                quantity=round(area * 0.140 * STUD_FRAMING_FRACTION, 2),
+                id=f"ln-{slug}-{asm.tag.lower()}-l{layer.index}",
+                element_class=element_class,
+                quantity=volume,
                 unit=Unit.M3,
-                confidence=Confidence.ASSUMED,
-                material="CMHC_Wood Framing",
-                description="Stud framing within the exterior wall",
-                basis=Basis(sources=[BasisSource.DEFAULT_RULE]),
-                assumptions=[
-                    f"Stud depth assumed 140 mm and framing assumed {STUD_FRAMING_FRACTION:.0%} "
-                    f"of the wall cavity, a conventional allowance. Neither is read from the "
-                    f"drawings; the assemblies schedule would give the real build-up."
-                ],
-                provenance=_prov(inputs, sheet, "EXTERIOR WALL"),
+                confidence=confidence,
+                material=material,
+                assembly_tag=asm.tag,
+                description=(
+                    f"{layer.material.title()}, {layer.thickness_mm:.0f} mm"
+                    + ("" if coverage >= 1.0 else f" at {coverage:.1%} coverage")
+                ),
+                basis=Basis(
+                    sources=[BasisSource.SCHEDULE, BasisSource.VECTOR_PATH],
+                    note=(
+                        f"{asm.tag} layer {layer.index + 1} of {len(asm.layers)} from the "
+                        f"assemblies schedule; {layer.thickness_mm:.0f} mm over "
+                        f"{area_m2:.1f} m2. " + " ".join(notes)
+                    ),
+                ),
+                assumptions=list(extra_assumptions or []),
+                provenance=Provenance(
+                    page=asm.page if asm.page is not None else 0,
+                    sheet_no=asm.sheet,
+                    detail=f"{asm.tag} {asm.name}"[:80],
+                ),
             )
         )
-    return lines
+
+    for message in asm.gaps():
+        gaps.append(
+            Gap(
+                code=GapCode.ASSEMBLY_SCHEDULE_MISSING,
+                severity=GapSeverity.WARNING,
+                message=message,
+            )
+        )
+    return out, gaps
 
 
 # Share of a low-rise home's embodied carbon by element, from the 2022
@@ -354,6 +460,92 @@ def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
     inputs, sheets, gaps = gather(design, expected)
 
     lines = _foundation_lines(inputs) + _wall_lines(inputs)
+
+    # Resolve each element's area into its materials, using the assembly the
+    # drawings actually reference rather than the first one the schedule lists.
+    wall = next((ln for ln in lines if ln.id == "ln-exterior-wall"), None)
+    fp = inputs.footprint
+
+    if wall is not None:
+        asm = inputs.assembly_for("W")
+        if asm is not None:
+            built, more = _assembly_lines(
+                asm,
+                wall.quantity,
+                ElementClass.EXTERIOR_WALL,
+                confidence=Confidence.INFERRED,
+                area_note=(
+                    f"Area is the measured exterior wall, {wall.quantity:.1f} m2, so it "
+                    f"carries that line's own basis and uncertainty."
+                ),
+            )
+            lines += built
+            gaps += more
+
+    if fp is not None:
+        asm = inputs.assembly_for("R")
+        if asm is not None:
+            built, more = _assembly_lines(
+                asm,
+                fp.area_m2,
+                ElementClass.ROOF_ASSEMBLY,
+                confidence=Confidence.ASSUMED,
+                area_note=f"Area taken as the {fp.area_m2:.1f} m2 footprint.",
+                extra_assumptions=[
+                    "Roof area assumed equal to the footprint, which is its horizontal "
+                    "projection. A pitched roof's surface is larger: this design's roof "
+                    "datum sits 1.87 m above the top plate, so the real area is "
+                    "understated. The pitch is not dimensioned on the sheets read, so no "
+                    "slope correction is applied rather than a guessed one."
+                ],
+            )
+            lines += built
+            gaps += more
+
+        # The ground slab's own build-up: sub-slab insulation and granular
+        # base. Its concrete layer defers to the structural drawings, where the
+        # foundation lines above already measured it, so it is not counted
+        # twice.
+        slab = inputs.slab_assembly
+        if slab is not None:
+            built, more = _assembly_lines(
+                slab,
+                fp.area_m2,
+                ElementClass.SLAB_ON_GRADE,
+                confidence=Confidence.INFERRED,
+                area_note=f"Area is the {fp.area_m2:.1f} m2 measured footprint.",
+            )
+            lines += built
+            gaps += more
+
+        # One floor assembly per storey above the first. The lowest floor is
+        # the slab, handled above, and a slab-on-grade assembly must not be
+        # used for a suspended floor -- it would put sub-slab insulation and
+        # granular fill into a first-floor ceiling.
+        upper = max(inputs.heights.n_storeys - 1, 0)
+        slab_tags = {t for t, a in inputs.assemblies.items() if a.is_slab_on_grade}
+        asm = inputs.assembly_for("F", exclude=slab_tags)
+        if asm is not None and upper > 0:
+            built, more = _assembly_lines(
+                asm,
+                fp.area_m2 * upper,
+                ElementClass.FLOOR_ASSEMBLY,
+                confidence=Confidence.ASSUMED,
+                area_note=(
+                    f"Area is the {fp.area_m2:.1f} m2 footprint over {upper} suspended "
+                    f"floor{'s' if upper > 1 else ''}."
+                ),
+                extra_assumptions=[
+                    f"Each suspended floor assumed equal in area to the footprint, and "
+                    f"{upper} of them assumed from {inputs.heights.n_storeys} storeys. "
+                    f"Stairwells and double-height spaces are not deducted.",
+                    f"Assembly {asm.tag} is the most-referenced F assembly on the "
+                    f"drawings; a design using more than one floor build-up would need "
+                    f"them separated per area.",
+                ],
+            )
+            lines += built
+            gaps += more
 
     if inputs.footprint is not None and facts.gfa_m2 is None:
         facts.gfa_m2 = round(inputs.footprint.area_m2 * max(inputs.heights.n_storeys, 1), 1)
