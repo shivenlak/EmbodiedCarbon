@@ -908,3 +908,78 @@ human estimators reaching only 87.9% precision against each other (§8), and the
 phenomenon as gross-vs-leasable floor area (§16). It is the central difficulty of this
 challenge, not an artefact: **there is no single true takeoff, only a basis.** Stating
 ours explicitly is worth more than matching any one reference.
+
+---
+
+## 19. Step 10 opens by settling the foundation — and the PDF wins
+
+§17 flagged that three sources disagreed about the foundation and that concrete, the
+single biggest carbon item, could not be benchmarked until it was resolved. Settled
+against the drawings:
+
+| Source | Alberta foundation |
+|---|---|
+| **Drawings** (S201, S401, S101, S102, S105) | **130 mm slab on grade** + **200 × 1200 deep concrete grade beams** on **400 mm Ø screw piles**, 100 mm frost insulation under beams |
+| Construction Cost Estimate (§16) | "Grade beam construction on screw piles" ✓ |
+| IFC | one **454 mm** layer of `CMHC_Concrete, CIP` |
+
+Derived from the drawings: 136.4 m² × 0.130 = **17.7 m³** of slab, plus ~60 m of beam
+× 0.24 m² = **14.4 m³**, so about **32 m³**. The IFC's 61.9 m³ **overstates it 1.93×**,
+and the cost estimate agrees with the drawings rather than the model.
+
+**So for foundations the PDF is the better source than the IFC, and the IFC must not be
+used to score this element.** That is a pleasing reversal — the thing we are building
+beats the reference we were going to grade it against — and it is worth saying in the
+pitch, because it is the opposite of what a BIM-first team would assume.
+
+One detail that matters disproportionately: **screw piles are steel.** Counting their
+displaced volume as concrete would invent concrete on the largest carbon item, so
+`pile_volume_m3()` returns `None` when the spec says screw piles and only computes a
+volume for cast-in-place.
+
+### Reading dimensioned specs instead of measuring them
+
+Some of the highest-carbon quantities are *stated* on the structural sheets rather than
+measurable from geometry, and reading them is more reliable than inferring them. From
+S201: `"130mm THICK CONCRETE SLAB"`, `"200x1200 DP. CONC. GRADE BEAM"`,
+`"PILE MINIMUM SIZE SHALL BE 400mmØ"`. Each is a *directly measured* quantity in the
+sense the scope means — read off the drawing, not assumed — leaving only the footprint
+area and beam run length to be measured geometrically.
+
+Two regexes fooled themselves on flattened text, and both are now pinned as tests:
+
+| Note | Naive reading | Error |
+|---|---|---|
+| `4-15M x 1200mm LG. DOWELS AT ALL PILE TO GRADE BEAM LOCATIONS` | 1200 × 1200 beam | **6×** on the largest concrete item |
+| `100mm FROST INSULATION UNDER SLAB` | 100 mm slab | 23% low |
+
+Requiring `DP.`/`DEEP` adjacent to `GRADE BEAM`, and `mm THICK ... SLAB` without
+intervening words, fixes both. Sheets are also read in priority order — foundation plan
+and sections before detail sheets — because S102 shows a 100 mm slab *condition* at a
+stoop while S201 *states* the 130 mm design.
+
+### Honest coverage: Alberta only
+
+| Result | Designs |
+|---|---|
+| System **and** dimensions extracted | **7** (all Alberta) |
+| System identified, dimensions not stated in the notes we read | 17 (strip footing) |
+| Nothing identified | 29 |
+
+That is the fifth appearance of the naming-variance lesson, and this time **I am not
+going to fix it with more regexes.** Writing per-firm patterns for seven regions is the
+brittleness the plan warned about. The plan's own answer applies: *LLM proposes,
+geometry verifies* — have a model read the foundation notes and emit a structured spec
+against this same schema, validated against the regex patterns wherever they fire, and
+gap-reported where they do not. The schema, the traceability and the regression tests
+built here are what make that safe to add.
+
+What is already correct: **every design that failed says exactly what is missing**
+("slab thickness not stated", "foundation system not identified") rather than
+defaulting silently. That is the behaviour criterion 1 scores.
+
+A Step 7 gap surfaced here too. Filtering structural sheets by *type* excluded BC and
+QC completely, because BC titles its foundation plan `PLAN FOUNDATION / MAIN FLOOR` and
+QC uses `STRUCTURAL PLANS` — neither matched the phrase rules. Added an order-insensitive
+co-occurrence fallback, which lifted **sheet type match from 94.1% to 95.1%** across the
+catalogue, and the spec reader now takes every readable `S*` sheet regardless of type.

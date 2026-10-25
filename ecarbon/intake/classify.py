@@ -153,6 +153,12 @@ def sheet_type_of(title: str | None, discipline: Discipline = Discipline.UNKNOWN
             matched = kind
             break
 
+    if matched is SheetType.UNKNOWN:
+        # Word order varies between firms: BC titles its foundation plan
+        # "PLAN FOUNDATION / MAIN FLOOR" and QC uses "STRUCTURAL PLANS", so
+        # the phrase rules above miss both. Fall back to co-occurring words.
+        matched = _by_cooccurrence(up)
+
     # A mechanical/electrical sheet is only useful to us as MEP, except that a
     # cover or schedule sheet keeps its own type so coverage checks still work.
     if discipline in _MEP_OVERRIDE and matched not in {
@@ -166,6 +172,29 @@ def sheet_type_of(title: str | None, discipline: Discipline = Discipline.UNKNOWN
     if matched is SheetType.UNKNOWN and discipline in _MEP_OVERRIDE:
         return _MEP_OVERRIDE[discipline]
     return matched
+
+
+# (required words, type). Order matters: the most specific set first.
+_COOCCURRENCE_RULES: tuple[tuple[tuple[str, ...], SheetType], ...] = (
+    (("FOUNDATION", "PLAN"), SheetType.FOUNDATION_PLAN),
+    (("FOOTING", "PLAN"), SheetType.FOUNDATION_PLAN),
+    (("ROOF", "PLAN"), SheetType.ROOF_PLAN),
+    (("FRAMING", "PLAN"), SheetType.FRAMING_PLAN),
+    (("SITE", "PLAN"), SheetType.SITE_PLAN),
+    (("ASSEMBL", "SCHED"), SheetType.ASSEMBLY_SCHEDULE),
+    (("WINDOW", "SCHED"), SheetType.OPENING_SCHEDULE),
+    (("DOOR", "SCHED"), SheetType.OPENING_SCHEDULE),
+    (("FLOOR", "PLAN"), SheetType.FLOOR_PLAN),
+    (("STRUCTURAL", "PLAN"), SheetType.FRAMING_PLAN),
+)
+
+
+def _by_cooccurrence(up: str) -> SheetType:
+    """Type a title by which words appear in it, ignoring their order."""
+    for words, kind in _COOCCURRENCE_RULES:
+        if all(w in up for w in words):
+            return kind
+    return SheetType.UNKNOWN
 
 
 def _is_noise(text: str) -> bool:
