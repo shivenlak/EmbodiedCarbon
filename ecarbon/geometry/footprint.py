@@ -52,6 +52,22 @@ MIN_SIDE_M = 2.5
 MAX_SIDE_M = 120.0
 # How close a candidate extent must be to a dimension chain total to count.
 MATCH_TOL_PCT = 6.0
+# Residential plans are not extreme slivers; a ratio past this is a sheet
+# artefact rather than a building.
+MAX_ASPECT_RATIO = 6.0
+# How much a unit of relative area error counts against a percentage point of
+# dimension disagreement. At 25, a candidate whose area is 1.7x too large pays
+# 42 points -- enough to lose to a correct candidate agreeing only to 5%.
+AREA_WEIGHT = 25.0
+# Hard area bounds, as a multiple of the expected floor area per storey.
+# Generous on the high side because for a rowhouse the expected area describes
+# ONE UNIT while the drawing shows the whole block (RESEARCH S18), so a correct
+# footprint is legitimately a multiple. Tight enough to reject QC_ADU_02's
+# 170 m2 sheet artefact for a 61 m2 ADU, which was a 287% error reported with
+# 2% dimension agreement -- a confidently wrong number, which is worse than
+# none.
+AREA_MAX_MULTIPLE = 2.5
+AREA_MIN_MULTIPLE = 0.4
 
 
 @dataclass(frozen=True)
@@ -148,12 +164,25 @@ def _closest_chain_match(side_m: float, chain_totals_m: list[float]) -> float | 
     return 100.0 * abs(best - side_m) / best if best else None
 
 
-def detect_footprint(page: pymupdf.Page, scale: ScaleEstimate) -> Footprint | None:
+def detect_footprint(
+    page: pymupdf.Page,
+    scale: ScaleEstimate,
+    expected_area_m2: float | None = None,
+) -> Footprint | None:
     """Find the building footprint on a plan sheet.
 
     Returns None rather than guessing when no lineweight group agrees with the
     stated dimensions -- a wrong footprint silently scales both the foundation
     concrete and the exterior wall area.
+
+    `expected_area_m2` is an optional third signal: approximate floor area per
+    storey, i.e. gross floor area divided by storey count. Lineweight agreement
+    with the dimension chains alone is occasionally fooled, because a chain
+    total can describe a site setback rather than the building -- QC_ADU_02
+    matched a 30 m span to within 2% and returned a 170 m2 footprint for a
+    61 m2 ADU. A floor area is a project fact the scope already requires Stage 1
+    to prompt for ("conditioned floor area basis"), so it is legitimately an
+    input rather than ground truth leaking in.
     """
     if scale.mm_per_pt is None:
         return None
@@ -177,6 +206,14 @@ def detect_footprint(page: pymupdf.Page, scale: ScaleEstimate) -> Footprint | No
         w_m, d_m = _extent_m(segs, s)
         if not (MIN_SIDE_M <= w_m <= MAX_SIDE_M and MIN_SIDE_M <= d_m <= MAX_SIDE_M):
             continue
+        short, long = min(w_m, d_m), max(w_m, d_m)
+        if short <= 0 or long / short > MAX_ASPECT_RATIO:
+            continue
+        if expected_area_m2:
+            ratio = (w_m * d_m) / expected_area_m2
+            if not (AREA_MIN_MULTIPLE <= ratio <= AREA_MAX_MULTIPLE):
+                continue
+
         errs = [
             e
             for e in (
@@ -188,17 +225,34 @@ def detect_footprint(page: pymupdf.Page, scale: ScaleEstimate) -> Footprint | No
         if not errs:
             continue
         agreement = max(errs)
+        basis = ["vector_path", "dim_text"]
+        if expected_area_m2:
+            basis.append("floor_area")
         fp = Footprint(
             width_m=round(w_m, 3),
             depth_m=round(d_m, 3),
-            basis=["vector_path", "dim_text"],
+            basis=basis,
             agreement_pct=round(agreement, 2),
             stroke_width=width,
             n_segments=len(segs),
         )
-        # Prefer the best agreement; break ties toward the heavier line, which
-        # is the section cut through the walls.
-        score = (agreement, -width)
+        # Rank by dimension agreement first, then by how close the area is to
+        # the expected floor area per storey, then toward the heavier line --
+        # the section cut through the walls.
+        #
+        # Area RANKS rather than filters. Filtering on it rejected every
+        # rowhouse and stacked townhouse, because for those typologies the
+        # Building Performance Report describes ONE UNIT while the drawing
+        # shows the whole block (RESEARCH S18), so the expected area is a
+        # multiple out. As a ranking term it still separates a 170 m2 sheet
+        # artefact from a 61 m2 ADU without discarding a correct footprint.
+        area_err = (
+            abs(w_m * d_m - expected_area_m2) / expected_area_m2 if expected_area_m2 else 0.0
+        )
+        # A COMBINED score, not a lexicographic one: ranking by agreement
+        # first made the area term a tie-break only, which never fires, since
+        # two lineweight groups rarely agree to the same decimal.
+        score = (agreement + AREA_WEIGHT * area_err, -width)
         if best is None or score < best[0]:
             best = (score, fp)
 

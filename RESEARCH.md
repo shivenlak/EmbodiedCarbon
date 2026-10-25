@@ -983,3 +983,55 @@ QC completely, because BC titles its foundation plan `PLAN FOUNDATION / MAIN FLO
 QC uses `STRUCTURAL PLANS` — neither matched the phrase rules. Added an order-insensitive
 co-occurrence fallback, which lifted **sheet type match from 94.1% to 95.1%** across the
 catalogue, and the spec reader now takes every readable `S*` sheet regardless of type.
+
+### Footprint: scored across the catalogue
+
+`scripts/score_footprint.py`, against the IFC envelope:
+
+| Metric | Result |
+|---|---|
+| Designs scored | **38** |
+| Median error | **3.3%** |
+| Within 5% | 24/38 |
+| **Within 10%** | **32/38** |
+| Within 25% | 33/38 |
+| Worst | 63.3% |
+| Not detected | 8 — all NOR, correctly refused |
+| Not scoreable | 7 — SKMB, IFC geometry degraded |
+
+The 8 refusals are the right answer: the NOR sets have no readable dimension chains,
+so there is nothing to cross-check a lineweight group against, and a footprint from
+lineweight alone would be a guess.
+
+**The lineweight differs by firm** — 1.42 for AB and ON, 1.2 for ATL, 1.32 for BC and
+QC, ~0.3–2.8 across SKMB. A hardcoded stroke width would have been exact on Alberta and
+wrong everywhere else, which is the trap the naming rules fell into five times. Choosing
+the group by agreement with independently-parsed dimension chains is what makes it
+generalise.
+
+### Getting to 63% worst case from 287% took three attempts, and two were wrong
+
+First version: lineweight group chosen purely by dimension-chain agreement. Median 3.4%,
+but **QC_ADU_02 returned a 170 m² footprint for a 61 m² ADU — a 287% error reported with
+2% dimension agreement.** A long chain total can describe a site setback rather than the
+building, so a sheet artefact can agree convincingly. A confidently wrong number is worse
+than none.
+
+Second: added floor area per storey (gross ÷ storeys) as a third signal and used it to
+**reject** candidates. That eliminated the 287% case but **rejected 7 correct footprints**,
+including AB_Rowhouse_01 at 8.4%, because for rowhouses and stacked townhouses the
+Building Performance Report describes **one unit** while the drawing shows the whole
+block (§18) — so the hint is a multiple out and its bound discards the right answer.
+
+Third, and current: area both **ranks** candidates (weighted, not as a lexicographic
+tie-break — two lineweight groups rarely agree to the same decimal, so a tie-break never
+fires) **and** bounds them at 0.4×–2.5×, which is generous enough for a block-vs-unit
+multiple. The hint is withheld entirely for rowhouses and stacked townhouses, where it is
+known to describe a single unit; those fall back to dimension agreement, which handles
+them.
+
+Result across the three attempts: median 3.4% → 3.4% → **3.3%**, within 10% 30 → 28 →
+**32**, worst **287% → 67% → 63%**.
+
+Worth noting the floor area is a legitimate input, not ground truth leaking in: the scope
+requires Stage 1 to prompt for "conditioned floor area basis", so a builder supplies it.

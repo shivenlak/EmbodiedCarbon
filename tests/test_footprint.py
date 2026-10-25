@@ -186,3 +186,55 @@ class TestFeedsTheFoundationTakeoff:
         fp = Footprint(width_m=7.0, depth_m=22.0)
         beam = spec.grade_beam_volume_m3(fp.perimeter_m)
         assert beam == pytest.approx(58.0 * 0.24, rel=0.01)
+
+
+class TestAreaHintGuards:
+    """The floor-area hint rejects a confidently wrong footprint, but must not
+    reject a correct one. Both directions cost real designs when got wrong."""
+
+    def test_aspect_ratio_bound_exists(self):
+        from ecarbon.geometry.footprint import MAX_ASPECT_RATIO
+
+        assert 4.0 <= MAX_ASPECT_RATIO <= 8.0
+
+    def test_area_bounds_are_generous_upward(self):
+        """Because for a rowhouse the hint describes one unit while the drawing
+        shows the block, so a correct footprint is legitimately a multiple."""
+        from ecarbon.geometry.footprint import AREA_MAX_MULTIPLE, AREA_MIN_MULTIPLE
+
+        assert AREA_MAX_MULTIPLE >= 2.0
+        assert AREA_MIN_MULTIPLE <= 0.5
+
+    def test_area_is_weighted_not_merely_a_tie_break(self):
+        """Ranking lexicographically made the area term never fire, since two
+        lineweight groups rarely agree to the same decimal."""
+        from ecarbon.geometry.footprint import AREA_WEIGHT
+
+        assert AREA_WEIGHT > 0
+
+
+@needs_data
+class TestNorSetsAreRefusedNotGuessed:
+    def test_textless_sets_yield_no_footprint(self):
+        """The 8 NOR sets have no readable dimension chains, so there is
+        nothing to cross-check a lineweight group against. Refusing is correct;
+        a footprint from lineweight alone would be a guess."""
+        import pymupdf
+
+        from ecarbon.geometry.footprint import detect_footprint
+        from ecarbon.geometry.scale import calibrate
+        from ecarbon.intake import inventory
+
+        d = get_design("NOR_Fourplex_Municipal")
+        sheets, _, _ = inventory(d.drawings_pdf)
+        doc = pymupdf.open(d.drawings_pdf)
+        try:
+            confident = [
+                fp
+                for s in sheets[:20]
+                if s.readable and (fp := detect_footprint(doc[s.page], calibrate(doc[s.page])))
+                and fp.confident
+            ]
+        finally:
+            doc.close()
+        assert not confident

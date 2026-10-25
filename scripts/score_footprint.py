@@ -20,6 +20,7 @@ import pymupdf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from ecarbon.bench.bpr import parse_bpr  # noqa: E402
 from ecarbon.bench.ifc_truth import building_bbox, geometry_coverage  # noqa: E402
 from ecarbon.config import discover  # noqa: E402
 from ecarbon.geometry.footprint import detect_footprint  # noqa: E402
@@ -57,11 +58,24 @@ def main() -> int:
         bbox = building_bbox(str(d.ifc)) if cov.usable else None
         ifc = [x / 1000.0 for x in bbox.plan_mm] if bbox else None
 
+        # Floor area per storey, a project fact Stage 1 prompts for.
+        #
+        # Withheld for rowhouses and stacked townhouses: their Building
+        # Performance Report describes ONE UNIT while the drawing shows the
+        # whole block (RESEARCH S18), so the hint is a multiple out and its
+        # area bound rejects the correct footprint. Those designs fall back to
+        # dimension-chain agreement alone, which handles them.
+        expected = None
+        if d.bpr and d.typology not in ("rowhouse", "stacked"):
+            bp = parse_bpr(str(d.bpr[0]))
+            if bp.best_gfa_m2 and bp.storeys:
+                expected = bp.best_gfa_m2 / bp.storeys
+
         doc = pymupdf.open(d.drawings_pdf)
         fp = sheet = None
         try:
             for s in [x for x in sheets if x.sheet_type in PLAN_TYPES and x.readable][:4]:
-                got = detect_footprint(doc[s.page], calibrate(doc[s.page]))
+                got = detect_footprint(doc[s.page], calibrate(doc[s.page]), expected)
                 if got and got.confident:
                     fp, sheet = got, s
                     break
