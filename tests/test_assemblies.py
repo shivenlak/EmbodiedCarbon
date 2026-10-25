@@ -187,7 +187,8 @@ class TestAgainstTheRealSchedule:
     def parsed(self):
         from ecarbon.extract.assemblies import assemblies_for
 
-        return assemblies_for(get_design("AB_Fourplex_01"))
+        parsed, _rejected = assemblies_for(get_design("AB_Fourplex_01"))
+        return parsed
 
     def test_every_group_on_the_sheet_is_found(self, parsed):
         assert len(parsed) == 17
@@ -222,3 +223,142 @@ class TestAgainstTheRealSchedule:
             assert len(messages) == len(asm.unspecified)
             for message in messages:
                 assert asm.tag in message
+
+
+class TestColumnLearning:
+    """The column geometry is read from the sheet, not measured on one firm.
+
+    The first version of this parser hardcoded Alberta's offsets -- thickness
+    36 pt left of a centred DESCRIPTION header, material 36 pt right -- and
+    read 7 of 7 Alberta sets and 0 of 7 BC ones. BC's description column is
+    194 pt wide and Ontario stacks its headers at one x.
+    """
+
+    def test_the_thickness_column_is_found_by_its_contents(self):
+        from ecarbon.extract.assemblies import learn_columns
+
+        cells = [
+            (100.0, 548.0, '3/4"/19mm'),
+            (100.0, 620.0, "VERTICAL LIGHTWEIGHT CLADDING"),
+            (110.0, 548.0, '2"/51mm'),
+            (110.0, 620.0, "SEMI-RIGID INSULATION"),
+            (120.0, 548.0, "2x6/38x140mm"),
+            (120.0, 620.0, "WOOD STUD FRAMING"),
+        ]
+        thick_x, mat_x, _name_x = learn_columns(cells, desc_x=608.0)
+        assert thick_x == pytest.approx(548.0, abs=1.0)
+        assert mat_x == pytest.approx(620.0, abs=1.0)
+
+    def test_a_centred_name_column_is_distinguished_from_the_material_column(self):
+        """Alberta's layout: thickness, name and material in three columns."""
+        from ecarbon.extract.assemblies import learn_columns
+
+        cells = [
+            (100.0, 988.7, "EXTERIOR ENVELOPE WALL"),
+            (110.0, 952.7, "19mm (3/4\")"),
+            (110.0, 1024.8, "RIGID INSULATION"),
+            (120.0, 952.7, "140mm (5 1/2\")"),
+            (120.0, 1024.8, "WOOD STUD FRAMING"),
+            (130.0, 952.7, "16mm (5/8\")"),
+            (130.0, 1024.8, "GYPSUM BOARD"),
+        ]
+        thick_x, mat_x, name_x = learn_columns(cells, desc_x=988.5)
+        assert thick_x == pytest.approx(952.7, abs=1.0)
+        assert mat_x == pytest.approx(1024.8, abs=1.0)
+        assert name_x == pytest.approx(988.7, abs=1.0)
+
+    def test_no_cells_yields_no_columns(self):
+        from ecarbon.extract.assemblies import learn_columns
+
+        assert learn_columns([], desc_x=100.0) == (None, None, None)
+
+
+class TestPlausibilityGate:
+    """Reading this sheet generically sometimes merges blocks or starts one on
+    a layer row. The result is structurally wrong while looking ordinary, so it
+    is refused rather than used: a wrong build-up produces wrong quantities
+    silently, while refusing produces a gap that says so.
+    """
+
+    def assembly(self, name: str, n_layers: int, mm: float) -> Assembly:
+        asm = Assembly(tag="X1", name=name)
+        asm.layers = [layer("RIGID INSULATION", mm / max(n_layers, 1), i) for i in range(n_layers)]
+        return asm
+
+    def test_a_sound_assembly_passes(self):
+        assert self.assembly("EXTERIOR ENVELOPE WALL", 9, 229.0).implausible() is None
+
+    def test_too_many_layers_is_refused(self):
+        """BC_Duplex produced a 47-layer 'VAULTED ROOF' this way."""
+        reason = self.assembly("VAULTED ROOF", 47, 1573.0).implausible()
+        assert reason and "layers" in reason
+
+    def test_an_absurd_built_depth_is_refused(self):
+        reason = self.assembly("EXTERIOR WALL", 8, 1280.0).implausible()
+        assert reason and "depth" in reason
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "GYPSUM BOARD, TYPE X",
+            "ROOFING PLACEHOLDER",
+            "AIR BARRIER, VAPOUR PERMEABLE",
+            "PARGING ON FACE OF INSULATION TO 150mm",
+        ],
+    )
+    def test_an_assembly_named_after_a_material_is_refused(self, name):
+        """The block began on a layer row, so its first layer is missing."""
+        reason = self.assembly(name, 6, 200.0).implausible()
+        assert reason and "material rather than an assembly" in reason
+
+    def test_an_empty_assembly_is_refused(self):
+        assert Assembly(tag="X1", name="EXTERIOR WALL").implausible() == "no layers found"
+
+
+@needs_data
+class TestAcrossFirms:
+    """Each firm lays this sheet out differently, so the test is whether more
+    than one of them reads -- and whether Alberta still reads exactly.
+    """
+
+    @pytest.mark.parametrize(
+        ("design", "at_least"),
+        [("AB_Fourplex_01", 17), ("BC_Duplex", 8), ("QC_Fourplex_01", 10), ("ON_ADU_02", 8)],
+    )
+    def test_several_firms_parse(self, design, at_least):
+        from ecarbon.extract.assemblies import assemblies_for
+
+        kept, _rejected = assemblies_for(get_design(design))
+        assert len(kept) >= at_least
+
+    def test_alberta_is_unchanged_by_generalising(self):
+        """The regression guard. Segmenting by tag position rather than by the
+        name column broke Alberta's P3, whose build-up matches the IFC to the
+        millimetre."""
+        from ecarbon.extract.assemblies import assemblies_for
+
+        kept, rejected = assemblies_for(get_design("AB_Fourplex_01"))
+        assert len(kept) == 17
+        assert rejected == []
+        for tag, ifc_mm in (("P1", 121.0), ("P2", 201.0), ("P3", 235.0)):
+            assert kept[tag].total_thickness_mm == pytest.approx(ifc_mm, abs=1.0)
+
+    def test_an_unreliable_parse_is_reported_rather_than_used(self):
+        """BC's exterior wall defeats both strategies, so it is refused and the
+        reason is on the record."""
+        from ecarbon.extract.assemblies import assemblies_for
+
+        kept, rejected = assemblies_for(get_design("BC_Duplex"))
+        assert rejected, "BC_Duplex has assemblies that cannot be read reliably"
+        for message in rejected:
+            assert "could not be read reliably" in message
+            assert "not counted" in message
+        # And nothing refused leaks into the usable set.
+        assert all(a.implausible() is None for a in kept.values())
+
+    def test_a_textless_set_reports_nothing_rather_than_guessing(self):
+        """The NOR sets have their text converted to vector outlines."""
+        from ecarbon.extract.assemblies import assemblies_for
+
+        kept, _rejected = assemblies_for(get_design("NOR_Fourplex_Municipal"))
+        assert kept == {}

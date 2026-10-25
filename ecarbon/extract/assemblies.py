@@ -48,6 +48,30 @@ reason, not a zero.
 stud framing layer defers to the structural drawings. Counting it here as well
 as from the structural takeoff double-counts the framing, so it is flagged
 `deferred_to` and excluded from this assembly's own material quantities.
+
+### What this reads, and what it does not
+
+Measured over the catalogue: 31 of 53 designs yield at least one trustworthy
+assembly -- Alberta 7/7, BC 7/7, Quebec 7/7, Atlantic 8/9 -- with 280
+assemblies kept and 80 refused by `Assembly.implausible`.
+
+Two groups read nothing, for different reasons, and the distinction matters:
+
+* **SKMB (7 designs) publishes no assemblies schedule at all.** Its packages
+  carry only `S002 TYPICAL DETAILS`. That is a gap in the source documents,
+  not in this parser, and no amount of work here will close it.
+* **NOR (9 designs) has its text converted to vector outlines**, so there is
+  nothing to read on any sheet.
+* **Ontario's five multiplexes have a readable schedule this cannot yet
+  parse.** Their sheet is drawn rotated a quarter turn, which `_spans`
+  corrects, but their thickness cells are glyph-ID mojibake that
+  `intake.textrepair` deliberately refuses: `PP` is `mm` under the 0x1D shift
+  and `5,*,',168/$7,215` is `RIGID INSULATION`, but a cell under three
+  characters is skipped and any cell containing letters is left alone. That
+  second guard is what stops `R-22` becoming `oJOO` across 1465 pages of sheet
+  classification, so it is not worth loosening globally for five designs. A
+  repair scoped to this module, accepting a shift only when the result parses
+  as a thickness or a known material, would be the safe way in.
 """
 
 from __future__ import annotations
@@ -98,10 +122,24 @@ _CAVITY_FILL_RE = re.compile(r"CAVITY\s+(IN-?FILL|FILL)|BATT|IN-?FILL\s+INSULATI
 # assembly's name row sits at the header's own x. Measured identically on every
 # table on the sheet: 988.5 header with 952.7/1024.8 cells, and 1830.1 with
 # 1794.3/1866.4.
-THICKNESS_DX = 36.0
-MATERIAL_DX = 36.0
-# Half the gap between sub-columns, so the three never overlap.
 COL_TOL = 14.0
+# Sanity bounds on a parsed assembly. A low-rise wall, roof or floor runs to a
+# dozen layers and a few hundred millimetres; well past that means the parse
+# merged blocks rather than that the building is unusual.
+MAX_PLAUSIBLE_LAYERS = 15
+MAX_PLAUSIBLE_DEPTH_MM = 800.0
+# An assembly "name" that is really one of its own layers, which is what a
+# block starting on the wrong row looks like.
+_MATERIAL_LIKE_NAME_RE = re.compile(
+    r"GYPSUM|PLACEHOLDER|PLACE\s?HOLDER|AIR\s+BARRIER|VAPOU?R|STRAPPING|MEMBRANE"
+    r"|SHEATHING|PLYWOOD|INSULATION\s*$|PARGING|JOISTS?\s*@|CONCRETE\s*$",
+    re.I,
+)
+# A cell carrying words rather than a dimension: three or more letters in a row.
+_WORDY_RE = re.compile(r"[A-Za-z]{3,}")
+# The words that make up a schedule table's header row. Used to find a table's
+# horizontal extent from the sheet itself rather than from a measured offset.
+_HEADER_WORDS = {"TYPE", "DIAGRAM", "DESCRIPTION", "PERFORMANCE", "THICKNESS", "ASSEMBLY"}
 # Two spans belong to the same table row within this many points.
 ROW_DY = 3.0
 # A tag sits vertically within its assembly's block, not at its top.
@@ -251,6 +289,8 @@ class Assembly:
     performance: list[str] = field(default_factory=list)
     sheet: str | None = None
     page: int | None = None
+    # y of this assembly's name row, used to attach the tag beside its block.
+    name_y: float | None = None
 
     @property
     def total_thickness_mm(self) -> float:
@@ -264,6 +304,37 @@ class Assembly:
             if layer.shares_cavity_with is not None:
                 seen.add(layer.shares_cavity_with)
         return round(total, 1)
+
+    def implausible(self) -> str | None:
+        """Why this parse should not be trusted, or None if it looks sound.
+
+        Reading this sheet generically across firms sometimes merges adjacent
+        blocks or starts one on a layer row, and the result is structurally
+        wrong while looking entirely ordinary: a 47-layer, 1.6 m "VAULTED ROOF"
+        on BC_Duplex, and assemblies named "GYPSUM BOARD" on ATL_Sixplex. A
+        wrong build-up silently produces wrong quantities, whereas refusing it
+        produces a gap that says so, so anything failing these checks is
+        reported unreadable instead of used.
+        """
+        if len(self.layers) > MAX_PLAUSIBLE_LAYERS:
+            return (
+                f"{len(self.layers)} layers, more than the {MAX_PLAUSIBLE_LAYERS} a "
+                f"low-rise assembly has; adjacent blocks on the sheet were probably "
+                f"merged"
+            )
+        if self.total_thickness_mm > MAX_PLAUSIBLE_DEPTH_MM:
+            return (
+                f"built depth {self.total_thickness_mm:.0f} mm, beyond the "
+                f"{MAX_PLAUSIBLE_DEPTH_MM:.0f} mm a low-rise assembly reaches"
+            )
+        if not self.layers:
+            return "no layers found"
+        if _MATERIAL_LIKE_NAME_RE.search(self.name):
+            return (
+                f"the name {self.name!r} is a material rather than an assembly, so the "
+                f"block began on a layer row and its first layer is missing"
+            )
+        return None
 
     @property
     def is_slab_on_grade(self) -> bool:
@@ -315,14 +386,108 @@ def defer_match(text: str) -> str | None:
 
 
 def _spans(page: pymupdf.Page) -> list[tuple[float, float, str]]:
-    out: list[tuple[float, float, str]] = []
+    """(row, column, text) for every text span, in reading order.
+
+    Ontario's multiplex schedules are drawn rotated a quarter turn -- 640 of
+    644 spans on ON_Fourplex_01's A001 advance along (0, -1) -- so the table's
+    rows run down the page's x axis and its columns along y. Everything after
+    this point reasons about rows and columns, so the rotation is undone here
+    once rather than being special-cased in the column logic.
+    """
+    rows: list[tuple[float, float, str]] = []
+    turns: dict[tuple[float, float], int] = {}
     for block in page.get_text("dict")["blocks"]:
         for line in block.get("lines", []):
-            for s in line.get("spans", []):
-                t = s["text"].strip()
-                if t:
-                    out.append((s["bbox"][1], s["bbox"][0], repair(t)[0]))
-    return sorted(out)
+            direction = line.get("dir", (1.0, 0.0))
+            key = (round(direction[0], 1), round(direction[1], 1))
+            spans = [s for s in line.get("spans", []) if s["text"].strip()]
+            turns[key] = turns.get(key, 0) + len(spans)
+            for s in spans:
+                rows.append((s["bbox"][1], s["bbox"][0], repair(s["text"].strip())[0]))
+
+    if not rows:
+        return []
+    # The page's own reading direction, by weight of text rather than by one
+    # stray rotated label.
+    dominant = max(turns, key=lambda k: turns[k])
+    if dominant == (0.0, -1.0):
+        # Text advances up the page, so a line of it runs along y: the logical
+        # column is -y and the logical row is x.
+        rows = [(x, -y, t) for y, x, t in rows]
+    elif dominant == (0.0, 1.0):
+        rows = [(-x, y, t) for y, x, t in rows]
+    elif dominant == (-1.0, 0.0):
+        rows = [(-y, -x, t) for y, x, t in rows]
+    return sorted(rows)
+
+
+def _cluster_x(values: list[float], tol: float = 9.0) -> list[tuple[float, int]]:
+    """Group x positions into columns. Returns [(mean x, count)], left first."""
+    out: list[list[float]] = []
+    for v in sorted(values):
+        if out and v - out[-1][-1] <= tol:
+            out[-1].append(v)
+        else:
+            out.append([v])
+    return [(sum(c) / len(c), len(c)) for c in out]
+
+
+def _looks_like_thickness(text: str) -> bool:
+    t = text.strip().upper()
+    return bool(t) and (t in _NO_THICKNESS or parse_thickness(t)[0] is not None)
+
+
+def learn_columns(
+    cells: list[tuple[float, float, str]], desc_x: float
+) -> tuple[float | None, float | None, float | None]:
+    """Find the thickness, material and name columns of one schedule table.
+
+    Each firm lays this sheet out differently. Alberta puts the thickness and
+    material 36 pt either side of a centred DESCRIPTION header; BC's
+    description column is 194 pt wide; Ontario stacks its headers at one x.
+    Fixed offsets therefore only ever describe the firm they were measured on,
+    which is how this parser first read 7 of 7 Alberta sets and 0 of 7 BC ones.
+
+    So the columns are learned from the cells themselves: positions are
+    clustered, the cluster whose contents parse as thicknesses is the thickness
+    column, the wordiest one to its right is the material column, and a column
+    sitting at the header's own x with neither is the assembly name.
+    """
+    columns = _cluster_x([x for _, x, _ in cells])
+    if not columns:
+        return None, None, None
+
+    scored: list[tuple[float, int, float, float]] = []
+    for cx, n in columns:
+        members = [t for _, x, t in cells if abs(x - cx) <= 9.0]
+        if not members:
+            continue
+        thick = sum(1 for t in members if _looks_like_thickness(t)) / len(members)
+        wordy = sum(1 for t in members if _WORDY_RE.search(t)) / len(members)
+        scored.append((cx, n, thick, wordy))
+    if not scored:
+        return None, None, None
+
+    # The thickness column: mostly dimensions, and never mostly words.
+    thickness = max(
+        (c for c in scored if c[2] >= 0.5 and c[3] < 0.5), key=lambda c: (c[2], c[1]), default=None
+    )
+    thick_x = thickness[0] if thickness else None
+
+    # The material column: the wordiest column right of the thickness one,
+    # or simply the wordiest if no thickness column was found.
+    material_pool = [
+        c for c in scored if c[3] >= 0.5 and (thick_x is None or c[0] > thick_x)
+    ] or [c for c in scored if c[3] >= 0.5]
+    material = max(material_pool, key=lambda c: (c[1], c[3]), default=None)
+    mat_x = material[0] if material else None
+
+    # The assembly name sits at the header's own x and is neither of the above.
+    name_pool = [
+        c for c in scored if c[0] not in {thick_x, mat_x} and abs(c[0] - desc_x) < 24.0
+    ]
+    name_x = max(name_pool, key=lambda c: c[1])[0] if name_pool else None
+    return thick_x, mat_x, name_x
 
 
 def _mark_shared_cavities(layers: list[Layer]) -> None:
@@ -349,9 +514,11 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
     column positions are read from its own header row rather than assumed.
     """
     spans = _spans(page)
+    # Group banners ("W - EXTERIOR WALL ASSEMBLIES") appear on some firms'
+    # sheets and not others, so they enrich the result rather than gate it.
+    # Requiring one is what made this parser read 7 of 7 Alberta sets and 0 of
+    # 7 BC ones; the group letter is in the tag anyway.
     groups = [(y, x, _GROUP_RE.match(t)) for y, x, t in spans if _GROUP_RE.match(t)]
-    if not groups:
-        return []
 
     # Each DESCRIPTION header starts a table; its x gives the layer columns and
     # its y gives the top of the block.
@@ -368,122 +535,210 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             _, _, m = max(candidates, key=lambda g: g[0])
             letter, group_name = m.group(1).upper(), m.group(2).strip().title()
 
-        thick_x = desc_x - THICKNESS_DX
-        mat_x = desc_x + MATERIAL_DX
-        # Everything in this table's own three columns, below its header.
-        band = [
+        # This table's horizontal extent: from the column left of DESCRIPTION
+        # to the one right of it, taken from the header row itself so the width
+        # is the sheet's own rather than a number measured on one firm.
+        row_headers = sorted(
+            x for y, x, t in spans if abs(y - desc_y) <= 12.0 and t.upper() in _HEADER_WORDS
+        )
+        left = max((x for x in row_headers if x < desc_x - 1), default=desc_x - 240.0)
+        right = min((x for x in row_headers if x > desc_x + 1), default=desc_x + 240.0)
+
+        # Where this table ends: the next DESCRIPTION header below it in the
+        # same horizontal span.
+        nxt = [y for y, x in headers if y > desc_y and left <= x <= right]
+        bottom = min(nxt) if nxt else float("inf")
+
+        cells = [
             (y, x, t)
             for y, x, t in spans
-            if y > desc_y
-            and min(abs(x - desc_x), abs(x - thick_x), abs(x - mat_x)) < COL_TOL
+            if desc_y < y < bottom and left < x < right and t.upper() not in _HEADER_WORDS
         ]
-        # Stop at the next table in the same column.
-        nxt = [y for y, x in headers if y > desc_y and abs(x - desc_x) < COL_TOL]
-        if nxt:
-            band = [(y, x, t) for y, x, t in band if y < min(nxt)]
+        if not cells:
+            continue
+
+        thick_x, mat_x, name_x = learn_columns(cells, desc_x)
+        if mat_x is None:
+            continue
+        if name_x is None:
+            name_x = desc_x
+
+        band = [
+            (y, x, t)
+            for y, x, t in cells
+            if min(
+                abs(x - name_x),
+                abs(x - mat_x),
+                abs(x - thick_x) if thick_x is not None else 1e9,
+            )
+            < COL_TOL
+        ]
         if not band:
             continue
 
+        # Tags live in the TYPE column, which is left of DIAGRAM and so left of
+        # this table's own span.
+        tag_lo = left - 420.0
         tags = [
-            (y, t)
+            (y, x, t)
             for y, x, t in spans
-            if _TAG_RE.match(t) and desc_y < y and abs(x - (desc_x - 393)) < TAG_DX
+            if _TAG_RE.match(t) and desc_y < y < bottom and tag_lo <= x <= left
+        ]
+        first_of_table = len(out)
+
+        thicknesses = (
+            {round(y, 1): t for y, x, t in band if abs(x - thick_x) < COL_TOL}
+            if thick_x is not None
+            else {}
+        )
+        # Text cells, in sheet order: the names and the material layers. Some
+        # firms give the name its own centred column (Alberta), others put it
+        # as the first row of the material column (BC).
+        text_cells = [
+            (y, x, t)
+            for y, x, t in band
+            if (abs(x - mat_x) < COL_TOL or (name_x is not None and abs(x - name_x) < COL_TOL))
+            and t.upper() not in _CONTINUATION
         ]
 
-        # Walk the band: a description with no thickness beside it is an
-        # assembly name and starts a new block; one with a thickness is a layer.
-        thicknesses = {round(y, 1): t for y, x, t in band if abs(x - thick_x) < COL_TOL}
-        current: Assembly | None = None
-        for y, x, text in band:
-            is_name = abs(x - desc_x) < COL_TOL
-            is_material = abs(x - mat_x) < COL_TOL
-            if not (is_name or is_material):
-                continue
-            if text.upper() in _CONTINUATION:
-                continue
-            paired = next(
-                (v for ty, v in thicknesses.items() if abs(ty - y) <= ROW_DY), None
-            )
-            if is_name and paired is None:
-                # An assembly name: centred under the header, no thickness.
-                current = Assembly(
-                    tag="",
-                    name=text,
-                    group=group_name,
-                    group_letter=letter,
-                    sheet=sheet,
-                    page=page.number,
-                )
-                out.append(current)
-                continue
-            if current is None:
-                continue
-            # A material with no thickness cell beside it is still a layer; its
-            # thickness is simply not stated, which is a gap, not a reason to
-            # drop the material from the build-up.
-            mm, note = parse_thickness(paired) if paired is not None else (None, None)
-            material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", text)).strip(" ,")
-            if not material:
-                # The whole cell was a cross-reference, e.g. F1's bare "REFER
-                # TO STRUCTURAL" sitting under the slab. That annotates the
-                # layer above rather than being a layer of its own.
-                if current.layers and defer_match(text):
-                    current.layers[-1].deferred_to = defer_match(text)
-                continue
-            defer = _DEFER_RE.search(text)
-            current.layers.append(
-                Layer(
-                    index=len(current.layers),
-                    material=material,
-                    thickness_mm=mm,
-                    note=note,
-                    deferred_to=defer.group(1).title() if defer else None,
-                    is_placeholder=bool(_PLACEHOLDER_RE.search(text)),
-                )
-            )
+        # How a new assembly is recognised depends on the layout, and the two
+        # strategies disagree on each other's sheets.
+        #
+        # Where the firm gives the name its own column (Alberta, Quebec,
+        # Ontario's ADUs), a cell in that column starts an assembly. That is
+        # exact, and segmenting those sheets by tag position instead broke
+        # Alberta's P3 -- an assembly whose build-up matches the IFC to the
+        # millimetre.
+        #
+        # Where it does not (BC, Atlantic), the name is simply the first row of
+        # the material column, and the tags are what separate one block from
+        # the next. The absence of a thickness cannot be used there, because
+        # those firms omit the thickness cell for barrier layers rather than
+        # writing VAR.
+        has_name_column = name_x is not None and abs(name_x - mat_x) > COL_TOL
 
-        # Attach each tag to the assembly whose vertical block contains it.
-        for i, asm in enumerate(out):
-            if asm.tag or asm.group_letter != letter:
+        blocks: dict[int, list[tuple[float, str]]] = {}
+        if has_name_column:
+            index = -1
+            for y, x, text in text_cells:
+                if abs(x - name_x) < COL_TOL:
+                    index += 1
+                if index >= 0:
+                    blocks.setdefault(index, []).append((y, text))
+        else:
+            tag_ys = sorted(ty for ty, _, _ in tags)
+            bounds = [(a + b) / 2 for a, b in zip(tag_ys, tag_ys[1:], strict=False)]
+            for y, _x, text in text_cells:
+                blocks.setdefault(sum(1 for b in bounds if y > b), []).append((y, text))
+
+        for index in sorted(blocks):
+            rows = sorted(blocks[index])
+            if not rows:
                 continue
-            top = min((lay_y for lay_y, _, _ in band), default=desc_y)
-            lo = top if i == 0 else None
-            _ = lo  # block bounds come from the name rows below
-        _attach_tags(out, tags, letter)
+            # The topmost row of a block names the assembly; the rest are its
+            # layers, outside in.
+            name_y_val, name_text = rows[0]
+            current = Assembly(
+                tag="",
+                name=name_text,
+                group=group_name,
+                group_letter=letter,
+                sheet=sheet,
+                page=page.number,
+                name_y=name_y_val,
+            )
+            out.append(current)
+
+            for y, text in rows[1:]:
+                paired = next(
+                    (v for ty, v in thicknesses.items() if abs(ty - y) <= ROW_DY), None
+                )
+                # A layer with no thickness cell is still a layer; its depth is
+                # simply not stated, which is a gap rather than a reason to drop
+                # the material from the build-up.
+                mm, note = parse_thickness(paired) if paired is not None else (None, None)
+                material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", text)).strip(" ,")
+                if not material:
+                    # The whole cell was a cross-reference, e.g. F1's bare
+                    # "REFER TO STRUCTURAL" under the slab. That annotates the
+                    # layer above rather than being a layer of its own.
+                    if current.layers and defer_match(text):
+                        current.layers[-1].deferred_to = defer_match(text)
+                    continue
+                defer = _DEFER_RE.search(text)
+                current.layers.append(
+                    Layer(
+                        index=len(current.layers),
+                        material=material,
+                        thickness_mm=mm,
+                        note=note,
+                        deferred_to=defer.group(1).title() if defer else None,
+                        is_placeholder=bool(_PLACEHOLDER_RE.search(text)),
+                    )
+                )
+
+        _attach_tags(out[first_of_table:], tags)
 
     for asm in out:
+        # The tag carries the group letter, so a sheet with no group banner
+        # still resolves its groups. Only the readable group *name* depends on
+        # the banner, and that is description, not data.
+        if asm.tag and not asm.group_letter:
+            asm.group_letter = asm.tag[0].upper()
         _mark_shared_cavities(asm.layers)
-    return [a for a in out if a.layers]
+    return [a for a in out if a.layers and a.tag]
 
 
-def _attach_tags(assemblies: list[Assembly], tags: list[tuple[float, str]], letter: str) -> None:
-    """Give each assembly in this group the tag that sits in its block."""
-    group = [a for a in assemblies if a.group_letter == letter]
-    untagged = [a for a in group if not a.tag]
-    free = [t for t in sorted(tags) if t[1].upper().startswith(letter)]
-    # Both lists are in sheet order, so position is the pairing.
-    for asm, (_, tag) in zip(untagged, free, strict=False):
-        asm.tag = tag
+def _attach_tags(assemblies: list[Assembly], tags: list[tuple[float, float, str]]) -> None:
+    """Give each assembly of one table the tag sitting beside its block.
+
+    A tag is vertically centred in its own block rather than aligned to the
+    assembly's name row, so each tag is assigned to the last assembly whose
+    name appears above it.
+    """
+    # Sorted by y with an explicit key: two assemblies can share a name row,
+    # and comparing the tuples would then try to order Assembly objects.
+    named = sorted(
+        (a for a in assemblies if a.name_y is not None), key=lambda a: a.name_y
+    )
+    for tag_y, _, tag in sorted(tags):
+        above = [a for a in named if a.name_y <= tag_y + ROW_DY]
+        if above and not above[-1].tag:
+            above[-1].tag = tag
 
 
-def assemblies_for(design) -> dict[str, Assembly]:
-    """Every assembly in a design's schedule sheets, by tag."""
+def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
+    """Every trustworthy assembly in a design's schedule sheets, by tag.
+
+    Returns (assemblies, rejected) where `rejected` describes each assembly
+    whose parse did not survive `Assembly.implausible` and so is reported as
+    unreadable rather than used.
+    """
     from ecarbon.intake import inventory
     from ecarbon.models import SheetType
 
     sheets, _, _ = inventory(design.drawings_pdf)
     found: dict[str, Assembly] = {}
+    rejected: list[str] = []
     doc = pymupdf.open(design.drawings_pdf)
     try:
         for s in sheets:
             if s.sheet_type is not SheetType.ASSEMBLY_SCHEDULE or not s.readable:
                 continue
             for asm in assemblies_on_page(doc[s.page], s.sheet_no):
-                if asm.tag:
-                    found[asm.tag] = asm
+                if not asm.tag:
+                    continue
+                reason = asm.implausible()
+                if reason:
+                    rejected.append(
+                        f"Assembly {asm.tag} on sheet {asm.sheet} could not be read "
+                        f"reliably: {reason}. Its materials are not counted."
+                    )
+                    continue
+                found[asm.tag] = asm
     finally:
         doc.close()
-    return found
+    return found, rejected
 
 
 # A layer's description, in the drawing's words, mapped to the catalogue's

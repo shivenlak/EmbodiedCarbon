@@ -135,8 +135,16 @@ def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs
     # The assemblies schedule turns an element area into materials. Without it
     # a wall is only its studs, which is about a sixth of its carbon.
     try:
-        inputs.assemblies = assemblies_for(design)
+        inputs.assemblies, rejected = assemblies_for(design)
         inputs.tag_refs = assembly_tags_used(design)
+        for message in rejected:
+            gaps.append(
+                Gap(
+                    code=GapCode.ASSEMBLY_SCHEDULE_MISSING,
+                    severity=GapSeverity.WARNING,
+                    message=message,
+                )
+            )
     except Exception:
         inputs.assemblies, inputs.tag_refs = {}, {}
     if not inputs.assemblies:

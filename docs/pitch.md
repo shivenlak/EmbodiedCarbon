@@ -12,48 +12,66 @@
 ### [0:00 – 0:30] Hook & The Problem
 > *"Production builders like Landmark build hundreds of homes each year on standardized floor plans. In September 2025, the federal Standard on Embodied Carbon takes effect, requiring whole-building LCA baselines. Right now, that baseline takes 3 to 4 weeks and thousands of dollars per plan from specialized LCA consultants. Meanwhile, generic AI takeoff tools like Handoff-H1 calculate cost lines with zero carbon knowledge, zero provenance, and zero understanding of lifecycle module boundaries.
 >
-> Today, we present **ecarbon**: an automated engine that takes any builder's 2D vector PDF blueprint set and produces a traceable Bill of Quantities and cradle-to-gate (A1–A3) embodied carbon audit in under 35 seconds."*
+> Today, we present **ecarbon**: it reads a builder's 2D vector PDF plan set and produces a bill of quantities that cites the sheet every number came from, plus a cradle-to-gate (A1–A3) carbon estimate, in about eight seconds."*
 
 ### [0:30 – 1:15] Step 1: Intake & The Honesty Stance (Criteria 1 & 8)
-> *"Let's upload an unseen blueprint set: `ATL_Fourplex_01`. Watch the timer.
-> 
-> The very first thing ecarbon displays isn't a magical guess—it is our **Pre-Flight Gap Report**. It detected that the set was generated in AutoCAD with AIA layering conventions, catalogued all 34 sheets, and explicitly flagged that the structural schedule uses a distinct notation. 
-> 
-> **Our core philosophy is: We tell you what we can and cannot read.** Traditional AI fails silently; ecarbon establishes trust by guaranteeing that every quantity is labelled `measured`, `inferred`, or `assumed`."*
+> *"Let's point it at a plan set it has never been tuned on. Watch the timer.
+>
+> The first thing it shows is not a number — it's the gap report. It catalogued all 46 sheets, identified the type of each one, detected that the architectural pages came out of Revit and the structural pages out of AutoCAD **in the same PDF**, and then told us what it could not read.
+>
+> **That is the whole stance: we tell you what we cannot read.** Here is the sharpest version of it. Nine sets in this catalogue had their text converted to vector outlines on export — there are no readable dimensions on any sheet. We report that and produce nothing, because the alternative is a confident number with nothing behind it. Across the catalogue we refuse 80 assemblies outright when the parse isn't trustworthy.
+>
+> Every quantity that does come through is labelled `measured`, `inferred`, or `assumed`, and the assumed ones print their assumption."*
 
-### [1:15 – 2:00] Step 2: Traceable BoQ & Click-to-Trace (Criterion 2)
-> *"Here is the generated Bill of Quantities across 8 core element classes—foundations, slab on grade, exterior envelope, roof assemblies, windows, and doors.
-> 
-> Notice this concrete slab quantity: 141.8 m². When our estimator clicks the line, the drawing instantly renders with the source blueprint bounding box highlighted in blue. Provenance is 100% traceable to Sheet A101, Detail 1.
-> 
-> How accurate is this? We built an automated validation harness comparing our PDF takeoffs against independent 3D IFC triangular mesh ground truth. On this building, our slab error is **0.4%**; our exterior wall error is **4.2%**. Across all evaluated toolchains, 100% of our headline quantities achieve within $\pm 10\%$ error."*
+### [1:15 – 2:00] Step 2: A bill of quantities that cites its sources (Criterion 2)
+> *"Here is the bill of quantities. Every line carries the sheet it was read from — this slab is 20.02 m³ of concrete, 130 mm over a measured 154 m² footprint, and the citation says S201, slab on grade. Not a category. The sheet.
+>
+> Three labels do the work. The slab is **measured**: the footprint came from the drafting linework and was confirmed against the dimension strings to within a fraction of a percent. The grade beam is **inferred** — the section is stated, but we take its length as the footprint perimeter, which understates an L-shaped plan, and the line says so. The stud framing is **assumed**, and the assumption is printed next to it.
+>
+> How accurate is the geometry? We score against the 3D IFC models that ship with the catalogue. Footprint median error is **3.3%**, with 32 of 38 scoreable designs inside 10%. The worst case is 63%, and we publish it.
+>
+> Then the assemblies schedule turns that wall area into materials — cladding, sheathing, insulation, gypsum. Our build-ups match the IFC's own material layer sets **exactly** on three partition types: 121, 201 and 235 millimetres."*
 
-### [2:00 – 2:30] Step 3: Carbon Discipline & Scope Reconciliation (Criterion 3)
-> *"Now let's examine the carbon total: **55,074 kg CO₂e** (129.5 kg/m² GFA). 
-> 
-> Notice our **Scope Guard**. CMHC published a whole-life carbon figure of 213 tonnes for this archetype. But that number bundles operational replacements (B4–B5) and demolition (C2–C4) over a 60-year lifespan. Summing those into an upfront builder procurement figure violates EN 15978 rules. ecarbon strictly isolates A1–A3 product emissions and provides a live reconciliation table explaining every variance."*
+### [2:00 – 2:30] Step 3: Carbon discipline and scope (Criterion 3)
+> *"The total is **32,844 kg CO₂e**, 107.3 per square metre, and the scope sits inside the number: **A1–A3 only**.
+>
+> That matters here more than anywhere. CMHC publishes 162 tonnes for this building — but that figure bundles construction, sixty years of replacement, and demolition. Summing it against a product-stage figure is the exact mistake this challenge tests for, so our engine **refuses** to add factors from different module scopes. It raises an error rather than producing a plausible wrong answer.
+>
+> And this total is **partial — 75% of the building by element**, which the interface states before you read the number. A low total that doesn't announce itself as partial is indistinguishable from a good one.
+>
+> Every factor carries its source, declared unit, geography and validity. None is hardcoded. Where we have no factor — the steel screw piles — the line appears, uncounted, with the reason."*
 
-### [2:30 – 3:00] Step 4: Live Swaps, Variant Deltas & The Business Wedge (Criteria 4, 6, 7)
-> *"Estimators don't just audit—they optimize. In our live substitution panel, ranked by kg CO₂e delta, swapping standard Portland cement for a 40% fly ash mix cuts **8,410 kg CO₂e** in 400 milliseconds. 
-> 
-> And when the architect submits **Option 2** with altered fenestration, our **Variant Delta Engine** computes the net delta in 34 seconds: **+2,969 kg CO₂e (+5.4%)**, highlighting exactly the 7 modified lines.
-> 
-> Our business model: $1,500 per plan baseline that amortizes across hundreds of homes. Our compute cost per run is pennies. Our pilot path to beta with Landmark is written, budgeted, and ready to deploy next month. Thank you."*
+### [2:30 – 3:00] Step 4: Substitutions and the business wedge (Criteria 4, 6, 7)
+> *"Estimators don't just audit, they optimise. Switching the slab and grade beam from Portland GU to a 40% fly ash mix cuts **21%** and **15%** of the total, ranked by computed delta, recomputed in **9 milliseconds**.
+>
+> Note what we don't do. CMHC leaves the cladding deliberately unspecified. Our factor store has a default for it — and we refuse to use it, because silently picking a cladding would move about 12% of the building's carbon on an assumption nobody made. We show it as a choice instead.
+>
+> Our model: $1,500 per plan set, amortising across every home built from it, or $32,000 a year for a volume builder. Compute is pennies per run. The pilot path with Landmark is written and budgeted. Thank you."*
 
 ---
 
 ## 2. Rubric Mapping Matrix (Scoring Rubric Alignment)
 
-| # | Criterion | Weight | How ecarbon Wins This Category |
+Every figure below is reproducible from the scoring scripts in `scripts/`
+against the public CMHC catalogue. Where something is not built yet, the row
+says so: a claim we cannot demonstrate on request costs more than the point it
+would have won.
+
+| # | Criterion | Weight | What is built, and what it measures |
 |---|---|---|---|
-| **1** | **Drawing Intake** | 10% | Robustly handles all 53 catalogue packages across 5 software toolchains (`revit_tagged`, `aia_layered`, `flattened`). Extracts full per-page op census, CTM scale, and displays a prominent **Gap Report** flagging unreadable/textless sheets. |
-| **2** | **Quantity Extraction** | 30% | Extracts $\ge 8$ element classes. Median error $\le 4.1\%$ on wall area, $\le 0.5\%$ on slab area, $\le 2.0\%$ on window count vs IFC truth. Includes **Click-to-Trace** drawing overlay rendering source bbox in $< 180$ ms. Human quantity edit updates carbon in $< 50$ ms. |
-| **3** | **Carbon & Traceability** | 15% | Embedded SQLite factor store seeded from Canadian low-rise residential BEAM data. **Zero hardcoded numeric factors**. Strict EN 15978 lifecycle module guard refusing to sum non-A1–A3 stages. Live reconciliation view vs published BPR totals. |
-| **4** | **Interactive Config** | 10% | 8 real material substitutions across concrete, insulation, cladding, and glazing. Ranked dynamically by computed $\Delta \text{kgCO}_2\text{e}$ delta. Live recompute in $< 1$ s. |
-| **5** | **Usability & Automation** | 10% | Complete pipeline runs end-to-end on unseen PDF in $< 35$ s without code modifications. One-click CSV and formatted Excel XLSX exports with provenance. Executive printable HTML compliance report. |
-| **6** | **Implementation Plan** | 10% | Concrete 2-page implementation plan with Landmark Homes: 3-month pilot scope across 3 Landmark plan sets, clear integration milestones, and specific resource asks. |
-| **7** | **Business Plan** | 10% | Detailed unit economics ($0.12 compute cost per plan), pricing ($1,500/plan or $25k/yr enterprise), $72M TAM, and competitive wedge vs Handoff-H1 and legacy sustainability consultants. |
-| **8** | **X Factor** | 5% | The **"We tell you what we can't read"** transparency stance; automated **Variant Delta Engine** comparing design options in 34 seconds; statistical uncertainty propagation (95% CI) and sensitivity ranking. |
+| **1** | **Drawing Intake** | 10% | Opens all 53 catalogue packages without crashing. Per-page op census, OCG layer names, Revit page metadata, and toolchain classification across 5 signatures. Sheet-number match **97.9%** and sheet-type match **95.1%** over **1,465 pages**, scored against the catalogue's own List-of-Drawings PDFs. The gap report names every unreadable sheet with a reason — including all **9 NOR sets**, whose text is converted to vector outlines, which are reported rather than guessed. |
+| **2** | **Quantity Extraction** | 30% | Footprint median error **3.3%**, 32 of 38 scoreable designs within 10%, worst case 63.3%; the 8 textless sets are refused rather than estimated. Scale resolves on **45 of 53** designs with a median cross-source spread of **0.2%**. The assemblies schedule parses on **31 of 53** designs — 280 assemblies kept, **80 refused as unreliable** — and built depth matches the IFC's own `IfcMaterialLayerSet` exactly on P1 (121 mm), P2 (201 mm) and P3 (235 mm). Element coverage **75%** on AB_Fourplex_01. Every line carries its sheet and a measured/inferred/assumed label; a human quantity edit recomputes carbon in **9 ms**. |
+| **3** | **Carbon & Traceability** | 15% | **18 factors in JSON, none hardcoded in code**, each carrying source, source id, declared unit, density, module scope, geography, validity window, data type, uncertainty and attribution. The calculation **raises** rather than summing mixed module scopes. Unmatched materials appear as visible uncounted rows with a stated reason and are excluded from the total. Contribution analysis by material. AB_Fourplex_01: **32,844 kgCO₂e A1–A3 at 107.3 kg/m²**, below the published A1–A5 ceiling of 107,000 — and reported beside it with the module difference stated, never as a like-for-like comparison. |
+| **4** | **Interactive Config** | 10% | Substitutions are computed from the factor store, never listed arbitrarily, and ranked by computed Δ kgCO₂e. On AB_Fourplex_01 two apply: **−21.2%** and **−14.7%** of the total from one concrete mix change. A swap is skipped when either factor is missing or the module scopes differ, because scopes that cannot be summed cannot be compared. Cladding, which CMHC deliberately leaves unspecified, is surfaced as a choice rather than silently defaulted. |
+| **5** | **Usability & Automation** | 10% | FastAPI and React. A plan set runs end-to-end in about **8 s** and the UI shows the gap report before any number. The interface is laid out as a drawing sheet, with every quantity carrying a clickable sheet citation. **Not built yet:** CSV/XLSX export, printable compliance report, and upload of an arbitrary PDF — the pipeline takes any vector set, but today it is pointed at a catalogue directory. |
+| **6** | **Implementation Plan** | 10% | Pilot scope across 3 Landmark plan sets, integration milestones and named resource asks. See `docs/implementation_plan.md`. |
+| **7** | **Business Plan** | 10% | Unit economics with per-stage compute cost, pricing at **$1,500 per plan set or $32,000/yr enterprise**, and the competitive wedge against Handoff-H1 and LCA consultants. See `docs/business_plan.md`. |
+| **8** | **X Factor** | 5% | **"We tell you what we can't read"**, backed by measured refusals rather than asserted as a value: 8 textless sets declined, 80 assemblies refused as unreliable with the reason recorded, screw piles contributing zero concrete because they are steel supplied by others, and a partial takeoff that states the share of the building it reaches. A published per-category accuracy benchmark, including worst cases. |
+
+**Deliberately not claimed.** Click-to-trace overlay, a variant delta engine,
+and uncertainty propagation with confidence intervals are designed and in some
+cases partly coded, but are not working end to end, so they are not pitched.
+The accuracy figures here are what the scoring scripts print today.
 
 ---
 
@@ -61,10 +79,10 @@
 
 | Dimension | Manual LCA Consultant | Handoff-H1 | **ecarbon** |
 |---|---|---|---|
-| **Turnaround Time** | 2 to 4 weeks | ~5 minutes | **< 35 seconds** |
+| **Turnaround Time** | 2 to 4 weeks | ~5 minutes | **~8 seconds per plan set** |
 | **Cost per Plan** | $4,000 – $8,000 | ~$500 (credits) | **$1,500 (or $0.12 compute)** |
 | **Lifecycle Module Guard** | Variable / Manual | None (cost only) | **Strict EN 15978 (A1–A3)** |
-| **Visual Provenance** | None (Static PDF) | Bounding box (general) | **Click-to-Trace with bbox & confidence** |
+| **Visual Provenance** | None (Static PDF) | Bounding box (general) | **Sheet-and-detail citation on every line, with a confidence label** |
 | **Gap Reporting** | Hidden assumptions | Silent hallucination | **Explicit pre-flight gap report** |
 | **Material Swaps** | Extra consulting fee | Cost trade-offs only | **Live ranked kg CO₂e deltas** |
 | **Variant Comparison** | Full re-assessment | Separate takeoff | **Automated variant delta in < 35s** |
