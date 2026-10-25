@@ -1035,3 +1035,70 @@ Result across the three attempts: median 3.4% → 3.4% → **3.3%**, within 10% 
 
 Worth noting the floor area is a legitimate input, not ground truth leaking in: the scope
 requires Stage 1 to prompt for "conditioned floor area basis", so a builder supplies it.
+
+---
+
+## 20. Storey heights, and a textrepair bug that silently emptied them
+
+Section sheets carry a level ladder — a label with its elevation on the line
+directly below. AB_Fourplex_01 A300:
+
+```
+TOP OF ROOF        7.873 m
+T/O F/F SECOND     3.000 m
+GROUND FLOOR       0.000 m
+ASSUMED GRADE      (no elevation -- a reference line, not a level)
+```
+
+Perimeter × the wall height these imply gives exterior wall area, ~20% of embodied
+carbon and second only to concrete.
+
+### The top storey has to be inferred
+
+There is no plate datum above the top floor, so its height is taken from the storey
+below and recorded in `notes` as inferred. Using the roof level instead would include
+the roof pitch — **1.87 m of it** on this design (7.873 roof vs 6.0 m of wall).
+
+### Two wall heights, 20% apart, and neither is wrong
+
+| Basis | Height | Wall area at 58 m perimeter |
+|---|---|---|
+| Gross, floor to floor | 6.000 m | 348.0 m² |
+| **Net, less floor assemblies** | **5.334 m** | **309.4 m²** |
+| IFC W2 exterior envelope | — | 287.6 m² |
+| HOT2000 above-grade records | 5.182 m | 290.6 m² |
+
+The net height matches HOT2000's to **2.9%**, and net wall area lands within ~7% of
+both references while gross is 20% over. A quantity surveyor measures gross floor to
+floor; an energy model measures the thermal envelope. HOT2000 records 2.667 m and
+2.515 m against a 3.000 m floor-to-floor, and 3.000 − 2.667 = 0.333 m, which is the
+floor assembly depth — so the relationship is exactly construction, not noise.
+
+**Both are reported with the basis named.** Silently picking one would make us look 20%
+out against half the references in existence — the same lesson as gross-vs-leasable
+floor area (§16) and the IFC/HOT2000 wall disagreement (§18).
+
+### The bug worth recording
+
+The level ladder came back **empty on every design**. Cause: `textrepair.repair()` was
+destroying the elevations.
+
+```
+'7.873 m'  ->  'XOYXTA\x8e'
+'3.000 m'  ->  'TOQQQA\x8e'
+```
+
+The single-trailing-letter exception added in §14 so that `A101a` (arriving as
+`$\x14\x13\x14D`) could be recovered also admitted any dimension whose only letter is a
+trailing unit. `'7.873 m'` is letter-free apart from the `m`, is not word-like, and did
+not match the numeric guard — so it was shifted into nonsense.
+
+Fixed by extending the numeric guard to allow a trailing unit
+(`mm|cm|m|ft|in|M|MM`). All thirteen cases now hold: every dimension untouched, every
+mojibake string still repaired.
+
+**This is the third time a textrepair guard has had to be tightened**, and the pattern
+is consistent: each exception added to recover one real case opens a hole for another.
+The module now carries 13 pinned cases precisely because the failure mode is silent —
+nothing crashes, the text just quietly becomes wrong, and here it emptied an entire
+extraction stage without a single error.

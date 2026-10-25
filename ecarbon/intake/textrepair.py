@@ -53,7 +53,13 @@ _MIN_LETTER_RUN = 3
 # must never be "repaired" -- shifting '2592' yields the plausible-looking
 # nonsense 'ORVO'. Anything made only of digits and dimension punctuation is
 # left exactly as found.
-_NUMERIC_RE = re.compile(r"^[\d.,'\"\-/=:%+ xX°Ø–—]+$")
+# A trailing unit is part of a dimension, not a letter to be "repaired".
+# Without the unit group, '7.873 m' becomes 'XOYXTA\x8e': the single-
+# trailing-letter exception that lets 'A101a' through also let every
+# elevation and unit-suffixed dimension through to be destroyed.
+_NUMERIC_RE = re.compile(
+    r"^[\d.,'\"\-/=:%+ xX°Ø–—]+\s*(?:mm|cm|m|ft|in|M|MM)?$"
+)
 _LETTER_RUN_RE = re.compile(rf"[A-Za-z]{{{_MIN_LETTER_RUN},}}")
 # A repaired sheet number: A003, A101a, S102, M000, E201A.
 _SHEET_NO_RE = re.compile(r"^[A-Z]{1,2}\d{2,4}[a-zA-Z]?$")
