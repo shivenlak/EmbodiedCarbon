@@ -459,6 +459,117 @@ def coverage_report(lines: list[TakeoffLine]) -> tuple[float, list[ElementClass]
     return covered, missing
 
 
+def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
+    """Windows and doors, sized from the schedule and counted from the plans.
+
+    Windows are reported as area because that is how a glazing factor is
+    declared; doors as a count, because a door is a manufactured unit and its
+    factor is per door.
+    """
+    from ecarbon.extract.openings import openings_for
+
+    try:
+        openings, notes = openings_for(design)
+    except Exception:
+        return [], []
+    if not openings:
+        return [], [
+            Gap(
+                code=GapCode.OPENING_SCHEDULE_MISSING,
+                severity=GapSeverity.WARNING,
+                message=(
+                    "No openings schedule could be read, so no window or door "
+                    "quantities are produced."
+                ),
+            )
+        ]
+
+    lines: list[TakeoffLine] = []
+    gaps: list[Gap] = [
+        Gap(code=GapCode.OPENING_SCHEDULE_MISSING, severity=GapSeverity.WARNING, message=n)
+        for n in notes
+    ]
+    sheet = next((o.sheet for o in openings if o.sheet), None)
+    page = next((o.page for o in openings if o.page is not None), 0)
+
+    windows = [o for o in openings if o.kind == "window"]
+    doors = [o for o in openings if o.kind == "door"]
+
+    sized = [o for o in windows if o.total_area_m2 is not None]
+    unsized = [o for o in windows if o.total_area_m2 is None]
+    if sized:
+        area = round(sum(o.total_area_m2 for o in sized), 2)
+        count = sum(o.count for o in sized)
+        lines.append(
+            TakeoffLine(
+                id="ln-windows",
+                element_class=ElementClass.WINDOW,
+                quantity=area,
+                unit=Unit.M2,
+                confidence=Confidence.INFERRED,
+                material="CMHC_Window",
+                description=f"Windows, {count} openings across {len(sized)} types",
+                basis=Basis(
+                    sources=[BasisSource.SCHEDULE, BasisSource.DIM_TEXT_METRIC],
+                    note=(
+                        "Size of each type from the openings schedule, with the metric and "
+                        "imperial columns agreeing; count of each type from the tags written "
+                        "on the floor plans. "
+                        + "; ".join(
+                            f"{o.tag} {o.width_mm:.0f}x{o.height_mm:.0f} x{o.count}"
+                            for o in sized
+                        )
+                    ),
+                ),
+                assumptions=[
+                    "Count is of tags written on the plans, so a single tag against a "
+                    "mullioned assembly counts once, and a window shown only on an "
+                    "elevation is not counted at all."
+                ],
+                provenance=Provenance(page=page, sheet_no=sheet, detail="WINDOW SCHEDULE"),
+            )
+        )
+    for o in unsized:
+        gaps.append(
+            Gap(
+                code=GapCode.OPENING_SCHEDULE_MISSING,
+                severity=GapSeverity.WARNING,
+                message=(
+                    f"Window {o.tag} has no usable size in the schedule, so its area is "
+                    f"not counted."
+                ),
+            )
+        )
+
+    counted = [o for o in doors if o.count]
+    if counted:
+        lines.append(
+            TakeoffLine(
+                id="ln-doors",
+                element_class=ElementClass.DOOR,
+                quantity=float(sum(o.count for o in counted)),
+                unit=Unit.EACH,
+                confidence=Confidence.INFERRED,
+                material="CMHC_Door",
+                description=f"Doors, {len(counted)} types",
+                basis=Basis(
+                    sources=[BasisSource.SCHEDULE, BasisSource.DIM_TEXT_METRIC],
+                    note=(
+                        "Count of tags on the floor plans, one variant per storey. "
+                        + "; ".join(f"{o.tag} x{o.count}" for o in counted)
+                    ),
+                ),
+                assumptions=[
+                    "All doors are priced with one factor. The schedule distinguishes "
+                    "exterior, interior and fire-rated doors, which carry different "
+                    "carbon; separating them needs a factor per door type."
+                ],
+                provenance=Provenance(page=page, sheet_no=sheet, detail="DOOR SCHEDULE"),
+            )
+        )
+    return lines, gaps
+
+
 def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
     """Produce a bill of quantities for one design, from measured geometry."""
     facts = project or ProjectFacts(name=design.key)
@@ -468,6 +579,10 @@ def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
     inputs, sheets, gaps = gather(design, expected)
 
     lines = _foundation_lines(inputs) + _wall_lines(inputs)
+
+    opening_lines, opening_gaps = _opening_lines(design)
+    lines += opening_lines
+    gaps += opening_gaps
 
     # Resolve each element's area into its materials, using the assembly the
     # drawings actually reference rather than the first one the schedule lists.
