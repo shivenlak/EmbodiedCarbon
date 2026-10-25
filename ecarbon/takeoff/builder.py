@@ -77,6 +77,12 @@ PLAN_TYPES = (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN)
 # allowance, so any line using it is labelled `assumed` and says so.
 STUD_FRAMING_FRACTION = 0.15
 
+# How far the floor area the plans depict may sit from the area the project
+# states before the two are treated as describing different extents. Measured
+# across the catalogue: designs whose opening counts match the IFC exactly sit
+# at 0.98-0.99, and those that come in a third short sit at 0.51-0.72.
+PLAN_EXTENT_TOLERANCE = 0.15
+
 
 @dataclass
 class TakeoffInputs:
@@ -673,6 +679,50 @@ def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
     if inputs.footprint is not None and facts.gfa_m2 is None:
         facts.gfa_m2 = round(inputs.footprint.area_m2 * max(inputs.heights.n_storeys, 1), 1)
         facts.gfa_basis = "gross"
+
+    # Does the plan depict the whole building, or one unit of it?
+    #
+    # Anything counted from the plans -- openings especially -- covers only what
+    # the plan draws. On the repeated-unit typologies the drawings depict one
+    # unit and leave the reader to know there are more: measured against the
+    # IFC, door counts land exactly on the multiplexes and come in at -66.7% on
+    # every stacked townhouse, which is one third.
+    #
+    # The measured footprint and the stated floor area disagree in exactly
+    # those cases, which makes this checkable rather than a guess: the ratio is
+    # 0.98-0.99 where counts are exact and 0.51-0.72 where they are a third.
+    # No multiplier is applied, because inventing one would silently scale
+    # every count on a typology guess; the disagreement is reported instead.
+    # The measured ladder is preferred, but it needs two floor datums and some
+    # designs give none, so the stated storey count stands in. Without the
+    # fallback this check silently skips exactly the designs it is for: the
+    # stacked townhouses resolve no levels at all.
+    storeys = inputs.heights.n_storeys or facts.storeys or 0
+    if fp is not None and facts.gfa_m2 and storeys:
+        depicted = fp.area_m2 * storeys
+        ratio = facts.gfa_m2 / depicted if depicted else 1.0
+        if abs(ratio - 1.0) > PLAN_EXTENT_TOLERANCE:
+            counted_from_plans = [
+                ln.id for ln in lines if ln.id in ("ln-windows", "ln-doors")
+            ]
+            gaps.append(
+                Gap(
+                    code=GapCode.GEOMETRY_AMBIGUOUS,
+                    severity=GapSeverity.BLOCKING,
+                    message=(
+                        f"The plans depict {depicted:.0f} m2 of floor across "
+                        f"{storeys} storeys, but this project states "
+                        f"{facts.gfa_m2:.0f} m2 — a ratio of {ratio:.2f}. The drawings and "
+                        f"the project facts disagree about how much of the building is "
+                        f"drawn, which usually means the plans show one unit of a repeated "
+                        f"block. Anything counted off the plans, including window and door "
+                        f"counts, therefore covers only what is drawn and will understate "
+                        f"the whole building. No multiplier has been applied, because "
+                        f"guessing one would scale every count on an assumption."
+                    ),
+                    affects=counted_from_plans,
+                )
+            )
 
     covered, missing = coverage_report(lines)
     if missing:

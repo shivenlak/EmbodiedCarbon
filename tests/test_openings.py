@@ -179,3 +179,76 @@ class TestInTheTakeoff:
 
         assert ElementClass.WINDOW not in missing
         assert ElementClass.DOOR not in missing
+
+
+@needs_data
+class TestPlanExtentCheck:
+    """Anything counted off the plans covers only what the plans draw.
+
+    Measured against the IFC: door counts land exactly on the multiplexes and
+    come in at -66.7% on the stacked townhouses, which is one third. The
+    measured footprint and the stated floor area disagree in those cases, so
+    the condition is checkable rather than a typology guess.
+    """
+
+    def flagged(self, key: str) -> bool:
+        from ecarbon.bench.bpr import parse_bpr
+        from ecarbon.models import ProjectFacts
+        from ecarbon.takeoff.builder import build_takeoff
+
+        design = get_design(key)
+        bpr = parse_bpr(str(design.bpr[0]))
+        takeoff = build_takeoff(
+            design,
+            ProjectFacts(
+                name=key,
+                gfa_m2=bpr.best_gfa_m2,
+                gfa_basis="gross",
+                storeys=bpr.storeys,
+                units=bpr.units,
+            ),
+        )
+        return any("disagree about how much" in g.message for g in takeoff.gaps)
+
+    @pytest.mark.parametrize("key", ["ON_Stacked_Townhouse_01", "skmb_rowhouse"])
+    def test_a_plan_showing_one_unit_of_a_block_is_flagged(self, key):
+        assert self.flagged(key)
+
+    @pytest.mark.parametrize("key", ["AB_Fourplex_01", "QC_Sixplex", "QC_Fourplex_01"])
+    def test_a_plan_showing_the_whole_building_is_not_flagged(self, key):
+        """These three count openings exactly against the IFC, so a warning
+        here would be noise that trains the reader to ignore it."""
+        assert not self.flagged(key)
+
+    def test_the_check_does_not_catch_every_undercount(self):
+        """Known limit, recorded rather than papered over. AB_Rowhouse_02 sits
+        at a ratio of 0.91 and is not flagged, yet its door count is 61% short
+        while its window count is exact -- so its cause is something other
+        than plan extent, and this check does not explain it."""
+        assert not self.flagged("AB_Rowhouse_02")
+
+    def test_no_multiplier_is_silently_applied(self):
+        """The gap reports the disagreement; it must not scale the counts,
+        because guessing a multiplier would move every count on a typology
+        assumption."""
+        from ecarbon.bench.bpr import parse_bpr
+        from ecarbon.models import ProjectFacts
+        from ecarbon.takeoff.builder import build_takeoff
+
+        design = get_design("ON_Stacked_Townhouse_01")
+        bpr = parse_bpr(str(design.bpr[0]))
+        takeoff = build_takeoff(
+            design,
+            ProjectFacts(
+                name="ON_Stacked_Townhouse_01",
+                gfa_m2=bpr.best_gfa_m2,
+                gfa_basis="gross",
+                storeys=bpr.storeys,
+            ),
+        )
+        gap = next(g for g in takeoff.gaps if "disagree about how much" in g.message)
+        assert "No multiplier has been applied" in gap.message
+        doors = next((ln for ln in takeoff.lines if ln.id == "ln-doors"), None)
+        if doors is not None:
+            # The raw count from the plans, unscaled.
+            assert doors.quantity == 23.0
