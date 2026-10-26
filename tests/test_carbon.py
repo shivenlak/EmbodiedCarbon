@@ -149,3 +149,107 @@ class TestCarbonCalculation:
         expected_intensity = round(result.total_kg_co2e / takeoff.project.gfa_m2, 2)
         assert result.intensity_kg_co2e_per_m2 == expected_intensity
         assert result.range_low_kg_co2e < result.total_kg_co2e < result.range_high_kg_co2e
+
+
+class TestTheSeedIsTheSourceOfTruth:
+    """The database is a cache of seed_factors.json, not a second opinion.
+
+    It used to seed only into an empty table, which pinned every database to
+    whatever the seed said the first time it was built. Two corrections --
+    GUL + 40% fly ash from 142 to 175 kgCO2e/m3, and the withdrawal of a
+    fabricated "GU 20 MPa" record -- sat in the JSON without ever reaching the
+    runtime. A tool whose claim is that every factor is a sourced record was
+    serving an invented one.
+    """
+
+    def _provider(self, tmp_path, factors, subs=()):
+        import json
+
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        seed = tmp_path / "seed.json"
+        seed.write_text(
+            json.dumps({"factors": factors, "substitutions": list(subs)})
+        )
+        return (
+            LocalSnapshotProvider(db_path=tmp_path / "f.sqlite3", seed_path=seed),
+            seed,
+        )
+
+    def _factor(self, fid, gwp):
+        return {
+            "factor_id": fid,
+            "name": f"test {fid}",
+            "source": "test",
+            "declared_unit": "m3",
+            "gwp_value": gwp,
+            "gwp_unit": "kgCO2e",
+            "modules": ["A1", "A2", "A3"],
+            "geography": "CA-AB",
+            "data_type": "industry_avg",
+        }
+
+    def test_a_corrected_value_reaches_an_existing_database(self, tmp_path):
+        import json
+
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider, seed = self._provider(tmp_path, [self._factor("x", 142.0)])
+        assert provider.get_factor("x").gwp_value == 142.0
+
+        seed.write_text(
+            json.dumps({"factors": [self._factor("x", 175.0)], "substitutions": []})
+        )
+        reopened = LocalSnapshotProvider(
+            db_path=tmp_path / "f.sqlite3", seed_path=seed
+        )
+        assert reopened.get_factor("x").gwp_value == 175.0
+
+    def test_a_withdrawn_factor_does_not_outlive_its_correction(self, tmp_path):
+        import json
+
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider, seed = self._provider(
+            tmp_path, [self._factor("real", 200.0), self._factor("invented", 220.0)]
+        )
+        assert provider.get_factor("invented") is not None
+
+        seed.write_text(
+            json.dumps({"factors": [self._factor("real", 200.0)], "substitutions": []})
+        )
+        reopened = LocalSnapshotProvider(
+            db_path=tmp_path / "f.sqlite3", seed_path=seed
+        )
+        assert reopened.get_factor("invented") is None
+        assert reopened.get_factor("real").gwp_value == 200.0
+
+    def test_an_unchanged_seed_is_not_reloaded_needlessly(self, tmp_path):
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        _, seed = self._provider(tmp_path, [self._factor("x", 1.0)])
+        again = LocalSnapshotProvider(db_path=tmp_path / "f.sqlite3", seed_path=seed)
+        assert again.get_factor("x").gwp_value == 1.0
+
+    def test_the_shipped_seed_has_no_fabricated_concrete_record(self):
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider = LocalSnapshotProvider()
+        assert provider.get_factor("koot-concrete-gu-20") is None
+        assert provider.get_factor("koot-concrete-gul40-25").gwp_value == 175.0
+
+    def test_every_substitution_names_factors_that_exist(self):
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider = LocalSnapshotProvider()
+        swaps = provider.list_substitutions()
+        assert len(swaps) >= 6
+        for swap in swaps:
+            src = provider.get_factor(swap["from_factor_id"])
+            dst = provider.get_factor(swap["to_factor_id"])
+            assert src is not None, f"{swap['swap_id']} has no source factor"
+            assert dst is not None, f"{swap['swap_id']} has no replacement"
+            # Only like-for-like module scopes can be compared, for the same
+            # reason they cannot be summed.
+            assert src.modules == dst.modules
+            assert src.source and dst.source

@@ -395,6 +395,50 @@
       "data_type": "industry_avg",
       "uncertainty_pct": 15.0,
       "attribution": "Builders for Climate Action / City of Nelson, funded by FortisBC"
+    },
+    {
+      "factor_id": "koot-sheathing-plywood",
+      "material_key": "sheathing_plywood_13mm",
+      "name": "Softwood Plywood Sheathing (1/2 in, BC average)",
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "source_id": "sheathing/plywood-13mm",
+      "declared_unit": "m3",
+      "density_kg_m3": 600.0,
+      "gwp_value": 242.5,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA-BC",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 20.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-sheathing-osb",
+      "material_key": "sheathing_osb_13mm",
+      "name": "Oriented Strand Board Sheathing (1/2 in, NA average)",
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "source_id": "sheathing/osb-13mm",
+      "declared_unit": "m3",
+      "density_kg_m3": 600.0,
+      "gwp_value": 131.5,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA-BC",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 20.0,
+      "attribution": "Builders for Climate Action"
     }
   ],
   "cmhc_mappings": {
@@ -523,6 +567,33 @@
       "to_factor_id": "ec3-window-double-vinyl",
       "description": "Alternative double-pane argon low-E window package for lower embodied carbon where permitted.",
       "category": "Windows & Glazing"
+    },
+    {
+      "swap_id": "swap-concrete-gul25",
+      "title": "Lower-Carbon Concrete (GUL + 25% Fly Ash)",
+      "target_material": "CMHC_Concrete, CIP",
+      "from_factor_id": "koot-concrete-gu-30",
+      "to_factor_id": "koot-concrete-gul25-25",
+      "description": "Replace 30 MPa Portland GU with 25 MPa Portland-Limestone GUL at 25% fly ash. A middle option: less saving than 40% replacement, and less effect on early strength gain in cold-weather pours.",
+      "category": "Concrete"
+    },
+    {
+      "swap_id": "swap-concrete-gul15",
+      "title": "Modest-Carbon Concrete (GUL + 15% Fly Ash)",
+      "target_material": "CMHC_Concrete, CIP",
+      "from_factor_id": "koot-concrete-gu-30",
+      "to_factor_id": "koot-concrete-gul15-25",
+      "description": "Replace 30 MPa Portland GU with 25 MPa Portland-Limestone GUL at 15% fly ash. The most conservative substitution, widely available from Alberta ready-mix suppliers without a change to the pour schedule.",
+      "category": "Concrete"
+    },
+    {
+      "swap_id": "swap-sheathing-osb",
+      "title": "OSB Sheathing in place of Plywood",
+      "target_material": "CMHC_Plywood",
+      "from_factor_id": "koot-sheathing-plywood",
+      "to_factor_id": "koot-sheathing-osb",
+      "description": "Replace 1/2 in softwood plywood sheathing with 1/2 in OSB. Both values are from the same guide so the difference is the material, not the database.",
+      "category": "Sheathing"
     }
   ]
 }
