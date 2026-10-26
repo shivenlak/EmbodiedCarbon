@@ -451,18 +451,56 @@ ELEMENT_CARBON_SHARE: dict[ElementClass, float] = {
 }
 
 
-def coverage_report(lines: list[TakeoffLine]) -> tuple[float, list[ElementClass]]:
+def coverage_report(
+    lines: list[TakeoffLine], absent: set[ElementClass] | None = None
+) -> tuple[float, list[ElementClass]]:
     """Fraction of the building's expected carbon the bill of quantities reaches.
 
     Returns (fraction covered, element classes with no line). A class counts as
     covered only if it carries a non-zero quantity, so the screw-pile line --
     deliberately zero because the piles are steel supplied by others -- does not
     make the foundation look complete.
+
+    `absent` names classes this building does not have, and they leave the
+    denominator rather than counting against it. AB_Fourplex_01 sits on grade
+    beams over screw piles with no basement, so it has no foundation wall at
+    all: reporting one as "missing" both understates the takeoff and tells the
+    reader to go looking for a sheet that was never drawn. The shares come from
+    a typical house, so a building without one of these elements has that share
+    distributed across the rest.
     """
+    skip = absent or set()
+    applicable = {
+        cls: share for cls, share in ELEMENT_CARBON_SHARE.items() if cls not in skip
+    }
+    total = sum(applicable.values())
     present = {ln.element_class for ln in lines if ln.quantity > 0}
-    covered = sum(share for cls, share in ELEMENT_CARBON_SHARE.items() if cls in present)
-    missing = [cls for cls in ELEMENT_CARBON_SHARE if cls not in present]
+    reached = sum(share for cls, share in applicable.items() if cls in present)
+    covered = (reached / total) if total else 0.0
+    missing = [cls for cls in applicable if cls not in present]
     return covered, missing
+
+
+def absent_elements(inputs: TakeoffInputs) -> dict[ElementClass, str]:
+    """Element classes this building does not have, with the evidence.
+
+    Only claimed where the drawings say so. A foundation wall exists to retain
+    earth against a basement or crawlspace; a slab on grade carried by grade
+    beams or a strip footing has none, and the footing is counted separately.
+    """
+    out: dict[ElementClass, str] = {}
+    system = (inputs.spec.system or "").lower()
+    has_below_grade_storey = any(
+        "BASEMENT" in lv.label.upper() or "CRAWL" in lv.label.upper()
+        for lv in inputs.heights.levels
+    )
+    if system and "basement" not in system and not has_below_grade_storey:
+        out[ElementClass.FOUNDATION_WALL] = (
+            f"The foundation is {system.replace('_', ' ')} with no basement or "
+            f"crawlspace datum on the sections, so this building has no foundation "
+            f"wall; the footing itself is counted separately."
+        )
+    return out
 
 
 def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
@@ -724,7 +762,16 @@ def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
                 )
             )
 
-    covered, missing = coverage_report(lines)
+    absent = absent_elements(inputs)
+    covered, missing = coverage_report(lines, set(absent))
+    for cls, why in absent.items():
+        gaps.append(
+            Gap(
+                code=GapCode.SHEET_TYPE_MISSING,
+                severity=GapSeverity.INFO,
+                message=f"No {cls.value.replace('_', ' ')} is counted. {why}",
+            )
+        )
     if missing:
         gaps.append(
             Gap(

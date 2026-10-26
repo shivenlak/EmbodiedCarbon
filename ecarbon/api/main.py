@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from ecarbon.carbon.calculate import calculate_carbon
@@ -336,3 +337,32 @@ def get_substitutions(project_id: str) -> list[Substitution]:
 
     out.sort(key=lambda s: s.delta_kg_co2e)  # biggest saving first
     return out
+
+
+@app.get("/projects/{project_id}/export.csv", response_class=PlainTextResponse)
+def export_csv(project_id: str) -> PlainTextResponse:
+    """The bill of quantities as CSV, with provenance on every row.
+
+    Criterion 5: a spreadsheet row that cannot be traced back to a sheet is
+    what this product exists to replace, so sheet, detail, confidence, basis
+    and assumptions all travel as columns.
+    """
+    from ecarbon.report import takeoff_csv
+
+    p = _get(project_id)
+    return PlainTextResponse(
+        takeoff_csv(p.takeoff, p.carbon),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{project_id}-takeoff.csv"'
+        },
+    )
+
+
+@app.get("/projects/{project_id}/report.html", response_class=HTMLResponse)
+def export_report(project_id: str) -> HTMLResponse:
+    """A printable report a builder could hand to a municipality."""
+    from ecarbon.report import report_html
+
+    p = _get(project_id)
+    return HTMLResponse(report_html(p.takeoff, p.carbon))

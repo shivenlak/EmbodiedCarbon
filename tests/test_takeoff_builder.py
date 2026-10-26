@@ -141,12 +141,48 @@ class TestEndToEnd:
         """A low carbon total that does not announce itself as partial is
         indistinguishable from a good result."""
         takeoff, _, _ = run
-        covered, missing = coverage_report(takeoff.lines)
-        assert 0.0 < covered < 1.0
-        assert missing
         partial = [g for g in takeoff.gaps if "PARTIAL" in g.message]
         assert partial, "no gap warns that the carbon total is partial"
+
+        # Reconstruct the figure from the takeoff's own output rather than
+        # recomputing it with different arguments. Classes this building does
+        # not have leave the denominator, and the builder says which in its
+        # own gaps -- so calling coverage_report() without them gave a
+        # different percentage than the one reported, which is how this test
+        # caught the inconsistency.
+        absent = {
+            cls
+            for cls in ELEMENT_CARBON_SHARE
+            if any(
+                g.message.startswith(f"No {cls.value.replace('_', ' ')} is counted")
+                for g in takeoff.gaps
+            )
+        }
+        covered, missing = coverage_report(takeoff.lines, absent)
+        assert 0.0 < covered < 1.0
+        assert missing
         assert f"{covered:.0%}" in partial[0].message
+
+    def test_an_element_the_building_lacks_is_not_called_missing(self, run):
+        """This design sits on grade beams over screw piles with no basement,
+        so it has no foundation wall and the grade beam is already counted as a
+        footing. Reporting one as missing both understates the takeoff and
+        sends the reader looking for a sheet nobody drew."""
+        takeoff, _, _ = run
+        # The variant note also ends "...only A101 is counted.", so match the
+        # absence gap's actual shape rather than a loose substring.
+        absent = [
+            g
+            for g in takeoff.gaps
+            if g.message.startswith("No ") and " is counted." in g.message
+        ]
+        assert any("foundation wall" in g.message for g in absent)
+        for gap in absent:
+            assert gap.severity.value == "info"
+            # The claim is only made where the drawings support it.
+            assert "screw piles" in gap.message or "footing" in gap.message
+        partial = next(g for g in takeoff.gaps if "PARTIAL" in g.message)
+        assert "foundation wall" not in partial.message
 
     def test_contribution_analysis_is_produced(self, run):
         """Criterion 3 requires contribution analysis by material category."""

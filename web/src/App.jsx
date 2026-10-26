@@ -656,7 +656,29 @@ export default function App() {
           <div className="wordmark">
             e<span>carbon</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {projectId && status === "ready" && (
+              <>
+                {/* Plain links, not fetches: the browser already knows how to
+                    save a file and open a printable page. */}
+                <a
+                  className="btn"
+                  href={`${API}/projects/${encodeURIComponent(projectId)}/export.csv`}
+                  style={{ textDecoration: "none" }}
+                >
+                  Download takeoff
+                </a>
+                <a
+                  className="btn"
+                  href={`${API}/projects/${encodeURIComponent(projectId)}/report.html`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ textDecoration: "none" }}
+                >
+                  Open report
+                </a>
+              </>
+            )}
             <span className="eyebrow">Plan set</span>
             <select
               className="picker"
