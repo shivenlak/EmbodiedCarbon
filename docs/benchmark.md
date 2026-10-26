@@ -22,18 +22,18 @@ design:
 | Crashed | **0 of 53** |
 | Produced quantities | 45 |
 | Produced none **and reported why** | 8 (the textless NOR sets) |
-| Seconds per design | median **13.2**, worst 24.5 |
-| Element coverage | median **40%**, best 91%, worst 0% |
-| Designs reaching 80% coverage | **7 of 45** |
+| Seconds per design | median **12.9**, worst 24.2 |
+| Element coverage | median **37%**, best 91%, worst 0% |
+| Designs reaching 80% coverage | **5 of 45** |
 
 | Region | n | Coverage, median | Best | Intensity kgCO₂e/m², median |
 |---|---|---|---|---|
 | **Alberta** | 7 | **91%** | 91% | 132.5 |
-| Quebec | 7 | 48% | 62% | 110.7 |
-| British Columbia | 7 | 40% | 40% | 20.9 |
-| Atlantic | 9 | 24% | 48% | 16.1 |
-| Ontario | 7 | 10% | 82% | 22.1 |
-| SKMB | 7 | 10% | 10% | 8.3 |
+| Quebec | 7 | 57% | 57% | 110.7 |
+| British Columbia | 7 | 37% | 37% | 20.9 |
+| Atlantic | 9 | 22% | 44% | 16.1 |
+| Ontario | 7 | 9% | 75% | 22.1 |
+| SKMB | 7 | 9% | 9% | 8.3 |
 | NOR | 9 | — | — | — |
 
 **Alberta is the region this was developed against, and it shows.** Six of its
@@ -47,7 +47,7 @@ building it reaches.
 
 So: where a figure below is quoted for AB_Fourplex_01 — 91% coverage, 37,536
 kgCO₂e, 122.7 kgCO₂e/m² — read it as **the best case on the development
-region**, not as typical. The median design gets 40%.
+region**, not as typical. The median design gets 37%, and only five of 45 reach 80%.
 
 What separates them is whether two sheets parse. A design reaches 80%+ only
 when both its assemblies schedule and its openings schedule are readable:
