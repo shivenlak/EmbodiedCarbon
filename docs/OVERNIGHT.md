@@ -149,6 +149,72 @@ python scripts/run_pipeline.py
 
 ## Log
 
+## Session summary — 2026-10-27
+
+Twelve commits. 612 tests, ruff clean, 0 crashes across 53 designs throughout.
+
+| Region | start | end |
+|---|---|---|
+| **BC** | 37% | **59%** |
+| **ON** | 9% | **42%** |
+| **ATL** | 22% | **42%** |
+| AB | 91% | 91% |
+| QC | 66% | 66% |
+| SKMB / NOR | 9% / — | 9% / — |
+| **catalogue median** | **37%** | **44%** |
+
+Designs with trustworthy assemblies 31 -> 38 of 53. Designs at ≥80% coverage
+5 -> 6 of 45. Median intensity 23.8 -> 48.1 kgCO2e/m2.
+
+### The one thing worth carrying forward
+
+**Five of six causes found tonight were table geometry, not text extraction.**
+Quebec's thickness column was being chosen as its material column because
+`VAR` scored as prose. Ontario's tag references went unrepaired so a parsed
+schedule was never used. Atlantic's name column sits 34 pt from its header and
+a 1-cell noise cluster 3 pt away was winning. Ontario's and Atlantic's
+sections are drawn a quarter turn from upright, so no datum ever paired with
+its elevation. BC's dotted tags collapsed a 772 pt band into one object.
+
+Every one of those schedules was readable the whole time. If there is more
+coverage hiding anywhere, look at how the table is being read before
+suspecting the text.
+
+### What was reverted, and why it is recorded
+
+Anchoring assembly blocks relative to tag position recovered BC's exterior
+wall but fabricated build-ups elsewhere — "FLOOR FINISH w/ UNDERLAY", "AT
+EAVE, VALLEY AND RIDGE" — moving built-depth median 5.8% -> 7.9% and the worst
+case to 1210%. A truncated build-up is a smaller error than a fabricated one.
+The measurement is in the code comment so it is not retried.
+
+### Needs a human
+
+1. **BC's exterior wall is still refused.** The block-splitting underneath it
+   is a judgement about approach; the one attempt made the catalogue worse.
+2. **`AB_Rowhouse_01` reports 479.9 kgCO2e/m2.** Quantities right, denominator
+   wrong — its report states one unit's floor area while the drawings depict
+   the block. Both facts are flagged, the plan-extent one blocking. Whether to
+   suppress that intensity, re-base it on measured area, or leave it is a
+   decision about what to publish.
+3. **The per-unit versus whole-block ambiguity caused four separate problems
+   tonight** — stacked-townhouse door counts, the plan-extent check, rejected
+   footprints, and that intensity. Resolving it once, properly, is worth more
+   than any remaining parsing work.
+4. **Interior partitions** remain unquantified; the measured negative result is
+   in `docs/benchmark.md`, and the real fix is classifying wall linework from
+   the `A-WALL` layer names on the ~20 AIA-layered sets.
+
+### Still parsing-shaped, if another unattended pass is wanted
+
+- Atlantic's four footprint failures: both ADUs, Fourplex_01 Opt 2 and
+  Stacked_Townhouse_01 detect none, blocking every geometric quantity.
+- SKMB reached 2 of 7 on assemblies this session, up from 0. Worth a look at
+  why those two read and the others do not.
+- `ATL_Stacked_Townhouse_01` still at 9%: its schedule yields only W4 and W6,
+  with no R, F, P or N assembly.
+
+
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
