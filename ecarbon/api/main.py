@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from ecarbon.carbon.calculate import calculate_carbon
 from ecarbon.carbon.store import LocalSnapshotProvider
-from ecarbon.models import CarbonResult, Gap, SheetInfo, TakeoffResult
+from ecarbon.models import CarbonResult, Gap, GapCode, SheetInfo, TakeoffResult
 
 # One provider for the process: it owns a SQLite connection and the factor
 # snapshot, neither of which is per-request state.
@@ -65,6 +65,38 @@ class Project:
         # Carbon is derived from the takeoff and never mutates it, so a
         # recompute after an override cannot corrupt the extraction output.
         self.carbon = calculate_carbon(self.takeoff, _FACTORS)
+        self._check_intensity()
+
+    def _check_intensity(self) -> None:
+        """Surface an impossible intensity beside the other gaps.
+
+        Intensity is the one figure that can be wrong while every quantity
+        behind it is right, because it depends on a floor area the drawings
+        may not state. The check lives with the gaps rather than inside
+        CarbonResult so it reaches the panel the UI shows before any number,
+        and so the carbon document stays a pure function of the takeoff.
+        """
+        from ecarbon.carbon.plausibility import intensity_warning
+
+        code = GapCode.GEOMETRY_AMBIGUOUS
+        marker = "kgCO2e/m2 is"
+        self.takeoff.gaps = [
+            g
+            for g in self.takeoff.gaps
+            if not (g.code == code and marker in g.message)
+        ]
+        # The coverage the takeoff itself reports, not a recomputation: the
+        # two can differ, and the figure the user is shown is the one that
+        # should gate the check.
+        coverage = 1.0
+        for gap in self.takeoff.gaps:
+            found = re.search(r"roughly (\d+)%", gap.message)
+            if found:
+                coverage = int(found.group(1)) / 100.0
+                break
+        warning = intensity_warning(self.carbon, self.takeoff.project, coverage)
+        if warning is not None:
+            self.takeoff.gaps.insert(0, warning)
 
 
 _PROJECTS: dict[str, Project] = {}
@@ -151,7 +183,15 @@ def _build(key: str, stated: CreateProject | None = None) -> Project:
             facts.gfa_m2 = stated.gfa_m2
             facts.gfa_basis = stated.gfa_basis  # type: ignore[assignment]
 
-    p = Project(id=key, takeoff=build_takeoff(design, facts), design=design)
+    # A floor area in the request is the caller's own figure; one from the
+    # Building Performance Report is a stated fact we audit against the
+    # drawings. Only the latter is replaced.
+    typed_area = bool(stated and stated.gfa_m2)
+    p = Project(
+        id=key,
+        takeoff=build_takeoff(design, facts, trust_stated_gfa=typed_area),
+        design=design,
+    )
     _PROJECTS[key] = p
     return p
 
@@ -639,7 +679,7 @@ async def upload_project(
         units=units,
     )
     try:
-        takeoff = build_takeoff(design, facts)
+        takeoff = build_takeoff(design, facts, trust_stated_gfa=gfa_m2 is not None)
     except Exception as exc:
         raise HTTPException(
             422,

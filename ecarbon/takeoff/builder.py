@@ -81,6 +81,25 @@ STUD_FRAMING_FRACTION = 0.15
 # states before the two are treated as describing different extents. Measured
 # across the catalogue: designs whose opening counts match the IFC exactly sit
 # at 0.98-0.99, and those that come in a third short sit at 0.51-0.72.
+# The published whole-life intensities across the 52 catalogue designs run
+# 141 to 731 kgCO2e/m2, median 448. Ours is A1-A3 only -- a subset of that --
+# so a complete A1-A3 takeoff landing above the catalogue's whole-life maximum
+# is arithmetically impossible and means the denominator is wrong, not the
+# building unusual. AB_Rowhouse_01 read 761 that way.
+CATALOGUE_WHOLE_LIFE_MAX_KG_PER_M2 = 731.0
+# A takeoff reaching most of the building should also land in a believable
+# band. Below this with full coverage means quantities are missing rather than
+# the building being light.
+PLAUSIBLE_A1_A3_FLOOR_KG_PER_M2 = 40.0
+
+# The largest building in this catalogue is a sixplex, so a stated area that
+# is a per-unit figure should be at most about a sixth of the block. A
+# drawing-derived area many times larger than that is not a unit count, it is
+# a footprint that has caught something other than the building -- SKMB_ADU_01
+# measures 908 m2 against a stated 58, which is 15.7x and no number of units.
+# Replacing a stated area with that would be a worse answer than keeping it.
+MAX_UNIT_RATIO = 8.0
+
 PLAN_EXTENT_TOLERANCE = 0.15
 
 # Below this many windows, a dwelling can legitimately have more windows than
@@ -830,8 +849,20 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
     return built, more
 
 
-def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
-    """Produce a bill of quantities for one design, from measured geometry."""
+def build_takeoff(
+    design,
+    project: ProjectFacts | None = None,
+    trust_stated_gfa: bool = False,
+) -> TakeoffResult:
+    """Produce a bill of quantities for one design, from measured geometry.
+
+    `trust_stated_gfa` marks a floor area the user typed, as opposed to one
+    read from a Building Performance Report. Both are checked against what the
+    drawings depict and both are reported when they disagree, but only the
+    report's figure is replaced: a number a person entered deliberately is
+    theirs to change, and overriding it would answer a question they already
+    answered.
+    """
     facts = project or ProjectFacts(name=design.key)
     expected = (
         facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
@@ -958,25 +989,65 @@ def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
     # stacked townhouses resolve no levels at all.
     storeys = inputs.heights.n_storeys or facts.storeys or 0
     if fp is not None and facts.gfa_m2 and storeys:
-        depicted = fp.area_m2 * storeys
+        depicted = round(fp.area_m2 * storeys, 1)
         ratio = facts.gfa_m2 / depicted if depicted else 1.0
         if abs(ratio - 1.0) > PLAN_EXTENT_TOLERANCE:
             counted_from_plans = [
                 ln.id for ln in lines if ln.id in ("ln-windows", "ln-doors")
             ]
+            stated = facts.gfa_m2
+            # Only trade a stated area for a measured one when the measured
+            # one is credible as the same building.
+            looks_like_units = ratio == 0 or (depicted / stated) <= MAX_UNIT_RATIO
+            replaced = not trust_stated_gfa and looks_like_units
+            # Every quantity in this bill is measured off these drawings, so
+            # the denominator has to come from the same place. Dividing a
+            # whole-block numerator by a per-unit area is what gave
+            # AB_Rowhouse_01 an intensity of 761 kgCO2e/m2, above the highest
+            # whole-life figure CMHC publishes for any design in the
+            # catalogue -- a quantity error that was really a denominator
+            # error, and the kind a plausible-looking number hides.
+            if replaced:
+                facts.gfa_m2 = depicted
+            per_unit = (
+                f" That is about {stated / facts.units:.0f} m2 per unit across "
+                f"{facts.units} units."
+                if facts.units
+                else ""
+            )
             gaps.append(
                 Gap(
                     code=GapCode.GEOMETRY_AMBIGUOUS,
                     severity=GapSeverity.BLOCKING,
                     message=(
-                        f"The plans depict {depicted:.0f} m2 of floor across "
-                        f"{storeys} storeys, but this project states "
-                        f"{facts.gfa_m2:.0f} m2 — a ratio of {ratio:.2f}. The drawings and "
-                        f"the project facts disagree about how much of the building is "
-                        f"drawn, which usually means the plans show one unit of a repeated "
-                        f"block. Anything counted off the plans, including window and door "
-                        f"counts, therefore covers only what is drawn and will understate "
-                        f"the whole building. No multiplier has been applied, because "
+                        f"Floor area: using "
+                        f"{(depicted if replaced else stated):.0f} m2"
+                        + (
+                            f" measured from the drawings ({fp.area_m2:.1f} m2 "
+                            f"footprint x {storeys} storeys, the whole block), not "
+                            f"the {stated:.0f} m2 this project states"
+                            if replaced
+                            else (
+                                f" as entered, not the {depicted:.0f} m2 the drawings "
+                                f"depict ({fp.area_m2:.1f} m2 footprint x {storeys} "
+                                f"storeys)"
+                                if trust_stated_gfa
+                                else f" as stated, because the {depicted:.0f} m2 the "
+                                f"drawings measure is {depicted / stated:.1f} times it "
+                                f"— too large to be a unit count in a catalogue whose "
+                                f"biggest building is a sixplex, so the footprint has "
+                                f"probably caught more than the building"
+                            )
+                        )
+                        + f" — a ratio of {ratio:.2f}.{per_unit} The two disagree "
+                        f"about how much of the building is drawn, which usually means "
+                        f"the stated figure covers one unit of a repeated block. Every "
+                        f"quantity here is measured off these drawings, so the area "
+                        f"they depict is the denominator that matches them; dividing a "
+                        f"whole-block total by a one-unit area overstates intensity by "
+                        f"exactly this ratio. Counts taken from the plans still cover "
+                        f"only what is drawn. Confirm which basis you want — no "
+                        f"multiplier has been applied to the quantities, because "
                         f"guessing one would scale every count on an assumption."
                     ),
                     affects=counted_from_plans,

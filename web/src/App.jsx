@@ -118,6 +118,22 @@ function Citation({ provenance, onTrace, lineId }) {
   );
 }
 
+// Intensity is only as good as its denominator, and the denominator is the
+// one project fact the drawings may not state. Where the measured area and
+// the stated area disagree, the title block says which one is in use so the
+// reader can confirm it rather than discovering it in a gap further down.
+function floorAreaNote(gaps) {
+  const measured = (gaps || []).find((g) =>
+    String(g.message).startsWith("Floor area: using"),
+  );
+  if (measured) return "measured from the drawings — whole block, confirm this";
+  const impossible = (gaps || []).find((g) =>
+    String(g.message).includes("kgCO2e/m2 is not possible"),
+  );
+  if (impossible) return "check this — the intensity it gives is impossible";
+  return null;
+}
+
 function TitleBlockRow({ label, children }) {
   return (
     <div className="tb-row">
@@ -132,6 +148,7 @@ export function TitleBlock({ takeoff, carbon, coverage }) {
   const sheets = takeoff?.sheets || [];
   const readable = sheets.filter((s) => s.readable).length;
   const scoped = carbon?.modules?.join(" · ") || "—";
+  const areaNote = floorAreaNote(takeoff?.gaps);
 
   return (
     <aside className="titleblock">
@@ -143,6 +160,7 @@ export function TitleBlock({ takeoff, carbon, coverage }) {
       <TitleBlockRow label="Floor area">
         {p.gfa_m2 ? `${dec(p.gfa_m2, 1)} m²` : "—"}
         {p.gfa_basis ? ` · ${p.gfa_basis}` : ""}
+        {areaNote && <span className="tb-flag">{areaNote}</span>}
       </TitleBlockRow>
       <TitleBlockRow label="Storeys / units">
         {p.storeys || "—"} / {p.units || "—"}

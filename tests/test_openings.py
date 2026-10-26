@@ -247,7 +247,11 @@ class TestPlanExtentCheck:
             ),
         )
         gap = next(g for g in takeoff.gaps if "disagree about how much" in g.message)
-        assert "No multiplier has been applied" in gap.message
+        # Matched case-insensitively: the promise is what matters, not where in
+        # the sentence it falls. The message was rewritten when the denominator
+        # began following the drawings, and this assertion broke on the capital
+        # letter alone while the behaviour was unchanged.
+        assert "no multiplier has been applied" in gap.message.lower()
         doors = next((ln for ln in takeoff.lines if ln.id == "ln-doors"), None)
         if doors is not None:
             # The raw count from the plans, unscaled.

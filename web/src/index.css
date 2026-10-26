@@ -825,3 +825,15 @@ tr.c-assumed td.lead {
   text-align: left;
 }
 .notice-more:hover { color: var(--ink); }
+
+/* The denominator behind every per-square-metre figure, flagged where the
+   measured area and the stated area disagree. */
+.tb-flag {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--sans, inherit);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--warn, #b45309);
+  max-width: 30ch;
+}
