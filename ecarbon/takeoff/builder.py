@@ -249,6 +249,39 @@ def _foundation_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
             )
         )
 
+    footing = spec.footing_volume_m3(fp.perimeter_m)
+    if footing is not None:
+        assumptions = [
+            "Strip-footing run assumed equal to the footprint perimeter. Footings "
+            "under interior bearing walls and party walls are not counted, so this "
+            "understates a building with internal load paths."
+        ]
+        if spec.footing_section_note:
+            assumptions.append(spec.footing_section_note)
+        out.append(
+            TakeoffLine(
+                id="ln-strip-footing",
+                element_class=ElementClass.FOOTING,
+                quantity=round(footing, 2),
+                unit=Unit.M3,
+                confidence=Confidence.INFERRED,
+                material="CMHC_Concrete, CIP",
+                description=(
+                    f"Strip footing {spec.footing_width_mm:.0f} x "
+                    f"{spec.footing_depth_mm:.0f} mm over {fp.perimeter_m:.1f} m run"
+                ),
+                basis=Basis(
+                    sources=[BasisSource.VECTOR_PATH, BasisSource.SECTION_NOTE],
+                    note=(
+                        "Section stated on the structural drawings; run length taken as "
+                        "the rectangular perimeter of the measured footprint."
+                    ),
+                ),
+                assumptions=assumptions,
+                provenance=_prov(inputs, sheet, "STRIP FOOTING"),
+            )
+        )
+
     beam = spec.grade_beam_volume_m3(fp.perimeter_m)
     if beam is not None:
         out.append(

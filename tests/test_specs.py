@@ -11,6 +11,15 @@ import pytest
 
 from ecarbon.extract.specs import FoundationSpec, parse_foundation_spec
 
+try:
+    from ecarbon.config import discover, get_design
+
+    _HAVE_DATA = len(discover()) >= 52
+except Exception:
+    _HAVE_DATA = False
+
+needs_data = pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+
 # Verbatim from AB_Fourplex_01 S201.
 S201 = """
 200x1200 DP. CONC. GRADE BEAM R/W
@@ -164,3 +173,118 @@ class TestSheetTypeWordOrder:
         from ecarbon.intake.classify import sheet_type_of
 
         assert sheet_type_of(title).value == want
+
+
+class TestStripFootingSections:
+    """Quebec states its footings as `FOOTING 750x200` on the structural plan.
+
+    Alberta states a grade beam instead, which is why this went unparsed for
+    so long: the foundation parser was calibrated on one firm's wording, and
+    every QC, BC and Atlantic design came back with a system but no
+    dimensions -- slab and footing together being 27% of a home's carbon.
+    """
+
+    def test_the_real_quebec_string(self):
+        from ecarbon.extract.specs import footing_sections
+
+        found = footing_sections(
+            "DIMENSIONS AND REINFORCEMENT FOR STRIP FOOTING: FOOTING 750x200 "
+            "SEE SECTION D FOOTING 800x200 SEE SECTION A S2 PILASTER"
+        )
+        assert found == [(750.0, 200.0), (800.0, 200.0)]
+
+    def test_the_dowel_string_that_burned_the_beam_pattern(self):
+        """A looser grade-beam pattern once matched this and reported a
+        1200x1200 beam -- a six-fold error on the largest concrete item."""
+        from ecarbon.extract.specs import footing_sections
+
+        assert footing_sections(
+            "4-15M x 1200mm LG. DOWELS AT ALL PILE TO GRADE BEAM LOCATIONS"
+        ) == []
+
+    def test_a_footing_is_wider_than_it_is_deep(self):
+        from ecarbon.extract.specs import footing_sections
+
+        assert footing_sections("FOOTING 200x750") == []
+
+    @pytest.mark.parametrize("text", ["FOOTING 50x20", "FOOTING 5000x3000", "FOOTING 900x900"])
+    def test_implausible_sections_are_rejected(self, text):
+        from ecarbon.extract.specs import footing_sections
+
+        assert footing_sections(text) == []
+
+    def test_volume_is_section_times_run(self):
+        from ecarbon.extract.specs import FoundationSpec
+
+        spec = FoundationSpec(footing_width_mm=750.0, footing_depth_mm=200.0)
+        assert spec.footing_section_m2 == pytest.approx(0.15, abs=0.001)
+        assert spec.footing_volume_m3(54.9) == pytest.approx(8.235, abs=0.01)
+
+    def test_no_section_yields_no_volume(self):
+        from ecarbon.extract.specs import FoundationSpec
+
+        assert FoundationSpec().footing_volume_m3(50.0) is None
+
+    def test_similar_sections_pass_without_comment(self):
+        """750x200 and 800x200 differ by 6%, which does not change the answer."""
+        from ecarbon.extract.specs import FoundationSpec
+
+        spec = FoundationSpec(
+            footing_width_mm=750.0,
+            footing_depth_mm=200.0,
+            other_footing_sections=[(800.0, 200.0)],
+        )
+        assert spec.footing_section_note is None
+
+    def test_a_wide_spread_between_sections_is_reported(self):
+        from ecarbon.extract.specs import FoundationSpec
+
+        spec = FoundationSpec(
+            footing_width_mm=600.0,
+            footing_depth_mm=200.0,
+            other_footing_sections=[(1500.0, 400.0)],
+        )
+        note = spec.footing_section_note
+        assert note and "more than one strip-footing section" in note
+        assert "1500x400" in note
+
+
+@needs_data
+class TestStripFootingsOnRealDesigns:
+    @pytest.mark.parametrize(
+        ("design", "width", "depth"),
+        [("QC_Fourplex_01", 750.0, 200.0), ("QC_Sixplex", 900.0, 250.0)],
+    )
+    def test_quebec_footings_are_read(self, design, width, depth):
+        from ecarbon.extract.specs import foundation_spec_for
+
+        spec = foundation_spec_for(get_design(design))
+        assert spec.footing_width_mm == width
+        assert spec.footing_depth_mm == depth
+
+    def test_alberta_still_reads_a_grade_beam_and_no_strip_footing(self):
+        """Alberta sits on grade beams over screw piles; adding the footing
+        pattern must not invent a second foundation for it."""
+        from ecarbon.extract.specs import foundation_spec_for
+
+        spec = foundation_spec_for(get_design("AB_Fourplex_01"))
+        assert spec.grade_beam_width_mm == 200.0
+        assert spec.footing_width_mm is None
+        assert spec.system == "grade_beam_on_screw_piles"
+
+    def test_the_footing_reaches_the_bill_of_quantities(self):
+        from ecarbon.models import ElementClass, ProjectFacts, Unit
+        from ecarbon.takeoff.builder import build_takeoff
+
+        takeoff = build_takeoff(
+            get_design("QC_Fourplex_01"),
+            ProjectFacts(name="QC_Fourplex_01", gfa_m2=366.0, gfa_basis="gross", storeys=2),
+        )
+        line = takeoff.line("ln-strip-footing")
+        assert line.element_class is ElementClass.FOOTING
+        assert line.unit is Unit.M3
+        assert line.quantity > 0
+        assert line.provenance.sheet_no
+        # The run length is the footprint perimeter, which omits interior
+        # bearing walls, and the line has to say so.
+        assert any("interior bearing" in a for a in line.assumptions)

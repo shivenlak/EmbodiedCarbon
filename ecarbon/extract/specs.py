@@ -55,6 +55,40 @@ _BEAM_ALT_RE = re.compile(
     re.I,
 )
 
+# A strip footing's section, as Quebec's S100 states it:
+#   "DIMENSIONS AND REINFORCEMENT FOR STRIP FOOTING:
+#    FOOTING 750x200 SEE SECTION D   FOOTING 800x200 SEE SECTION A"
+#
+# `FOOTING` must immediately precede the pair. The grade-beam pattern above
+# already learned this lesson the expensive way: a looser form matched
+# "4-15M x 1200mm LG. DOWELS AT ALL PILE TO GRADE BEAM LOCATIONS" and reported
+# a 1200x1200 beam, a six-fold error on the largest concrete item.
+_FOOTING_RE = re.compile(r"FOOTING\s*:?\s*(\d{3,4})\s*[xX×]\s*(\d{2,4})\b", re.I)
+
+# A strip footing is wider than it is deep and sits within these bounds. A pair
+# outside them is some other dimension that happened to follow the word.
+MIN_FOOTING_WIDTH_MM, MAX_FOOTING_WIDTH_MM = 300.0, 2000.0
+MIN_FOOTING_DEPTH_MM, MAX_FOOTING_DEPTH_MM = 100.0, 800.0
+# Sections differing by more than this in area are different footing types and
+# the choice between them starts to matter, so it gets said.
+FOOTING_SECTION_SPREAD = 0.25
+
+
+def footing_sections(text: str) -> list[tuple[float, float]]:
+    """Every plausible (width, depth) strip-footing section stated in `text`."""
+    out: list[tuple[float, float]] = []
+    for m in _FOOTING_RE.finditer(text):
+        w, d = float(m.group(1)), float(m.group(2))
+        if not (MIN_FOOTING_WIDTH_MM <= w <= MAX_FOOTING_WIDTH_MM):
+            continue
+        if not (MIN_FOOTING_DEPTH_MM <= d <= MAX_FOOTING_DEPTH_MM):
+            continue
+        if d > w:  # a footing is wider than it is deep
+            continue
+        if (w, d) not in out:
+            out.append((w, d))
+    return out
+
 # Sheets that define the foundation, most authoritative first. A detail sheet
 # shows a condition; the foundation plan and sections state the design.
 _SHEET_PRIORITY = ("S2", "S4", "S1", "S3", "S0")
@@ -90,6 +124,10 @@ class FoundationSpec:
     slab_thickness_mm: float | None = None
     grade_beam_width_mm: float | None = None
     grade_beam_depth_mm: float | None = None
+    footing_width_mm: float | None = None
+    footing_depth_mm: float | None = None
+    # Other footing sections the drawings state, when more than one exists.
+    other_footing_sections: list[tuple[float, float]] = field(default_factory=list)
     pile_diameter_mm: float | None = None
     frost_insulation_mm: float | None = None
     screw_piles: bool = False
@@ -126,6 +164,36 @@ class FoundationSpec:
     def grade_beam_volume_m3(self, run_length_m: float) -> float | None:
         section = self.grade_beam_section_m2
         return None if section is None else run_length_m * section
+
+    @property
+    def footing_section_m2(self) -> float | None:
+        if self.footing_width_mm is None or self.footing_depth_mm is None:
+            return None
+        return (self.footing_width_mm / 1000.0) * (self.footing_depth_mm / 1000.0)
+
+    def footing_volume_m3(self, run_length_m: float) -> float | None:
+        """Strip-footing concrete over a run length."""
+        section = self.footing_section_m2
+        return None if section is None else run_length_m * section
+
+    @property
+    def footing_section_note(self) -> str | None:
+        """What to say when the drawings state more than one footing section."""
+        if not self.other_footing_sections or self.footing_width_mm is None:
+            return None
+        chosen = self.footing_section_m2 or 0.0
+        areas = [
+            (w / 1000.0) * (d / 1000.0) for w, d in self.other_footing_sections
+        ] + [chosen]
+        if not chosen or (max(areas) - min(areas)) / max(areas) <= FOOTING_SECTION_SPREAD:
+            return None
+        others = ", ".join(f"{w:.0f}x{d:.0f}" for w, d in self.other_footing_sections)
+        return (
+            f"The drawings state more than one strip-footing section "
+            f"({self.footing_width_mm:.0f}x{self.footing_depth_mm:.0f} is used; also "
+            f"{others}), and they differ enough that which runs where changes the "
+            f"concrete. The run length is not broken down by type."
+        )
 
     def pile_volume_m3(self, n_piles: int, depth_m: float) -> float | None:
         """Only meaningful for cast-in-place piles.
@@ -220,6 +288,16 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
             spec.cast_in_place_piles = True
         if STRIP_FOOTING_RE.search(flat):
             spec.strip_footings = True
+            found.append("strip footings")
+
+        if spec.footing_width_mm is None:
+            sections = footing_sections(flat)
+            if sections:
+                spec.footing_width_mm, spec.footing_depth_mm = sections[0]
+                spec.other_footing_sections = sections[1:]
+                found.append(
+                    f"strip footing {spec.footing_width_mm:.0f}x{spec.footing_depth_mm:.0f}"
+                )
 
         for m in _REBAR_SPACING_RE.finditer(flat):
             note = f"{m.group(1)}M @ {m.group(2)} o/c"
