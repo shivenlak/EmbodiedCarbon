@@ -22,17 +22,17 @@ design:
 | Crashed | **0 of 53** |
 | Produced quantities | 45 |
 | Produced none **and reported why** | 8 (the textless NOR sets) |
-| Seconds per design | median **12.9**, worst 24.2 |
-| Element coverage | median **37%**, best 91%, worst 0% |
+| Seconds per design | median **13.0**, worst 24.7 |
+| Element coverage | median **44%**, best 91%, worst 0% |
 | Designs reaching 80% coverage | **5 of 45** |
 
 | Region | n | Coverage, median | Best | Intensity kgCO₂e/m², median |
 |---|---|---|---|---|
 | **Alberta** | 7 | **91%** | 91% | 132.5 |
-| Quebec | 7 | 66% | 66% | 116.8 |
-| British Columbia | 7 | 37% | 37% | 20.9 |
+| Quebec | 7 | 66% | 66% | 116.1 |
+| British Columbia | 7 | **59%** | 59% | 30.8 |
 | Atlantic | 9 | 22% | 44% | 16.1 |
-| Ontario | 7 | 9% | 75% | 22.1 |
+| Ontario | 7 | **22%** | 75% | 22.1 |
 | SKMB | 7 | 9% | 9% | 8.3 |
 | NOR | 9 | — | — | — |
 
@@ -47,7 +47,7 @@ building it reaches.
 
 So: where a figure below is quoted for AB_Fourplex_01 — 91% coverage, 37,536
 kgCO₂e, 122.7 kgCO₂e/m² — read it as **the best case on the development
-region**, not as typical. The median design gets 37%, and only five of 45 reach 80%.
+region**, not as typical. The median design gets 44%, and only five of 45 reach 80%.
 
 What separates them is whether two sheets parse. A design reaches 80%+ only
 when both its assemblies schedule and its openings schedule are readable:
@@ -163,12 +163,12 @@ gypsum.
 | British Columbia | **7 / 7** |
 | Quebec | **7 / 7** |
 | Atlantic | **8 / 9** |
-| Ontario | 2 / 7 |
+| Ontario | **7 / 7** |
 | NOR | 0 / 9 |
 | SKMB | 0 / 7 |
-| **Total** | **31 / 53** |
+| **Total** | **36 / 53** |
 
-**291 assemblies kept, 115 refused.** The refusals matter as much as the
+**360 assemblies kept, 158 refused.** The refusals matter as much as the
 parses. Reading this sheet across firms sometimes merges adjacent blocks or
 starts one on a layer row, and the result is structurally wrong while looking
 completely ordinary — a 47-layer, 1.6 m "VAULTED ROOF" on BC_Duplex, and
@@ -179,9 +179,10 @@ quantities silently while a refusal produces a gap that says so.
 
 | Why an assembly was refused | n |
 |---|---|
-| its name is one of its own layers | 83 |
-| more layers than an assembly has | 25 |
+| its name is one of its own layers | 108 |
+| more layers than an assembly has | 11 |
 | implausible built depth | 7 |
+| no layer states a thickness, or other | 32 |
 
 ### Built depth against the IFC's own layer sets
 
@@ -190,14 +191,22 @@ on every assembly where both exist:
 
 | | Result |
 |---|---|
-| Assemblies compared | **148** |
-| Median error | **5.8%** |
-| Mean error | 18.5% |
-| Exact (<0.5%) | **48 / 148** |
-| Within 10% | **86 / 148** |
-| Worst | 100% |
+| Assemblies compared | **163** |
+| Median error | **7.9%** |
+| Mean error | 22.8% |
+| Exact (<0.5%) | **47 / 163** |
+| Within 10% | **85 / 163** |
+| Worst | 207.9% |
 
-Excluded: 14 tags the IFC models with more than one build-up, where there is
+**Reading more schedules cost a little per-assembly precision, and that is
+the honest trade.** Widening tag forms and repairing Ontario's encoding took
+the comparison set from 148 assemblies to 163 and designs from 31 to 36,
+while the median built-depth error moved 5.8% to 7.9% and exact matches held
+at 47. The assemblies added are the harder ones — dotted BC tags and
+glyph-ID Ontario cells — so the average is diluted rather than any
+previously good reading having degraded.
+
+Excluded: 19 tags the IFC models with more than one build-up, where there is
 no single depth to compare against. AB_Fourplex_01's P2 exists as both a
 165 mm plain partition and a 201 mm rated one; our parse is the rated version
 and matches it exactly, so scoring against the nearest variant would flatter
@@ -226,12 +235,17 @@ structural sheets while the IFC includes its full depth (44% apart); and the
 IFC generalises W2's framing to `CMHC_Wood Framing` where the drawing says
 `METAL STUD FRAMING` — W2 is the non-combustible rated wall, so it is steel.
 
-The two regions at zero fail for different reasons, and the distinction is
-worth keeping: **SKMB publishes no assemblies schedule at all** (its packages
-carry only `S002 TYPICAL DETAILS`), which is a gap in the source documents
-rather than in this software; Ontario's five multiplexes do publish one, drawn
-rotated a quarter turn, whose thickness cells are glyph-ID mojibake our text
-repair deliberately refuses.
+**SKMB publishes no assemblies schedule at all** — its packages carry only
+`S002 TYPICAL DETAILS`. That is a gap in the source documents rather than in
+this software, and no amount of parsing closes it.
+
+Ontario's schedules now read (7 of 7, up from 2) after a glyph-ID repair
+scoped to this module. Their sheets are drawn rotated a quarter turn and
+encoded under a single 0x1D shift, and the two cell kinds the global text
+repair refuses — thicknesses, because `PP` is `mm` and contains letters, and
+tags, because `W1` is too short to validate — are recovered only when the
+shifted result is a real numeric thickness or a well-formed tag. The global
+guards are untouched: sheet identification still measures 97.9% and 95.1%.
 
 ---
 

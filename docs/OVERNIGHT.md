@@ -152,6 +152,53 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — item 4, published numbers refreshed
+
+`docs/benchmark.md` and `docs/pitch.md` updated from this session's runs, so
+nothing published is stale. Changes:
+
+| | before | after |
+|---|---|---|
+| catalogue median coverage | 37% | **44%** |
+| designs with trustworthy assemblies | 31 / 53 | **36 / 53** |
+| Ontario assemblies | 2 / 7 | **7 / 7** |
+| assemblies kept / refused | 291 / 115 | **360 / 158** |
+| built depth, assemblies compared | 148 | **163** |
+| built depth, median error | 5.8% | **7.9%** |
+| built depth, exact | 48 | 47 |
+
+**Recorded as a trade rather than buried:** reading more schedules cost a
+little per-assembly precision. The comparison set grew from 148 assemblies to
+163 and designs from 31 to 36 while the median built-depth error moved 5.8% ->
+7.9% and exact matches held at 47. The assemblies added are the harder ones —
+dotted BC tags and glyph-ID Ontario cells — so the average is diluted rather
+than any previously good reading having degraded. The benchmark says this
+plainly next to the table rather than reporting only the coverage gain.
+
+The stale Ontario paragraph in the benchmark's assemblies section was rewritten:
+it previously said Ontario's schedules could not be read, which is no longer
+true.
+
+## Queue state after this session
+
+Items 1, 2 and 3 are done. Item 4 is a standing task — re-run it whenever the
+numbers move. **Next most valuable work, in order:**
+
+1. **Atlantic footings.** ATL reports `strip_footing` or `unknown` with no
+   dimensions and benefited from neither the inline nor the table pattern, so
+   its footings are stated in a third form. 9 designs, 9% of carbon each.
+2. **Atlantic assemblies.** 8 of 9 parse a schedule but coverage is still 22%,
+   the lowest of any region that reads its schedules. Worth diagnosing why its
+   parsed assemblies are not producing lines — the same question that turned out
+   to be column misidentification for Quebec.
+3. **Ontario storey heights.** Every ON multiplex reports `n_storeys = 0`, so no
+   exterior wall and no floor assemblies. Separate from the mojibake work and
+   worth more than it: the exterior wall is 20% of carbon.
+
+**Needs a human, not another unattended pass:** BC's exterior wall assembly is
+still refused, and the block-splitting underneath it is a judgement about
+approach — the one attempt made the catalogue worse and was reverted.
+
 ### 2026-10-27 — item 3, Ontario mojibake: ON 9% -> 22%
 
 **Kept, and the guardrail held.** Sheet identification is unchanged at 97.9%
