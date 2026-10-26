@@ -253,3 +253,87 @@ class TestTheSeedIsTheSourceOfTruth:
             # reason they cannot be summed.
             assert src.modules == dst.modules
             assert src.source and dst.source
+
+
+class TestUnspecifiedChoices:
+    """A layer the drawings decline to specify is a decision, not a gap.
+
+    AB_Fourplex_01's W2 carries "NON-COMBUSTIBLE LIGHT-WEIGHT CLADDING PLACE
+    HOLDER" and its R2 carries "ROOFING PLACEHOLDER". A default mapping to
+    vinyl siding exists in the store, so the failure mode this guards is a
+    silent pick, not a crash.
+    """
+
+    @pytest.fixture(scope="class")
+    def choices(self):
+        pytest.importorskip("ifcopenshell")
+        try:
+            from ecarbon.config import discover, get_design
+        except Exception:
+            pytest.skip("$EC_DATA catalogue not present")
+        if len(discover()) < 52:
+            pytest.skip("$EC_DATA catalogue not present")
+
+        from ecarbon.bench.bpr import parse_bpr
+        from ecarbon.carbon.store import LocalSnapshotProvider
+        from ecarbon.carbon.unspecified import unspecified_choices
+        from ecarbon.extract.assemblies import assemblies_for
+        from ecarbon.models import ProjectFacts
+        from ecarbon.takeoff.builder import build_takeoff
+
+        design = get_design("AB_Fourplex_01")
+        bpr = parse_bpr(str(design.bpr[0]))
+        takeoff = build_takeoff(
+            design,
+            ProjectFacts(
+                name="AB_Fourplex_01",
+                gfa_m2=bpr.best_gfa_m2,
+                gfa_basis="gross",
+                storeys=bpr.storeys,
+                units=bpr.units,
+            ),
+        )
+        kept, _ = assemblies_for(design)
+        return unspecified_choices(takeoff, kept, LocalSnapshotProvider()), takeoff
+
+    def test_the_open_decisions_are_found(self, choices):
+        found, _ = choices
+        assert {c.category for c in found} == {"Cladding", "Roofing"}
+
+    def test_the_area_matches_the_rest_of_the_bill(self, choices):
+        """Quoting a range over a different surface than the takeoff used
+        would make the two sets of numbers quietly incomparable."""
+        found, takeoff = choices
+        cladding = next(c for c in found if c.category == "Cladding")
+        wall = takeoff.line("ln-exterior-wall")
+        assert cladding.area_m2 == pytest.approx(wall.quantity, rel=0.01)
+
+    def test_each_option_is_a_real_sourced_record(self, choices):
+        found, _ = choices
+        for choice in found:
+            assert len(choice.options) >= 2, "a range needs at least two options"
+            for option in choice.options:
+                assert option.factor.source
+                assert option.factor.modules == ["A1", "A2", "A3"]
+                assert option.kg_co2e > 0
+
+    def test_the_options_are_ordered_and_the_spread_is_real(self, choices):
+        found, _ = choices
+        for choice in found:
+            values = [o.kg_co2e for o in choice.options]
+            assert values == sorted(values)
+            assert choice.spread_kg_co2e > 0
+            assert choice.high_kg_co2e > choice.low_kg_co2e
+
+    def test_the_note_quotes_the_drawing_rather_than_choosing(self, choices):
+        found, _ = choices
+        for choice in found:
+            assert choice.drawing_says.upper() in choice.note.upper()
+            assert "until one is chosen" in choice.note
+
+    def test_nothing_unspecified_is_counted_in_the_total(self, choices):
+        """The point of the range is that the total does not include it."""
+        found, takeoff = choices
+        placeholders = {c.drawing_says.upper() for c in found}
+        for line in takeoff.lines:
+            assert (line.material or "").upper() not in placeholders

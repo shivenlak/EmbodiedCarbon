@@ -42,6 +42,14 @@ class FactorProvider(ABC):
         """List all available factors in this provider."""
         pass
 
+    def factor_categories(self) -> dict[str, str]:
+        """Factor id -> category, for grouping options by what they are.
+
+        Not abstract: a provider that cannot answer returns nothing and the
+        caller offers no options rather than guessing a grouping.
+        """
+        return {}
+
     @abstractmethod
     def list_substitutions(self) -> list[dict]:
         """List available material substitutions."""
@@ -300,6 +308,24 @@ class LocalSnapshotProvider(FactorProvider):
             cur = conn.cursor()
             cur.execute("SELECT * FROM factors ORDER BY name ASC")
             return [self._row_to_factor(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def factor_categories(self) -> dict[str, str]:
+        """Categories come from the material mappings and the substitutions,
+        which is where the seed already records what a factor is."""
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            out: dict[str, str] = {}
+            cur.execute("SELECT default_factor_id, category FROM material_mappings")
+            for fid, category in cur.fetchall():
+                out[fid] = category
+            cur.execute("SELECT from_factor_id, to_factor_id, category FROM substitutions")
+            for src, dst, category in cur.fetchall():
+                out.setdefault(src, category)
+                out.setdefault(dst, category)
+            return out
         finally:
             conn.close()
 

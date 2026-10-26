@@ -457,3 +457,80 @@ def get_trace_image(project_id: str, line_id: str, page: int, dpi: int = 110):
     except IndexError as exc:
         raise HTTPException(404, str(exc)) from None
     return Response(content=png, media_type="image/png")
+
+
+# -- decisions the drawings leave open -------------------------------------
+
+
+class ChoiceOption(BaseModel):
+    factor_id: str
+    name: str
+    source: str
+    kg_co2e: float
+
+
+class UnspecifiedChoiceOut(BaseModel):
+    """A layer the drawings decline to specify, priced as a range.
+
+    Distinct from a substitution: a substitution replaces a material the
+    drawings chose, while this is a choice nobody has made yet. Presenting the
+    two the same way would imply a decision exists where none does.
+    """
+
+    assembly_tag: str
+    category: str
+    drawing_says: str
+    area_m2: float
+    sheet_no: str | None = None
+    page: int | None = None
+    low_kg_co2e: float
+    high_kg_co2e: float
+    spread_kg_co2e: float
+    note: str
+    options: list[ChoiceOption]
+
+
+@app.get(
+    "/projects/{project_id}/unspecified",
+    response_model=list[UnspecifiedChoiceOut],
+)
+def get_unspecified(project_id: str) -> list[UnspecifiedChoiceOut]:
+    """Criterion 3's discipline, made actionable.
+
+    These layers carry no carbon in the total because no material has been
+    chosen. Rather than defaulting one and saying nothing, each is reported
+    with what every available option would cost, ordered by how much the
+    decision moves.
+    """
+    from ecarbon.carbon.unspecified import unspecified_choices
+    from ecarbon.extract.assemblies import assemblies_for
+
+    p = _get(project_id)
+    design = _catalogue().get(project_id)
+    if design is None:
+        return []
+    assemblies, _refused = assemblies_for(design)
+    return [
+        UnspecifiedChoiceOut(
+            assembly_tag=c.assembly_tag,
+            category=c.category,
+            drawing_says=c.drawing_says,
+            area_m2=c.area_m2,
+            sheet_no=c.sheet_no,
+            page=c.page,
+            low_kg_co2e=c.low_kg_co2e,
+            high_kg_co2e=c.high_kg_co2e,
+            spread_kg_co2e=c.spread_kg_co2e,
+            note=c.note,
+            options=[
+                ChoiceOption(
+                    factor_id=o.factor.factor_id,
+                    name=o.name,
+                    source=o.factor.source,
+                    kg_co2e=o.kg_co2e,
+                )
+                for o in c.options
+            ],
+        )
+        for c in unspecified_choices(p.takeoff, assemblies, _FACTORS)
+    ]
