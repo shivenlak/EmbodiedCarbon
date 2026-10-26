@@ -63,6 +63,27 @@ async function getJSON(path) {
 
 /* --------------------------------------------------------------- pieces -- */
 
+// Which plan set to open on. `?plan=` wins so a demo or a bug report can
+// deep-link an exact design; otherwise prefer a multi-storey set over an ADU,
+// because a single-storey plan yields fewer than two floor datums and so has
+// no wall height, no wall, floor or partition area, and a thin bill. Opening
+// on the catalogue's first key alphabetically meant always landing on
+// AB_ADU_01, the weakest design we have.
+function pickInitial(list) {
+  const wanted = new URLSearchParams(window.location.search).get("plan");
+  const idOf = (p) => p.id ?? p.project_id;
+  if (wanted) {
+    const exact = list.find((p) => idOf(p) === wanted);
+    if (exact) return idOf(exact);
+    const loose = list.find((p) =>
+      String(idOf(p)).toLowerCase().includes(wanted.toLowerCase()),
+    );
+    if (loose) return idOf(loose);
+  }
+  const multi = list.find((p) => !/_ADU_/i.test(String(idOf(p))));
+  return idOf(multi ?? list[0]);
+}
+
 function ScaleBar() {
   return (
     <div className="scalebar" aria-hidden="true">
@@ -71,7 +92,10 @@ function ScaleBar() {
   );
 }
 
-function Citation({ provenance, onTrace }) {
+// Mirrors PARTITION_LINE_PREFIX in ecarbon/takeoff/builder.py.
+const PARTITION_PREFIX = "ln-interior-partition";
+
+function Citation({ provenance, onTrace, lineId }) {
   const sheet = provenance?.sheet_no;
   if (!sheet) {
     return (
@@ -85,8 +109,8 @@ function Citation({ provenance, onTrace }) {
   return (
     <button
       className="cite"
-      onClick={() => onTrace?.(provenance)}
-      title={`Shown on sheet ${sheet}, page ${provenance.page + 1}`}
+      onClick={() => onTrace?.(lineId, provenance)}
+      title={`Show where this came from on sheet ${sheet}`}
     >
       <span className="cite-sheet">{sheet}</span>
       <span className="cite-detail">{detail}</span>
@@ -158,12 +182,32 @@ export function Hero({ carbon, takeoff }) {
     (l) => l.confidence === "measured",
   ).length;
 
+  // Carbon carried by the interior-partition lines. Their run length is
+  // measured off the drawing rather than stated by a schedule, so the total
+  // is shown both ways instead of asking the reader to take the one on trust.
+  const inferredPartitions = (carbon?.lines || [])
+    .filter((l) => isCounted(l) && String(l.line_id).startsWith(PARTITION_PREFIX))
+    .reduce((sum, l) => sum + (l.kg_co2e || 0), 0);
+
   return (
     <section className="hero">
       <div className="hero-total">
         <span className="hero-figure">{int(carbon?.total_kg_co2e)}</span>
         <span className="hero-unit">kg CO₂e</span>
       </div>
+
+      {inferredPartitions > 0 && (
+        <div className="hero-range">
+          <span className="hero-range-measured">
+            {int(carbon.total_kg_co2e - inferredPartitions)} kg CO₂e
+          </span>
+          <span className="hero-range-note">
+            without the inferred interior partitions, which are measured from
+            the plan linework rather than read from a schedule. Both figures
+            are given because that run is the least certain quantity here.
+          </span>
+        </div>
+      )}
 
       <div className="hero-scope">
         <span>▣</span>
@@ -211,25 +255,69 @@ export function Hero({ carbon, takeoff }) {
 }
 
 export function Notices({ gaps }) {
+  // Fourteen notices, eleven of them "R1 layer N states no thickness", pushed
+  // the bill of quantities below two screens of near-identical text. The
+  // honesty is the point of this panel, so nothing is dropped -- but repeats
+  // of one kind collapse behind a count so the distinct problems are the ones
+  // you read first.
+  const [expanded, setExpanded] = useState({});
   if (!gaps?.length) return null;
+
   const rank = { blocking: 0, warning: 1, info: 2 };
   const sorted = [...gaps].sort(
     (a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3),
   );
+
+  const groups = [];
+  const seen = new Map();
+  for (const g of sorted) {
+    const key = `${g.severity}:${g.code}`;
+    if (g.severity === "blocking" || !seen.has(key)) {
+      const group = { key, severity: g.severity, code: g.code, items: [g] };
+      if (g.severity !== "blocking") seen.set(key, group);
+      groups.push(group);
+    } else {
+      seen.get(key).items.push(g);
+    }
+  }
+
+  const SHOWN = 2;
   return (
     <div>
-      {sorted.map((g, i) => (
-        <div
-          key={i}
-          className={`notice${g.severity === "blocking" ? "" : " notice-blueprint"}`}
-        >
-          <div className="notice-head">
-            {g.severity === "blocking" ? "Read this first" : "Worth knowing"} ·{" "}
-            {(g.code || "").replace(/_/g, " ")}
-          </div>
-          <div>{g.message}</div>
-        </div>
-      ))}
+      {groups.map((group) => {
+        const open = expanded[group.key];
+        const shown = open ? group.items : group.items.slice(0, SHOWN);
+        const hidden = group.items.length - shown.length;
+        return (
+          <Fragment key={group.key}>
+            {shown.map((g, i) => (
+              <div
+                key={i}
+                className={`notice${g.severity === "blocking" ? "" : " notice-blueprint"}`}
+              >
+                <div className="notice-head">
+                  {g.severity === "blocking" ? "Read this first" : "Worth knowing"} ·{" "}
+                  {(g.code || "").replace(/_/g, " ")}
+                </div>
+                <div>{g.message}</div>
+              </div>
+            ))}
+            {hidden > 0 && (
+              <button
+                className="notice-more"
+                onClick={() =>
+                  setExpanded((e) => ({ ...e, [group.key]: true }))
+                }
+              >
+                + {hidden} more of the same kind
+                {" ("}
+                {(group.code || "").replace(/_/g, " ")}
+                {") — shown in full in the exported report"}
+              </button>
+            )}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -339,7 +427,11 @@ export function BillOfQuantities({ takeoff, carbon, onOverride, onTrace }) {
                   {line.description && (
                     <div className="el-desc">{line.description}</div>
                   )}
-                  <Citation provenance={line.provenance} onTrace={onTrace} />
+                  <Citation
+                    provenance={line.provenance}
+                    onTrace={onTrace}
+                    lineId={line.id}
+                  />
                 </td>
 
                 <td className="right">
@@ -531,14 +623,173 @@ export function Substitutions({ swaps, takeoff }) {
 
 /* ------------------------------------------------------------------ app -- */
 
+
+// How strong a trace is. These are different claims and the UI must not
+// flatten them: measured_geometry means the outlined rectangles ARE the
+// measurement, schedule_row means they are the text the figure was read from,
+// and sheet_only means the region could not be found and nothing is outlined.
+const TRACE_KIND = {
+  measured_geometry: {
+    label: "Measured here",
+    blurb: "Each outline is one element whose size is in the quantity.",
+  },
+  schedule_row: {
+    label: "Read from this",
+    blurb: "The quantity was computed from the highlighted text.",
+  },
+  sheet_only: {
+    label: "Sheet only",
+    blurb:
+      "This is the right sheet, but the exact region could not be located. Nothing is highlighted rather than pointing at a guess.",
+  },
+};
+
+function TracePanel({ trace, onClose }) {
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [trace?.lineId]);
+  if (!trace) return null;
+
+  const { lineId, label, regions, loading, error } = trace;
+  const region = regions?.[page];
+  const kind = TRACE_KIND[region?.kind] || TRACE_KIND.sheet_only;
+
+  return (
+    <div className="trace-scrim" onClick={onClose}>
+      <div
+        className="trace"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label={`Where ${label} came from`}
+      >
+        <div className="trace-head">
+          <div>
+            <div className="eyebrow">Where this number came from</div>
+            <div className="trace-title">{label || lineId}</div>
+          </div>
+          <button className="trace-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        {loading && <div className="trace-body muted">Rendering the sheet…</div>}
+        {error && <div className="trace-body notice-warn">{error}</div>}
+
+        {region && (
+          <>
+            <div className="trace-meta">
+              <span className={`trace-kind trace-kind-${region.kind}`}>
+                {kind.label}
+              </span>
+              <span className="trace-sheet">
+                {region.sheet_no || "—"} · page {region.page + 1}
+              </span>
+              {regions.length > 1 && (
+                <span className="trace-pager">
+                  {regions.map((r, i) => (
+                    <button
+                      key={r.page}
+                      className={i === page ? "is-on" : ""}
+                      onClick={() => setPage(i)}
+                    >
+                      {r.sheet_no || `p${r.page + 1}`}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+            <p className="trace-note">{region.note || kind.blurb}</p>
+            <div className="trace-body">
+              {region.rects?.length ? (
+                <img
+                  className="trace-img"
+                  src={`${API}${region.image_url}`}
+                  alt={`Sheet ${region.sheet_no} with the measured region outlined`}
+                />
+              ) : (
+                <div className="muted">
+                  Nothing is highlighted on this sheet, by design.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Layers the drawings decline to specify. Not a substitution: a substitution
+// replaces a material somebody chose, while this is a choice nobody has made,
+// and showing them the same way would imply a decision exists where none does.
+function OpenDecisions({ choices }) {
+  if (!choices?.length) return null;
+  return (
+    <div className="decisions">
+      {choices.map((c) => (
+        <div className="decision" key={`${c.assembly_tag}-${c.category}`}>
+          <div className="decision-head">
+            <div>
+              <span className="decision-cat">{c.category}</span>
+              <span className="decision-tag">
+                {c.assembly_tag} · {c.area_m2} m²
+              </span>
+            </div>
+            <div className="decision-range">
+              {int(c.low_kg_co2e)}–{int(c.high_kg_co2e)}
+              <span className="muted"> kg CO₂e</span>
+            </div>
+          </div>
+          <div className="decision-says">
+            The drawings say “{c.drawing_says}” — the choice is still open, so
+            nothing is added to the total until one is made.
+          </div>
+          <div className="decision-opts">
+            {c.options.map((o) => (
+              <div className="decision-opt" key={o.factor_id}>
+                <span className="decision-opt-name">{o.name}</span>
+                <span className="decision-opt-val">{int(o.kg_co2e)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function App() {
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
   const [takeoff, setTakeoff] = useState(null);
   const [carbon, setCarbon] = useState(null);
   const [swaps, setSwaps] = useState([]);
+  const [decisions, setDecisions] = useState([]);
+  const [trace, setTrace] = useState(null);
   const [status, setStatus] = useState("connecting");
   const [error, setError] = useState(null);
+
+  const showTrace = useCallback(
+    async (lineId, provenance) => {
+      if (!projectId || !lineId) return;
+      const label =
+        provenance?.detail ||
+        (provenance?.sheet_no ? `Sheet ${provenance.sheet_no}` : lineId);
+      setTrace({ lineId, label, regions: [], loading: true, error: null });
+      try {
+        const regions = await getJSON(`/projects/${projectId}/trace/${lineId}`);
+        setTrace({ lineId, label, regions, loading: false, error: null });
+      } catch (e) {
+        setTrace({
+          lineId,
+          label,
+          regions: [],
+          loading: false,
+          error: `Could not trace this line: ${e.message}`,
+        });
+      }
+    },
+    [projectId],
+  );
 
   useEffect(() => {
     getJSON("/projects")
@@ -546,7 +797,7 @@ export default function App() {
         const list = Array.isArray(p) ? p : p.projects || [];
         setProjects(list);
         setStatus(list.length ? "ready" : "empty");
-        if (list.length) setProjectId(list[0].id ?? list[0].project_id);
+        if (list.length) setProjectId(pickInitial(list));
       })
       .catch((e) => {
         setError(e.message);
@@ -567,6 +818,11 @@ export default function App() {
         setSwaps(await getJSON(`/projects/${id}/substitutions`));
       } catch {
         setSwaps([]);
+      }
+      try {
+        setDecisions(await getJSON(`/projects/${id}/unspecified`));
+      } catch {
+        setDecisions([]);
       }
       setStatus("ready");
     } catch (e) {
@@ -756,6 +1012,7 @@ export default function App() {
                 takeoff={takeoff}
                 carbon={carbon}
                 onOverride={override}
+                onTrace={showTrace}
               />
             </section>
 
@@ -769,6 +1026,18 @@ export default function App() {
               </section>
             ) : null}
 
+            {decisions.length ? (
+              <section className="section">
+                <div className="section-head">
+                  <h2 className="sheet-title">Decisions still open</h2>
+                  <span className="eyebrow">
+                    Not counted in the total · priced as a range
+                  </span>
+                </div>
+                <OpenDecisions choices={decisions} />
+              </section>
+            ) : null}
+
             <section className="section">
               <div className="section-head">
                 <h2 className="sheet-title">Material substitutions</h2>
@@ -776,6 +1045,7 @@ export default function App() {
               </div>
               <Substitutions swaps={swaps} takeoff={takeoff} />
             </section>
+            <TracePanel trace={trace} onClose={() => setTrace(null)} />
           </>
         )}
       </main>

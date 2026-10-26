@@ -656,3 +656,172 @@ tr.c-assumed td.lead {
     display: none;
   }
 }
+
+/* ------------------------------------------------- both totals at once -- */
+/* The partition run is measured off the linework rather than stated by a
+   schedule, so the figure without it sits beside the figure with it. */
+.hero-range {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 6px;
+  padding-left: 2px;
+  flex-wrap: wrap;
+}
+.hero-range-measured {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--ink);
+  border-bottom: 1px dotted var(--rule-strong);
+}
+.hero-range-note {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 62ch;
+  line-height: 1.45;
+}
+
+/* ------------------------------------------------------- click to trace -- */
+.trace-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 22, 26, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  z-index: 40;
+}
+.trace {
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+  width: min(1100px, 100%);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.trace-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.trace-title {
+  font-family: var(--mono);
+  font-size: 14px;
+  margin-top: 3px;
+}
+.trace-close {
+  border: 1px solid var(--rule);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 9px;
+  color: var(--muted);
+}
+.trace-close:hover { color: var(--ink); border-color: var(--rule-strong); }
+.trace-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 20px 0;
+}
+.trace-kind {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  padding: 3px 7px;
+}
+/* Measured linework and a text match are not the same claim, so they are not
+   the same colour. */
+.trace-kind-measured_geometry { color: var(--accent, #1d4ed8); }
+.trace-kind-schedule_row { color: var(--muted); }
+.trace-kind-sheet_only { color: var(--warn, #b45309); }
+.trace-sheet { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.trace-pager { display: flex; gap: 4px; margin-left: auto; }
+.trace-pager button {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+}
+.trace-pager button.is-on {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+  background: var(--tint, #eef2f9);
+}
+.trace-note {
+  padding: 8px 20px 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 90ch;
+}
+.trace-body {
+  padding: 14px 20px 20px;
+  overflow: auto;
+}
+.trace-img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  background: #fff;
+}
+
+/* --------------------------------------------------- decisions still open -- */
+.decisions { display: grid; gap: 14px; padding-top: 14px; }
+.decision { border: 1px solid var(--rule); padding: 14px 16px; }
+.decision-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+.decision-cat {
+  font-weight: 600;
+  font-size: 14px;
+  margin-right: 10px;
+}
+.decision-tag { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.decision-range { font-family: var(--mono); font-size: 16px; }
+.decision-says {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 7px 0 11px;
+  max-width: 82ch;
+}
+.decision-opts { display: grid; gap: 5px; }
+.decision-opt {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12.5px;
+  padding: 5px 9px;
+  background: var(--tint, #f3f5f9);
+}
+.decision-opt-val { font-family: var(--mono); }
+
+/* --------------------------------------------------------- notice groups -- */
+.notice-more {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px dashed var(--rule-strong);
+  padding: 7px 11px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+.notice-more:hover { color: var(--ink); }
