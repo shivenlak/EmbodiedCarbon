@@ -372,3 +372,78 @@ class TestFootingSchedulesOnRealDesigns:
         spec = foundation_spec_for(get_design("AB_Fourplex_01"))
         assert spec.footing_width_mm is None
         assert spec.system == "grade_beam_on_screw_piles"
+
+
+class TestDesignerDeclinedFoundation:
+    """Some drawings refuse to specify the foundation, and that is an answer.
+
+    Every Atlantic set carries this on its structural sheet, and no other
+    region does:
+
+        BUILDING FOUNDATIONS ARE UP TO THE END USER BASED ON THEIR BUILDING AND
+        SITE CONDITIONS. GENERIC FOUNDATION TYPE IS SHOWN BUT USER MAY/WILL
+        NEED TO RETAIN A PROFESSIONAL TO DESIGN THEIR FOUNDATION
+
+    No pattern fixes that. Reading a dimension off a detail the drawings label
+    generic would invent a specification the designer explicitly refused to
+    give -- the same error as substituting a cladding for CMHC's placeholder.
+    """
+
+    DECLINED = (
+        "BUILDING FOUNDATIONS ARE UP TO THE END USER BASED ON THEIR BUILDING AND "
+        "SITE CONDITIONS. GENERIC FOUNDATION TYPE IS SHOWN BUT USER MAY/WILL NEED "
+        "TO RETAIN A PROFESSIONAL TO DESIGN THEIR FOUNDATION"
+    )
+
+    def test_the_disclaimer_is_detected(self):
+        from ecarbon.extract.specs import DESIGNER_DECLINED_RE
+
+        assert DESIGNER_DECLINED_RE.search(self.DECLINED)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "130mm THICK CONCRETE SLAB ON GRADE",
+            "FOUNDATION PLAN",
+            "STRIP FOOTING UNDER LBW, TYP.",
+        ],
+    )
+    def test_ordinary_foundation_text_is_not_a_disclaimer(self, text):
+        from ecarbon.extract.specs import DESIGNER_DECLINED_RE
+
+        assert not DESIGNER_DECLINED_RE.search(text)
+
+    def test_one_specific_reason_replaces_the_vague_ones(self):
+        """'slab thickness not stated' sends a reader hunting for a sheet that
+        was never drawn."""
+        from ecarbon.extract.specs import FoundationSpec
+
+        spec = FoundationSpec(designer_declined=True)
+        assert len(spec.missing) == 1
+        reason = spec.missing[0]
+        assert "end user's to design" in reason
+        assert "not zero" in reason
+        assert not any("slab thickness not stated" in m for m in spec.missing)
+
+    def test_a_specified_foundation_keeps_its_own_gaps(self):
+        from ecarbon.extract.specs import FoundationSpec
+
+        spec = FoundationSpec()
+        assert any("slab thickness not stated" in m for m in spec.missing)
+
+
+@needs_data
+class TestDeclinedFoundationOnRealDesigns:
+    @pytest.mark.parametrize("design", ["ATL_Fourplex_02", "ATL_Sixplex", "ATL_ADU_01"])
+    def test_atlantic_declines(self, design):
+        from ecarbon.extract.specs import foundation_spec_for
+
+        spec = foundation_spec_for(get_design(design))
+        assert spec.designer_declined
+        assert "end user's to design" in " ".join(spec.missing)
+
+    @pytest.mark.parametrize("design", ["AB_Fourplex_01", "QC_Fourplex_01", "BC_Duplex"])
+    def test_other_regions_do_not(self, design):
+        from ecarbon.extract.specs import foundation_spec_for
+
+        assert not foundation_spec_for(get_design(design)).designer_declined

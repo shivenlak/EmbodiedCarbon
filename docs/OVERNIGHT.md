@@ -152,6 +152,48 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — Atlantic footings: not a parsing problem
+
+**No coverage change, and that is the correct outcome.** This was queued as
+"Atlantic footings are stated in a third form again, find where". They are not.
+Atlantic's structural sheet says, on all 9 of 9 designs and on no other
+region's:
+
+    BUILDING FOUNDATIONS ARE UP TO THE END USER BASED ON THEIR BUILDING AND
+    SITE CONDITIONS. GENERIC FOUNDATION TYPE IS SHOWN BUT USER MAY/WILL NEED
+    TO RETAIN A PROFESSIONAL TO DESIGN THEIR FOUNDATION
+
+The footing marks (`FT10`, `FT20`) defer to a detail, and the detail carries
+only unlabelled numbers — `100 225 75` — beside that disclaimer. Reading a
+dimension off a detail the drawings themselves label generic and
+not-for-construction would invent a specification the designer explicitly
+refused to give, which is the same error as substituting a cladding for CMHC's
+placeholder.
+
+So instead of a pattern, the condition is now detected and reported. The
+foundation elements stay counted as **missing rather than absent** — the
+building will have a foundation and its carbon is real, just unknowable from
+these sheets — but the gap now reads:
+
+> the drawings state the foundation is the end user's to design — "GENERIC
+> FOUNDATION TYPE IS SHOWN BUT USER MAY/WILL NEED TO RETAIN A PROFESSIONAL TO
+> DESIGN THEIR FOUNDATION" — so no slab, footing or foundation-wall concrete
+> can be taken off these sheets. The foundation carbon is real and unknown, not
+> zero: supply the foundation design and it can be quantified
+
+instead of "slab thickness not stated" and "foundation system not identified",
+which sent a reader hunting for a sheet nobody drew. One specific reason beats
+two vague ones. This is criterion 1 value (report what you cannot read, with
+the reason) rather than criterion 2 value, and Atlantic's coverage stays at
+22%.
+
+**Left alone:** Atlantic's low coverage is now partly explained but not fixed.
+Its remaining loss is in the assemblies — 8 of 9 parse a schedule yet coverage
+is the lowest of any region that reads its schedules, which is the next thing
+worth diagnosing.
+
+Tests 587 -> 599. Suite green, ruff clean.
+
 ### 2026-10-27 — item 4, published numbers refreshed
 
 `docs/benchmark.md` and `docs/pitch.md` updated from this session's runs, so

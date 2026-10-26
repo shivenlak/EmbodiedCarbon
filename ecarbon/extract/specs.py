@@ -141,6 +141,28 @@ SCREW_PILE_RE = re.compile(r"SCREW\s*PILE|HELICAL\s*PILE", re.I)
 CAST_PILE_RE = re.compile(r"(?:CAST[- ]?IN[- ]?PLACE|CONCRETE)\s*(?:PILE|PIER|CAISSON)", re.I)
 STRIP_FOOTING_RE = re.compile(r"(?:STRIP|SPREAD|CONTINUOUS)\s*FOOTING", re.I)
 
+# Some drawings decline to specify the foundation at all. Every Atlantic set
+# in the catalogue -- 9 of 9, and no other region -- carries this on its
+# structural sheet:
+#
+#   "BUILDING FOUNDATIONS ARE UP TO THE END USER BASED ON THEIR BUILDING AND
+#    SITE CONDITIONS. GENERIC FOUNDATION TYPE IS SHOWN BUT USER MAY/WILL NEED
+#    TO RETAIN A PROFESSIONAL TO DESIGN THEIR FOUNDATION"
+#
+# That is not a parsing problem and no pattern fixes it. Reading a dimension
+# off a detail the drawings themselves label generic and not-for-construction
+# would be inventing a specification the designer explicitly refused to give --
+# the same error as substituting a cladding for CMHC's placeholder. The
+# building will have a foundation and its carbon is real, so the element stays
+# counted as missing rather than absent; what changes is that the gap can say
+# why, which is far more use to a reader than "slab thickness not stated".
+DESIGNER_DECLINED_RE = re.compile(
+    r"FOUNDATIONS?\s+ARE\s+UP\s+TO\s+THE\s+END\s+USER"
+    r"|GENERIC\s+FOUNDATION\s+TYPE\s+IS\s+SHOWN"
+    r"|RETAIN\s+A\s+PROFESSIONAL\s+TO\s+DESIGN\s+THEIR\s+FOUNDATION",
+    re.I,
+)
+
 
 @dataclass
 class FoundationSpec:
@@ -151,6 +173,8 @@ class FoundationSpec:
     grade_beam_depth_mm: float | None = None
     footing_width_mm: float | None = None
     footing_depth_mm: float | None = None
+    # True when the drawings state the foundation is the end user's to design.
+    designer_declined: bool = False
     # Other footing sections the drawings state, when more than one exists.
     other_footing_sections: list[tuple[float, float]] = field(default_factory=list)
     pile_diameter_mm: float | None = None
@@ -238,6 +262,19 @@ class FoundationSpec:
     def missing(self) -> list[str]:
         """What a foundation takeoff still needs. Feeds the gap report."""
         gaps: list[str] = []
+        if self.designer_declined:
+            # One specific reason beats several vague ones. Saying "slab
+            # thickness not stated" sends a reader hunting for a sheet that
+            # was never drawn; saying the designer left the foundation to the
+            # end user tells them the figure is theirs to supply.
+            return [
+                "the drawings state the foundation is the end user's to design "
+                "-- \"GENERIC FOUNDATION TYPE IS SHOWN BUT USER MAY/WILL NEED TO "
+                "RETAIN A PROFESSIONAL TO DESIGN THEIR FOUNDATION\" -- so no slab, "
+                "footing or foundation-wall concrete can be taken off these sheets. "
+                "The foundation carbon is real and unknown, not zero: supply the "
+                "foundation design and it can be quantified"
+            ]
         if self.slab_thickness_mm is None:
             gaps.append("slab thickness not stated")
         if self.system == "unknown":
@@ -313,6 +350,8 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
             found.append("screw piles")
         if CAST_PILE_RE.search(flat):
             spec.cast_in_place_piles = True
+        if DESIGNER_DECLINED_RE.search(flat):
+            spec.designer_declined = True
         if STRIP_FOOTING_RE.search(flat):
             spec.strip_footings = True
             found.append("strip footings")
