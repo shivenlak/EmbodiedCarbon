@@ -499,11 +499,20 @@ def absent_elements(inputs: TakeoffInputs) -> dict[ElementClass, str]:
         "BASEMENT" in lv.label.upper() or "CRAWL" in lv.label.upper()
         for lv in inputs.heights.levels
     )
-    if system and "basement" not in system and not has_below_grade_storey:
+    # Only a pile or grade-beam foundation carries the slab directly with no
+    # wall. A strip footing almost always has a wall standing on it, so
+    # `strip_footing` is not evidence of absence -- Quebec's designs read
+    # strip_footing and show no crawlspace datum, yet their N1 is an insulated
+    # foundation wall and their floors sit over a conditioned crawl space.
+    # Claiming an element is absent is a stronger statement than leaving it
+    # uncounted, so it is made only where the system itself rules a wall out.
+    pile_borne = any(k in system for k in ("pile", "grade_beam", "slab_on_grade"))
+    if pile_borne and not has_below_grade_storey:
         out[ElementClass.FOUNDATION_WALL] = (
             f"The foundation is {system.replace('_', ' ')} with no basement or "
-            f"crawlspace datum on the sections, so this building has no foundation "
-            f"wall; the footing itself is counted separately."
+            f"crawlspace datum on the sections, so the slab is carried directly and "
+            f"this building has no foundation wall; the footing itself is counted "
+            f"separately."
         )
     return out
 

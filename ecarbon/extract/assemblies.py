@@ -463,7 +463,16 @@ def learn_columns(
         if not members:
             continue
         thick = sum(1 for t in members if _looks_like_thickness(t)) / len(members)
-        wordy = sum(1 for t in members if _WORDY_RE.search(t)) / len(members)
+        # A thickness cell is never "wordy", even when it is the word VAR.
+        # Without this exclusion `VAR` scores as prose -- it is three letters --
+        # so a thickness column with several unstated layers crosses the
+        # wordiness threshold, is rejected as the thickness column, and is then
+        # chosen as the material column because it holds the most cells. That is
+        # exactly what happened to Quebec's foundation tables, whose "materials"
+        # came out as 1/8"/3mm and 3"/75mm.
+        wordy = sum(
+            1 for t in members if _WORDY_RE.search(t) and not _looks_like_thickness(t)
+        ) / len(members)
         scored.append((cx, n, thick, wordy))
     if not scored:
         return None, None, None
