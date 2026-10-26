@@ -6,7 +6,7 @@ get the same figures; if you don't, that's a bug worth reporting. Worst cases
 are published next to medians, because a median alone hides the designs where
 this does badly, and those are the ones a builder needs to know about.
 
-Generated 2026-10-25 against 53 drawing sets / 52 packages.
+Generated 2026-10-26 against 53 drawing sets / 52 packages.
 
 ---
 
@@ -22,37 +22,49 @@ design:
 | Crashed | **0 of 53** |
 | Produced quantities | 45 |
 | Produced none **and reported why** | 8 (the textless NOR sets) |
-| Seconds per design | median **13.0**, worst 24.7 |
-| Element coverage | median **44%**, best 91%, worst 0% |
-| Designs reaching 80% coverage | **6 of 45** |
+| Seconds per design | median **13.2**, worst 25.4 |
+| Element coverage | median **52%**, best 100%, worst 0% |
+| Designs reaching 80% coverage | **7 of 45** |
 
 | Region | n | Coverage, median | Best | Intensity kgCO₂e/m², median |
 |---|---|---|---|---|
-| **Alberta** | 7 | **91%** | 91% | 132.5 |
-| Quebec | 7 | 66% | 66% | 116.1 |
-| British Columbia | 7 | **59%** | 59% | 30.8 |
-| Atlantic | 9 | **42%** | 57% | 33.8 |
-| Ontario | 7 | **42%** | 75% | 57.3 |
+| **Alberta** | 7 | **100%** | 100% | 174.8 |
+| Quebec | 7 | 74% | 74% | 132.9 |
+| British Columbia | 7 | **67%** | 67% | 41.2 |
+| Atlantic | 9 | **44%** | 65% | 33.8 |
+| Ontario | 7 | **29%** | 83% | 52.8 |
 | SKMB | 7 | 9% | 9% | 8.3 |
-| NOR | 9 | — | — | — |
+| NOR | 9 (**1** scored) | 9% | 9% | 1.0 |
+
+NOR's single figure is the one set of nine whose text survived export. The
+other eight are vectorised outlines, produce nothing, and say why — so the
+45 designs that produced quantities are 7 + 7 + 7 + 9 + 7 + 7 + 1.
 
 **Alberta is the region this was developed against, and it shows.** Six of its
-seven sets reach 91% element coverage at an intensity of 122–166 kgCO₂e/m²,
-which is a plausible product-stage figure. Elsewhere coverage runs 10–48% and
-the intensity falls to 8–42 kgCO₂e/m² — not because those buildings are
-lighter, but because a partial bill of quantities produces a partial total.
+seven sets now reach **100%** element coverage — every class the building has
+is counted — at an intensity of 150–186 kgCO₂e/m², a plausible product-stage
+figure. The seventh, AB_ADU_01, sits at 53%: a single-storey plan yields fewer
+than two floor datums, so there is no storey height and therefore no wall,
+floor or partition area. Elsewhere coverage runs 9–83% and the intensity falls
+to 1–53 kgCO₂e/m² — not because those buildings are lighter, but because a
+partial bill of quantities produces a partial total.
 Intensity tracks coverage almost exactly, which is the expected signature and
 also the reason every total in this system is reported with the share of the
 building it reaches.
 
-So: where a figure below is quoted for AB_Fourplex_01 — 91% coverage, 37,536
-kgCO₂e, 122.7 kgCO₂e/m² — read it as **the best case on the development
-region**, not as typical. The median design gets 44%, and only five of 45 reach 80%.
+So: where a figure below is quoted for AB_Fourplex_01 — 100% coverage, 48,613
+kgCO₂e, 158.9 kgCO₂e/m² — read it as **the best case on the development
+region**, not as typical. The median design gets **52%**, and only **7 of 45**
+reach 80%.
 
 What separates them is whether two sheets parse. A design reaches 80%+ only
 when both its assemblies schedule and its openings schedule are readable:
 Alberta's are, Ontario's multiplexes have neither, and BC parses openings but
 loses its exterior wall assembly to the plausibility gate.
+
+**Ontario moved the wrong way this round** — 42% → 29% — while Alberta went to
+100%. That regression is real, is not explained yet, and is described under
+"What this does not measure" rather than netted off against the gain.
 
 ---
 
@@ -282,14 +294,27 @@ instance count from the tags written on the floor plans.
 | | Windows | Doors |
 |---|---|---|
 | Designs scored | 43 | 43 |
-| Median error | **5.4%** | **1.4%** |
-| Mean error | 17.5% | 14.1% |
-| Within 10% | 26 / 43 | **33 / 43** |
-| Within 25% | 34 / 43 | 34 / 43 |
+| Median error | **4.0%** | **0.0%** |
+| Mean error | 15.2% | 12.5% |
+| Within 10% | 27 / 43 | **34 / 43** |
+| Within 25% | 35 / 43 | 35 / 43 |
 | Worst | 100% | 66.7% |
 
 Quebec is exact on all seven of its designs. AB_Fourplex_01 gives **40 doors
 against the IFC's 40**.
+
+**The median door count is exact**, and it got there by fixing how a storey is
+identified rather than by anything to do with doors. `AB_ADU_01` numbers its
+two accessibility options `A101` and `A102` -- they look like two storeys and
+are both the main floor, so that building was counted twice and read 15 doors
+against the 9 its model contains. Neither available signal fixes this alone,
+and each repairs the other's failure: sheet numbers catch the usual `A101` /
+`A101a` pairing but miss `A101` / `A102`, while title heads catch that pair and
+break five designs that title an option "ACCESSIBLE-READY MAIN FLOOR PLAN",
+whose head is "ACCESSIBLE" -- measured, that alone took ON_Fourplex_02's doors
+from exactly right to 44% over. Two sheets are now one storey when **either**
+signal agrees, closed transitively, which moved windows 5.4% -> 4.0% and doors
+1.4% -> 0.0%.
 
 **The mean is dragged up by one cluster, and naming it is most of the value
 here.** Every stacked townhouse comes in at −66.7% on doors — exactly one
@@ -321,6 +346,92 @@ something other than plan extent, and this check does not explain it.
 
 ---
 
+## Stage 2 — Interior partitions
+
+    python -m pytest tests/test_partitions.py
+
+The only quantity here measured off the linework rather than read from a
+schedule. Partition run length is measured at the wall lineweight and paired
+against the depths the assemblies schedule states, then checked against the
+partition walls in each reference model.
+
+| Design | Measured | IFC | Error |
+|---|---|---|---|
+| AB_ADU_01 | 38.0 m | 36.3 m | +4.8% |
+| AB_ADU_02 | 68.2 m | 35.5 m | **+92.2%** |
+| AB_Fourplex_01 | 169.7 m | 158.8 m | +6.9% |
+| AB_Fourplex_02 | 236.9 m | 238.6 m | −0.7% |
+| AB_Rowhouse_01 | 161.0 m | 151.2 m | +6.5% |
+| AB_Rowhouse_02 | 225.6 m | 213.4 m | +5.7% |
+| AB_Sixplex | 253.6 m | 262.2 m | −3.3% |
+
+**Median 5.7%, six of seven within 10%, worst +92%.** AB_ADU_02 over-detects:
+it is a small dwelling whose cabinetry sits at spacings close to a partition's.
+Because this is a real measurement rather than an estimate the lines are
+labelled `inferred`, not `assumed` — but the uncertainty travels with them, the
+carbon total is reported with and without them, and the run length can be
+overridden.
+
+**Four approaches failed first, and they are published in the gap report** on
+the principle that a reader deciding whether to trust the least certain line
+deserves to know it was hard to get:
+
+| Approach | Error |
+|---|---|
+| Pair search across every lineweight | +350% |
+| Wall lineweight, segments ≥ 1 m | −30% |
+| Seeded from partition tags, unmerged | −66% |
+| Merged runs, no lineweight restriction | +306% |
+
+What found it was a spacing histogram rather than a fifth idea. The
+wall-lineweight group's neighbour spacings on AB_Fourplex_01 read
+`[(121, 20), (36, 6), (2, 5), (241, 3)]`, and **121 mm is exactly P1's stated
+depth**. The partitions had been in that group the whole time: the 1 m minimum
+segment length from the second attempt had deleted them, because that group
+holds 297 segments under 250 mm — partition faces break at every door, jamb and
+intersection.
+
+**Known weakness, unresolved.** AB_Fourplex_01's `W1` exterior wall is 235 mm
+and its `P3` demising wall is also 235 mm, so depth alone cannot separate an
+exterior run from a partition. A perimeter-exclusion filter was written and
+measured; it changed nothing on all seven designs, because the wall-segment
+pool includes grid and section linework so its extents are far wider than the
+building. The filter was removed rather than kept as a protection it does not
+provide. Whether exterior runs are contaminating this figure is not settled;
+the arithmetic argues against it (this building's perimeter is 58 m, so two
+storeys of exterior wall is ~116 m, and counting it would put the measurement
+near 275 m rather than 169.7 m) but that is an argument, not a measurement.
+
+---
+
+## Criterion 2 — Traceability
+
+    python -m pytest tests/test_trace.py
+
+Every line carries the sheet and detail it came from; 19 of 20 on
+AB_Fourplex_01 also resolve to a region of that sheet. The strength of each
+trace is stated rather than implied, because these are different claims:
+
+| Kind | Meaning | Lines |
+|---|---|---|
+| `measured_geometry` | The outlined rectangles **are** the measurement | 6 |
+| `schedule_row` | The text the figure was read from | 13 |
+| `sheet_only` | Right sheet, region not located — **nothing highlighted** | 1 |
+
+Interior partitions keep one rectangle per wall counted, so their highlight is
+the measurement itself rather than a picture near it.
+
+**Building this found a provenance bug that it would otherwise have put on
+screen.** The builder took the footprint's page for every line regardless of
+the sheet the caller named, so the slab named `S201` — correct, and asserted by
+the Alberta regression gate — while carrying page 10, which is `A101`. Five
+foundation and level lines pointed at the wrong drawing while reading correctly
+in a table, because nothing cross-checked that a line's page and its sheet
+number referred to the same sheet. A test now asserts they agree for every line
+across four designs.
+
+---
+
 ## Stage 3 — Carbon
 
 Not an accuracy measurement, because there is no A1–A3 reference to measure
@@ -330,23 +441,35 @@ is discipline.
 
 | | |
 |---|---|
-| Factors in the store | **18**, none hardcoded in code |
+| Factors in the store | **20**, none hardcoded in code |
 | Each carrying | source, source id, declared unit, density, module scope, geography, validity, data type, uncertainty, attribution |
 | Module scopes present | A1–A3 only |
 | Summing across scopes | **raises**, never silently totals |
 | Unmatched materials | visible rows with a stated reason, excluded from the total |
 
-AB_Fourplex_01 end to end: **37,536 kg CO₂e A1–A3 at 122.7 kg/m²**, from 17
-bill-of-quantities lines covering **91%** of the building's embodied carbon by
-element. The published whole-life figure for the same building is 162,043 kg
-CO₂e, of which A1–A5 is 107,000 — our product-stage subset sits below that
-ceiling, as it must.
+AB_Fourplex_01 end to end: **48,613 kg CO₂e A1–A3 at 158.9 kg/m²**, from 20
+bill-of-quantities lines covering **100%** of the building's embodied carbon by
+element. Excluding the inferred interior partitions it is **37,536 kg CO₂e**,
+and both are reported because the partition run is measured off the linework
+rather than stated by a schedule. The published whole-life figure for the same
+building is 162,043 kg CO₂e, of which A1–A5 is 107,000 — our product-stage
+subset sits below that ceiling, as it must.
 
 Two factor values in the inherited store were wrong against the prescribed
 guide and were corrected: GUL + 40% fly ash at 25 MPa read 142 where the guide
-prints **175** (which had overstated the flagship substitution as a 48.5% cut
-rather than **36.6%**), and a "Portland GU, 20 MPa" row did not exist in the
-guide at all, whose lowest strength is 25 MPa.
+prints **175** (which had overstated that substitution as a 48.5% cut rather
+than **36.6%**), and a "Portland GU, 20 MPa" row did not exist in the guide at
+all, whose lowest strength is 25 MPa.
+
+**Those corrections did not take effect for several days, and that is worth
+publishing too.** The provider seeded its database only when the factors table
+was empty, so once built it never re-read the JSON. The corrected values sat in
+version control while the runtime kept serving 142 and kept serving the
+fabricated GU 20 MPa record — in a tool whose claim is that every factor is a
+sourced record. The database is now a cache keyed on the seed's hash, withdrawn
+records are deleted rather than left behind, and six tests cover it. The
+catalogue totals were unaffected because no design used the fabricated row, but
+the substitution figure was overstated until the fix.
 
 ---
 
@@ -359,45 +482,30 @@ benchmark:
   Estimates contain quantity take-offs but are not in the data package, so
   every figure above is measured against geometry we derived ourselves from
   the IFCs, not against a quantity surveyor's bill.
-- **Interior partitions are not quantified**, and this was tried properly
-  rather than assumed impossible. The approach was sound on paper: the
-  assemblies schedule states each partition's built depth (P1 121 mm, P2
-  201 mm, P3 235 mm, P5 118 mm), a wall is two parallel lines separated by its
-  thickness, and furniture and door swings are not. Measured against partition
-  run lengths taken from the IFC geometry:
-
-  | Design | Detected | IFC | |
-  |---|---|---|---|
-  | AB_Fourplex_01 | 111.8 m | 158.8 m | −30% |
-  | AB_Fourplex_02 | 180.9 m | 238.6 m | −24% |
-  | AB_Sixplex | 180.1 m | 262.2 m | −31% |
-  | AB_Rowhouse_02 | 158.0 m | 213.4 m | −26% |
-  | QC_Fourplex_01 | 47.8 m | 180.7 m | −74% |
-  | QC_Sixplex | 152.1 m | 308.0 m | −51% |
-  | BC_Duplex | 63.8 m | 128.9 m | −50% |
-
-  Alberta is consistently about 28% low, which looked like a fixable bias —
-  short wall stubs below the minimum segment length, or pairs rejected for
-  partial overlap. It is not: relaxing the minimum length from 400 mm to
-  100 mm, the overlap requirement from 0.6 to 0.25 and the thickness tolerance
-  from 8 mm to 14 mm moves Alberta from −30% to −33% and Quebec not at all.
-  The missing partitions are not short — they are not in the wall lineweight
-  group at all. Searching every group instead overshoots by +350%, because
-  poché hatching, cabinetry and door swings also produce parallel pairs at
-  partition spacings.
-
-  So the detection finds roughly 70% of partitions on the region it was built
-  against and 25–50% elsewhere, with no parameter that improves both. A line
-  wrong by up to three-fold on 8% of a building's carbon is worse than a
-  stated gap, so none is produced. What would fix it is classifying wall
-  linework directly rather than inferring it from lineweight — the ~20
-  layer-labelled sets in this catalogue carry `A-WALL` layer names and could
-  supply training labels for exactly that.
+- **Interior partitions were the hardest quantity here**, and the earlier
+  version of this document said they could not be measured at all. That was
+  wrong, and the reason is worth keeping: the attempt it reported was the one
+  restricting to segments of 1 m or more, which measured −30% on Alberta. That
+  minimum was itself deleting the signal — the wall-lineweight group holds 297
+  segments under 250 mm, because partition faces break at every door, jamb and
+  intersection. Lowering it to 40 mm moved the same approach to a 5.7% median.
+  The partitions section above gives the current figures, including the +92%
+  outlier and the unresolved `W1`/`P3` depth collision.
 - **Cladding and roofing carry no carbon**, because CMHC leaves them
   deliberately unspecified as placeholders. Defaulting them would move about
-  12% of a home's embodied carbon on a choice nobody made.
+  12% of a home's embodied carbon on a choice nobody made. They are now
+  reported instead as open decisions priced as a range — cladding 1,980–3,774
+  and roofing 1,371–2,433 kgCO₂e on AB_Fourplex_01 — which is a decision put in
+  front of the builder rather than a number put into the total.
 - **A4–A5 are architecture only**, as the scope permits — the extension points
   exist, the modules are not implemented.
+- **Ontario regressed and it is not yet explained.** Making the storey
+  grouping agree on either signal took Alberta to 100% and fixed the door
+  count, but Ontario's median coverage fell 42% → 29%, four designs losing two
+  lines each while ON_ADU_02 rose 75% → 83%. `ON_Fourplex_01` yields only four
+  assembly tags (`F2 N1 W1 W3`) with no roof tag, so the roof lines cannot be
+  coming from the schedule and the earlier result needs tracing rather than
+  guessing. Alberta is unaffected and gated. It is logged rather than absorbed.
 - **Held-out discipline is imperfect.** These numbers are measured across the
   whole catalogue rather than a strictly untouched slice, so treat them as
   development figures. The honest test is Landmark's own sets, which we have
