@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.intake.textrepair import repair
+from ecarbon.intake.spans import read_spans
 
 # "3.000 m", "7.873m", "0.000 m / 0""
 _ELEV_RE = re.compile(r"^(-?\d{1,3}\.\d{2,3})\s*m\b")
@@ -165,15 +165,12 @@ class StoreyHeights:
 
 def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
     """Level datums on one section sheet."""
-    spans: list[tuple[float, float, str]] = []
-    for block in page.get_text("dict")["blocks"]:
-        for line in block.get("lines", []):
-            for s in line.get("spans", []):
-                t = s["text"].strip()
-                if not t:
-                    continue
-                text, _ = repair(t)
-                spans.append((s["bbox"][1], s["bbox"][0], text))
+    # Rotation-corrected, because a datum's elevation is printed on the line
+    # *below* its label and on a sheet drawn a quarter turn from upright
+    # "below" is sideways. Ontario's sections are rotated exactly like its
+    # schedules, so every label was found and no elevation ever paired with
+    # one: the ladder came back empty while the text was perfectly readable.
+    spans = read_spans(page)
 
     out: list[Level] = []
     for y, x, text in spans:

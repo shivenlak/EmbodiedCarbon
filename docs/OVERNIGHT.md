@@ -152,6 +152,53 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — storey heights on rotated sections: ATL and ON both +20
+
+**Kept. The largest single gain of the session**, across 16 designs.
+
+| Region | before | after | intensity |
+|---|---|---|---|
+| ATL | 22% | **42%** | 16.1 -> 33.8 kgCO2e/m² |
+| ON | 22% | **42%** | 22.1 -> 57.3 |
+| AB / BC / QC | 91 / 59 / 66% | unchanged | |
+| catalogue median | 44% | 44% | median intensity 30.8 -> 48.1 |
+
+Ontario's and Atlantic's missing storey heights had the same cause as their
+unreadable schedules: **those sheets are drawn a quarter turn from upright.** A
+datum's elevation is printed on the line *below* its label, so on a rotated
+sheet "below" is sideways — every label was found, no elevation ever paired
+with one, and the ladder came back empty while the text was perfectly
+readable. It failed silently, which is why it survived this long.
+
+    ON_Fourplex_01            0 -> 2 storeys   wall 5.68 m
+    ON_Sixplex                0 -> 2 storeys   wall 5.68 m
+    ATL_Stacked_Townhouse_01  1 -> 3 storeys   wall 8.49 m
+    AB_Fourplex_01            unchanged        wall 6.00 m
+
+This was already solved once for the assemblies schedules, and `levels.py` had
+its own span reader that hit the identical wall. Rather than patch it twice,
+the rotation-aware reader now lives in `ecarbon/intake/spans.py` and both
+modules delegate to it — the schedule reader passing its scoped cell repair as
+a hook, the level ladder passing nothing. **The refactor was verified neutral
+before going further**: every assembly count identical (17/0, 16/7, 10/2,
+23/5, 5/3).
+
+The gain is large because the exterior wall is 20% of carbon on its own *and*
+it gates the W-assembly material lines, which is why Ontario sat at 9% while
+holding five parsed assemblies it could not use.
+
+Regression checks, all unchanged: footprint 3.3% median and 32 of 38 within
+10%; sheet identification 97.9% and 95.1%. Both matter here because the shared
+reader now sits under more of the pipeline than either check covers alone.
+
+Tests 599 -> 612, including 13 for the shared reader. They target the silent
+failure specifically: that a rotated page yields a label on an earlier row than
+its elevation, that the dominant text direction wins over a stray rotated
+label, and that the schedules are byte-identical after the move.
+
+**Left alone:** the catalogue median stays at 44% because the median design
+sits in a region that did not move. Six of 45 designs reach 80%.
+
 ### 2026-10-27 — footprint: retry without the stated-area check
 
 **Kept, and the measured footprint accuracy is unchanged.**

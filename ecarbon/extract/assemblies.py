@@ -81,6 +81,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
+from ecarbon.intake.spans import read_spans
 from ecarbon.intake.textrepair import repair
 
 # "N - FOUNDATION WALL ASSEMBLIES", "W - EXTERIOR WALL ASSEMBLIES"
@@ -461,42 +462,13 @@ def repair_schedule_cell(text: str) -> str:
 
 
 def _spans(page: pymupdf.Page) -> list[tuple[float, float, str]]:
-    """(row, column, text) for every text span, in reading order.
+    """(row, column, text) for every span, rotation corrected.
 
-    Ontario's multiplex schedules are drawn rotated a quarter turn -- 640 of
-    644 spans on ON_Fourplex_01's A001 advance along (0, -1) -- so the table's
-    rows run down the page's x axis and its columns along y. Everything after
-    this point reasons about rows and columns, so the rotation is undone here
-    once rather than being special-cased in the column logic.
+    Delegates to the shared reader so the schedules and the level ladder undo
+    page rotation the same way, and passes the scoped cell repair that accepts
+    a glyph-ID shift only when it yields a real thickness or tag.
     """
-    rows: list[tuple[float, float, str]] = []
-    turns: dict[tuple[float, float], int] = {}
-    for block in page.get_text("dict")["blocks"]:
-        for line in block.get("lines", []):
-            direction = line.get("dir", (1.0, 0.0))
-            key = (round(direction[0], 1), round(direction[1], 1))
-            spans = [s for s in line.get("spans", []) if s["text"].strip()]
-            turns[key] = turns.get(key, 0) + len(spans)
-            for s in spans:
-                fixed = repair(s["text"].strip())[0]
-                rows.append(
-                    (s["bbox"][1], s["bbox"][0], repair_schedule_cell(fixed))
-                )
-
-    if not rows:
-        return []
-    # The page's own reading direction, by weight of text rather than by one
-    # stray rotated label.
-    dominant = max(turns, key=lambda k: turns[k])
-    if dominant == (0.0, -1.0):
-        # Text advances up the page, so a line of it runs along y: the logical
-        # column is -y and the logical row is x.
-        rows = [(x, -y, t) for y, x, t in rows]
-    elif dominant == (0.0, 1.0):
-        rows = [(-x, y, t) for y, x, t in rows]
-    elif dominant == (-1.0, 0.0):
-        rows = [(-y, -x, t) for y, x, t in rows]
-    return sorted(rows)
+    return read_spans(page, repair_schedule_cell)
 
 
 def _cluster_x(values: list[float], tol: float = 9.0) -> list[tuple[float, int]]:
