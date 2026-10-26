@@ -152,6 +152,48 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — item 2, footing schedule tables: BC 50% -> 59%, catalogue median 37% -> 44%
+
+**Kept.** BC states its footings in a schedule rather than inline the way
+Quebec does, on sheet S001, with the metric in brackets beside the imperial:
+
+    SF1  STRIP  [70 - 90 kg/m3]    2'-0" [600] WD x 18" [450] DP
+    SF2  STRIP  [110 - 150 kg/m3]  2'-0" [600] WD x 10" [250] DP
+    SF3  STRIP  [220 kg/m3]        3'-0" [900] WD x 18" [450] DP
+
+Two things the pattern has to get right. It anchors on `WD` and `DP` rather
+than on brackets, because `[110 - 150 kg/m3]` sits between the dimensions and
+is a reinforcement rate — reading a bracket as a dimension would be the same
+class of error as the `1200mm LG. DOWELS` one this module already learned. And
+the three sections span 0.15 to 0.405 m², a factor of 2.7, with the schedule
+never saying which runs where. Text order is arbitrary, so sections are sorted
+by area, the smallest is used, and the line is labelled a LOWER BOUND naming
+the alternatives and how much more concrete the largest would give.
+Overstating footing concrete threefold is the unrecoverable direction.
+
+Coverage, `scripts/run_pipeline.py`:
+
+| Region | queue baseline | after item 1 | after item 2 |
+|---|---|---|---|
+| BC | 37% | 50% | **59%** |
+| AB | 91% | 91% | 91% |
+| QC | 66% | 66% | 66% |
+| ATL | 22% | 22% | 22% |
+| ON | 9% | 9% | 9% |
+| SKMB | 9% | 9% | 9% |
+| **catalogue median** | **37%** | 37% | **44%** |
+
+Median intensity 24.6 -> 30.8 kgCO2e/m². This is the first change in the
+session to move the catalogue median rather than one region: BC's footings are
+9% of carbon across seven designs and compound with item 1's +13.
+
+**Left alone:** Atlantic still reports `strip_footing` or `unknown` with no
+dimensions and did not benefit from either pattern — its footings are stated
+somewhere else again, and finding where is the next thing to look at under this
+item. Crashes remain 0 of 53.
+
+Tests 578 -> 587. Suite green, ruff clean.
+
 ### 2026-10-27 — item 1, assembly tag forms: BC 37% -> 50%
 
 **Kept.** Four changes tried, three kept, one reverted after measuring.

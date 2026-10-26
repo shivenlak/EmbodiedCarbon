@@ -65,6 +65,22 @@ _BEAM_ALT_RE = re.compile(
 # a 1200x1200 beam, a six-fold error on the largest concrete item.
 _FOOTING_RE = re.compile(r"FOOTING\s*:?\s*(\d{3,4})\s*[xX×]\s*(\d{2,4})\b", re.I)
 
+# BC states its footings in a schedule table instead, with dual units and the
+# metric in brackets, on sheet S001:
+#
+#   SF1  STRIP  [70 - 90 kg/m3]    2'-0" [600] WD x 18" [450] DP
+#   SF2  STRIP  [110 - 150 kg/m3]  2'-0" [600] WD x 10" [250] DP
+#   SF3  STRIP  [220 kg/m3]        3'-0" [900] WD x 18" [450] DP
+#
+# The bracketed millimetre values are taken and the imperial ignored, since
+# the two are the same dimension stated twice. The kg/m3 bracket in between is
+# a reinforcement rate and must not be read as a dimension, which is why the
+# pattern anchors on WD and DP rather than on brackets alone.
+_FOOTING_WD_DP_RE = re.compile(
+    r"\[\s*(\d{3,4})\s*\]\s*WD\s*[xX×]\s*[^\[\]]{0,12}\[\s*(\d{2,4})\s*\]\s*DP",
+    re.I,
+)
+
 # A strip footing is wider than it is deep and sits within these bounds. A pair
 # outside them is some other dimension that happened to follow the word.
 MIN_FOOTING_WIDTH_MM, MAX_FOOTING_WIDTH_MM = 300.0, 2000.0
@@ -75,19 +91,28 @@ FOOTING_SECTION_SPREAD = 0.25
 
 
 def footing_sections(text: str) -> list[tuple[float, float]]:
-    """Every plausible (width, depth) strip-footing section stated in `text`."""
+    """Every plausible (width, depth) strip-footing section stated in `text`.
+
+    Sorted smallest area first, deterministically. Where a schedule gives
+    several sections it does not say which runs where, and text order is
+    arbitrary, so the caller takes the smallest and reports the figure as a
+    lower bound. BC's three span 0.15 to 0.405 m2 -- a factor of 2.7 -- so
+    picking the largest could overstate the footing concrete nearly threefold.
+    Understating with the alternatives named is the recoverable direction.
+    """
     out: list[tuple[float, float]] = []
-    for m in _FOOTING_RE.finditer(text):
-        w, d = float(m.group(1)), float(m.group(2))
-        if not (MIN_FOOTING_WIDTH_MM <= w <= MAX_FOOTING_WIDTH_MM):
-            continue
-        if not (MIN_FOOTING_DEPTH_MM <= d <= MAX_FOOTING_DEPTH_MM):
-            continue
-        if d > w:  # a footing is wider than it is deep
-            continue
-        if (w, d) not in out:
-            out.append((w, d))
-    return out
+    for pattern in (_FOOTING_RE, _FOOTING_WD_DP_RE):
+        for m in pattern.finditer(text):
+            w, d = float(m.group(1)), float(m.group(2))
+            if not (MIN_FOOTING_WIDTH_MM <= w <= MAX_FOOTING_WIDTH_MM):
+                continue
+            if not (MIN_FOOTING_DEPTH_MM <= d <= MAX_FOOTING_DEPTH_MM):
+                continue
+            if d > w:  # a footing is wider than it is deep
+                continue
+            if (w, d) not in out:
+                out.append((w, d))
+    return sorted(out, key=lambda wd: wd[0] * wd[1])
 
 # Sheets that define the foundation, most authoritative first. A detail sheet
 # shows a condition; the foundation plan and sections state the design.
@@ -189,10 +214,12 @@ class FoundationSpec:
             return None
         others = ", ".join(f"{w:.0f}x{d:.0f}" for w, d in self.other_footing_sections)
         return (
-            f"The drawings state more than one strip-footing section "
+            f"The schedule gives more than one strip-footing section "
             f"({self.footing_width_mm:.0f}x{self.footing_depth_mm:.0f} is used; also "
-            f"{others}), and they differ enough that which runs where changes the "
-            f"concrete. The run length is not broken down by type."
+            f"{others}) and does not say which runs where. The smallest is used, so "
+            f"this footing volume is a LOWER BOUND -- the largest section would give "
+            f"{max(w * d for w, d in self.other_footing_sections) / (self.footing_section_m2 * 1e6):.1f}x "
+            f"as much concrete."
         )
 
     def pile_volume_m3(self, n_piles: int, depth_m: float) -> float | None:

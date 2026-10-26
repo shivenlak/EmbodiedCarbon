@@ -288,3 +288,87 @@ class TestStripFootingsOnRealDesigns:
         # The run length is the footprint perimeter, which omits interior
         # bearing walls, and the line has to say so.
         assert any("interior bearing" in a for a in line.assumptions)
+
+
+class TestFootingScheduleTables:
+    """BC states its footings in a schedule rather than inline.
+
+    From sheet S001, with the metric in brackets beside the imperial:
+
+        SF1  STRIP  [70 - 90 kg/m3]    2'-0" [600] WD x 18" [450] DP
+        SF2  STRIP  [110 - 150 kg/m3]  2'-0" [600] WD x 10" [250] DP
+        SF3  STRIP  [220 kg/m3]        3'-0" [900] WD x 18" [450] DP
+    """
+
+    BC_TEXT = (
+        "REMARKS AS MARKED ON PLANS SF2 STRIP [110 - 150 kg/m3] 2'-0\" [600] WD x "
+        "10\" [250] DP AS MARKED ON PLANS SF3 STRIP [220 kg/m3] 3'-0\" [900] WD x "
+        "18\" [450] DP SF1 PF1 FOOTING SCHEDULE STRIP PAD [70 - 90 kg/m3] "
+        "[220 kg/m3] 2'-0\" [600] WD x 18\" [450] DP"
+    )
+
+    def test_the_real_bc_schedule(self):
+        from ecarbon.extract.specs import footing_sections
+
+        assert footing_sections(self.BC_TEXT) == [
+            (600.0, 250.0),
+            (600.0, 450.0),
+            (900.0, 450.0),
+        ]
+
+    def test_a_reinforcement_rate_is_not_a_dimension(self):
+        """[110 - 150 kg/m3] sits between the dimensions. Reading a bracket as
+        a dimension is the same class of error as the 1200mm LG. DOWELS one."""
+        from ecarbon.extract.specs import footing_sections
+
+        assert footing_sections('FW2 [110 - 150 kg/m3] 10" [250mm]') == []
+
+    def test_sections_come_back_smallest_first(self):
+        """Deterministic, because text order is arbitrary and the schedule does
+        not say which section runs where."""
+        from ecarbon.extract.specs import footing_sections
+
+        found = footing_sections(self.BC_TEXT)
+        areas = [w * d for w, d in found]
+        assert areas == sorted(areas)
+
+    def test_the_smallest_is_used_and_called_a_lower_bound(self):
+        """BC's three sections span 0.15 to 0.405 m2, a factor of 2.7.
+        Overstating footing concrete threefold is the unrecoverable direction."""
+        from ecarbon.extract.specs import FoundationSpec, footing_sections
+
+        found = footing_sections(self.BC_TEXT)
+        spec = FoundationSpec(
+            footing_width_mm=found[0][0],
+            footing_depth_mm=found[0][1],
+            other_footing_sections=found[1:],
+        )
+        assert (spec.footing_width_mm, spec.footing_depth_mm) == (600.0, 250.0)
+        note = spec.footing_section_note
+        assert note and "LOWER BOUND" in note
+        assert "900x450" in note
+
+
+@needs_data
+class TestFootingSchedulesOnRealDesigns:
+    @pytest.mark.parametrize("design", ["BC_Duplex", "BC_Sixplex", "BC_Fourplex_01"])
+    def test_bc_footings_are_read(self, design):
+        from ecarbon.extract.specs import foundation_spec_for
+
+        spec = foundation_spec_for(get_design(design))
+        assert (spec.footing_width_mm, spec.footing_depth_mm) == (600.0, 250.0)
+        assert spec.other_footing_sections
+        assert "LOWER BOUND" in (spec.footing_section_note or "")
+
+    def test_quebec_is_unaffected_by_the_table_pattern(self):
+        from ecarbon.extract.specs import foundation_spec_for
+
+        spec = foundation_spec_for(get_design("QC_Fourplex_01"))
+        assert (spec.footing_width_mm, spec.footing_depth_mm) == (750.0, 200.0)
+
+    def test_alberta_still_has_no_strip_footing(self):
+        from ecarbon.extract.specs import foundation_spec_for
+
+        spec = foundation_spec_for(get_design("AB_Fourplex_01"))
+        assert spec.footing_width_mm is None
+        assert spec.system == "grade_beam_on_screw_piles"
