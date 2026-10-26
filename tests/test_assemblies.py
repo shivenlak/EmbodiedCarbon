@@ -438,3 +438,21 @@ class TestAssemblyNameFilter:
         asm.layers = [layer("GYPSUM BOARD", 16.0, 0), layer("WOOD STUD FRAMING", 140.0, 1)]
         reason = asm.implausible()
         assert reason and "material rather than an assembly" in reason
+
+
+class TestDominantTagMapping:
+    def test_undotted_drawing_ref_maps_to_dotted_schedule_variant(self):
+        tags = {"W1": 10, "W2": 2}
+        available = {"W1.1", "W1.2", "W2"}
+        assert dominant_tag(tags, "W", available) == "W1.1"
+
+    def test_dotted_roof_resolution_prefers_dominant_base(self):
+        tags = {"R1": 5, "R4": 1}
+        available = {"R1.1", "R1.2", "R4"}
+        assert dominant_tag(tags, "R", available) == "R1.1"
+
+    def test_fallback_when_no_tags_found(self):
+        tags = {}
+        available = {"W1.2", "W1.1", "W2"}
+        assert dominant_tag(tags, "W", available) == "W1.1"
+

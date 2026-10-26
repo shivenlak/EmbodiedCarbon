@@ -704,18 +704,28 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 if index >= 0:
                     blocks.setdefault(index, []).append((y, text))
         else:
-            # Midpoints between consecutive tags. This is imprecise -- BC
-            # prints its tag level with the first layer rather than beside the
-            # name, so a midpoint can cut a block's last rows off -- but
-            # anchoring relative to the tag row instead was measured and is
-            # worse: it splits more blocks, and the extra ones begin on a layer
-            # so their "names" come out as "FLOOR FINISH w/ UNDERLAY" or "AT
-            # EAVE, VALLEY AND RIDGE". Catalogue-wide that moved built-depth
-            # median from 5.8% to 7.9%, exact matches from 48 to 37, and
-            # introduced a 1210% worst case. A truncated build-up is a smaller
-            # error than a fabricated one.
+            # Where the firm does not have a separate name column (BC, Atlantic),
+            # tags separate blocks. However, tags are placed near the first layer
+            # rather than the midpoint, so a pure midpoint between tag_ys cuts off
+            # the bottom layers of tall assemblies (e.g. BC's 11-layer exterior wall).
+            # We look for the inter-block row gap between consecutive tags where the
+            # previous assembly ended and the next one begins.
             tag_ys = sorted(ty for ty, _, _ in tags)
-            bounds = [(a + b) / 2 for a, b in zip(tag_ys, tag_ys[1:], strict=False)]
+            bounds = []
+            if len(tag_ys) > 1:
+                ys = sorted(set(round(y, 1) for y, _, _ in text_cells))
+                for t1_y, t2_y in zip(tag_ys, tag_ys[1:], strict=False):
+                    between = [y for y in ys if t1_y - 25.0 <= y <= t2_y + 5.0]
+                    gaps = [
+                        (between[j + 1] - between[j], between[j], between[j + 1])
+                        for j in range(len(between) - 1)
+                    ]
+                    wide = [g for g in gaps if g[0] >= 18.0]
+                    if wide:
+                        mg = max(wide, key=lambda g: g[0])
+                        bounds.append((mg[1] + mg[2]) / 2.0)
+                    else:
+                        bounds.append((t1_y + t2_y) / 2.0)
             for y, _x, text in text_cells:
                 blocks.setdefault(sum(1 for b in bounds if y > b), []).append((y, text))
 
@@ -921,9 +931,35 @@ def dominant_tag(
     """The most-referenced assembly of one group that the schedule defines."""
     skip = exclude or set()
     want = letter.upper()
-    scoped = {
-        t: n
-        for t, n in tags.items()
-        if tag_prefix(t) == want and t in available and t not in skip
-    }
-    return max(scoped, key=lambda t: scoped[t]) if scoped else None
+
+    # Score available assemblies by references in the drawings.
+    # If the drawings reference an undotted tag like 'W1' or 'R1' while the
+    # schedule defines dotted variants ('W1.1', 'R1.1'), map the reference to
+    # the base variant.
+    scores: dict[str, int] = {}
+    for t, n in tags.items():
+        if tag_prefix(t) != want or t in skip:
+            continue
+        if t in available:
+            scores[t] = scores.get(t, 0) + n
+        else:
+            base = f"{t}.1"
+            if base in available and base not in skip:
+                scores[base] = scores.get(base, 0) + n
+            else:
+                matching = sorted(
+                    [c for c in available if c.startswith(f"{t}.") and c not in skip]
+                )
+                if matching:
+                    scores[matching[0]] = scores.get(matching[0], 0) + n
+
+    if scores:
+        return max(scores, key=lambda k: (scores[k], k.endswith(".1"), -len(k)))
+
+    # Fallback: if drawings reference no tag of this letter (or callouts were unread),
+    # pick the primary available assembly for this letter (e.g. W1, W1.1).
+    group_available = sorted(
+        [t for t in available if tag_prefix(t) == want and t not in skip],
+        key=lambda t: (not t.endswith(".1"), t),
+    )
+    return group_available[0] if group_available else None
