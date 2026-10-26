@@ -126,8 +126,53 @@ def short_tag(name: str | None) -> str:
     return head.rstrip("-,").strip() or "?"
 
 
+def length_scale_to_mm(model) -> float:
+    """Millimetres per unit of this file's declared length unit.
+
+    Attribute values such as `IfcMaterialLayer.LayerThickness` are in the
+    file's own units, unlike geometry read through ifcopenshell's engine with
+    world coordinates, which always arrives in metres. The catalogue is not
+    consistent: Alberta and Quebec declare MILLI/METRE, while **every BC model
+    declares FOOT**. Reading those raw gave partition build-ups of 0.40 to
+    1.20 "mm" and scored a 172 mm wall as 34,300% in error against a 0.50 ft
+    layer set that is really 152.4 mm.
+    """
+    try:
+        for assignment in model.by_type("IfcUnitAssignment"):
+            for unit in assignment.Units:
+                if getattr(unit, "UnitType", None) != "LENGTHUNIT":
+                    continue
+                if unit.is_a("IfcSIUnit"):
+                    return 1.0 if unit.Prefix == "MILLI" else 1000.0
+                if unit.is_a("IfcConversionBasedUnit"):
+                    factor = unit.ConversionFactor
+                    metres = float(factor.ValueComponent.wrappedValue)
+                    base = factor.UnitComponent
+                    if getattr(base, "Prefix", None) == "MILLI":
+                        metres /= 1000.0
+                    return metres * 1000.0
+    except Exception:
+        pass
+    # Millimetres is the catalogue's majority convention and the IFC default
+    # for Revit exports, so it is the least surprising fallback.
+    return 1.0
+
+
+def _model_of(element):
+    for attr in ("file", "wrapped_data"):
+        owner = getattr(element, attr, None)
+        if owner is None:
+            continue
+        return getattr(owner, "file", owner)
+    return None
+
+
 def material_layers(element) -> list[tuple[str, float]] | None:
-    """[(material name, thickness mm)] for an element, or None if unassigned."""
+    """[(material name, thickness mm)] for an element, or None if unassigned.
+
+    Thicknesses are converted to millimetres using the file's own length unit,
+    which is not the same across the catalogue -- see `length_scale_to_mm`.
+    """
     for rel in getattr(element, "HasAssociations", None) or []:
         if not rel.is_a("IfcRelAssociatesMaterial"):
             continue
@@ -135,8 +180,13 @@ def material_layers(element) -> list[tuple[str, float]] | None:
         if mat.is_a("IfcMaterialLayerSetUsage"):
             mat = mat.ForLayerSet
         if mat.is_a("IfcMaterialLayerSet"):
+            model = _model_of(element)
+            scale = length_scale_to_mm(model) if model is not None else 1.0
             return [
-                (layer.Material.Name if layer.Material else "?", float(layer.LayerThickness))
+                (
+                    layer.Material.Name if layer.Material else "?",
+                    round(float(layer.LayerThickness) * scale, 2),
+                )
                 for layer in mat.MaterialLayers
             ]
     return None

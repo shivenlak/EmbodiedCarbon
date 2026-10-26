@@ -566,3 +566,113 @@ class TestManifestRoundTrip:
         ]
         s = summarise(rows)
         assert "gold" in s and "robustness" in s and "2 designs" in s
+
+
+class TestIfcLengthUnits:
+    """Attribute lengths are in the file's own unit, and the catalogue differs.
+
+    Alberta and Quebec declare MILLI/METRE; **every BC model declares FOOT**.
+    Reading `IfcMaterialLayer.LayerThickness` raw gave BC partition build-ups
+    of 0.40 to 1.20 "mm" and scored a correct 172 mm wall as 34,300% in error
+    against a 0.50 ft layer set that is really 152.4 mm. Correcting it moved
+    the catalogue-wide median built-depth error from 22.1% to 5.8%.
+
+    Geometry read through ifcopenshell's engine with world coordinates is not
+    affected, because it arrives in metres whatever the file says -- which is
+    why the footprint and scale benchmarks were never wrong.
+    """
+
+    @pytest.mark.parametrize(
+        ("name", "prefix", "want"),
+        [("METRE", "MILLI", 1.0), ("METRE", None, 1000.0)],
+    )
+    def test_si_units(self, name, prefix, want):
+        from ecarbon.bench.ifc_quantities import length_scale_to_mm
+
+        class Unit:
+            UnitType = "LENGTHUNIT"
+            Name = name
+            Prefix = prefix
+
+            def is_a(self, what):
+                return what == "IfcSIUnit"
+
+        class Model:
+            def by_type(self, _):
+                return [type("A", (), {"Units": [Unit()]})()]
+
+        assert length_scale_to_mm(Model()) == want
+
+    def test_feet_are_converted(self):
+        """0.50 ft is 152.4 mm, not 0.50 mm."""
+        from ecarbon.bench.ifc_quantities import length_scale_to_mm
+
+        class Base:
+            Name = "METRE"
+            Prefix = None
+
+        class Factor:
+            ValueComponent = type("V", (), {"wrappedValue": 0.3048})()
+            UnitComponent = Base()
+
+        class Unit:
+            UnitType = "LENGTHUNIT"
+            ConversionFactor = Factor()
+
+            def is_a(self, what):
+                return what == "IfcConversionBasedUnit"
+
+        class Model:
+            def by_type(self, _):
+                return [type("A", (), {"Units": [Unit()]})()]
+
+        scale = length_scale_to_mm(Model())
+        assert scale == pytest.approx(304.8, abs=0.1)
+        assert 0.50 * scale == pytest.approx(152.4, abs=0.1)
+
+    def test_an_unreadable_unit_falls_back_to_millimetres(self):
+        """The catalogue's majority convention and the Revit export default."""
+        from ecarbon.bench.ifc_quantities import length_scale_to_mm
+
+        class Model:
+            def by_type(self, _):
+                raise RuntimeError("no units")
+
+        assert length_scale_to_mm(Model()) == 1.0
+
+
+@needs_data
+class TestUnitsOnTheRealModels:
+    def test_the_catalogue_is_not_consistent_about_length_units(self):
+        import ifcopenshell
+
+        from ecarbon.bench.ifc_quantities import length_scale_to_mm
+
+        scales = {}
+        for key in ("AB_Fourplex_01", "BC_Duplex", "QC_Fourplex_01"):
+            design = get_design(key)
+            scales[key] = length_scale_to_mm(ifcopenshell.open(str(design.ifc)))
+        assert scales["AB_Fourplex_01"] == 1.0
+        assert scales["QC_Fourplex_01"] == 1.0
+        assert scales["BC_Duplex"] == pytest.approx(304.8, abs=0.1)
+
+    def test_a_bc_partition_comes_back_as_a_real_wall(self):
+        """BC_Duplex P1 is 15.88 + 88.9 + 15.88 = 120.7 mm, a 2x4 partition.
+        Unscaled it read 0.40 mm."""
+        import ifcopenshell
+
+        from ecarbon.bench.ifc_quantities import material_layers
+
+        model = ifcopenshell.open(str(get_design("BC_Duplex").ifc))
+        depths = []
+        for wall in model.by_type("IfcWall"):
+            name = wall.Name or ""
+            if ":" not in name:
+                continue
+            if not name.split(":")[1].strip().startswith("P1"):
+                continue
+            layers = material_layers(wall)
+            if layers:
+                depths.append(sum(t for _m, t in layers))
+        assert depths, "no P1 partition found in BC_Duplex"
+        assert min(depths) == pytest.approx(120.7, abs=1.0)
