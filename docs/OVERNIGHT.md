@@ -152,6 +152,60 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — item 3, Ontario mojibake: ON 9% -> 22%
+
+**Kept, and the guardrail held.** Sheet identification is unchanged at 97.9%
+sheet-number and 95.1% sheet-type match across 1,465 pages, with 8 of 8
+textless sets still reporting their gap. The global text-repair guards were not
+touched; `repair_schedule_cell` lives in `extract/assemblies.py` and is reached
+only from that module.
+
+Ontario's schedule decodes entirely under a single 0x1D shift, and the global
+repair already handled most of it — `7<3(` is `TYPE`, `9$5` is `VAR`. It
+refuses exactly two kinds of cell:
+
+- **thicknesses**, because `PP` is `mm` and contains letters, which trips the
+  guard that stops `R-22` becoming `oJOO`;
+- **tags**, because `W1` is too short to score as prose, has one digit where a
+  sheet number needs two, and contains a letter so it fails the dimension test.
+
+A shift is accepted only when the result is a real numeric thickness or a
+well-formed tag. Word-likeness is deliberately insufficient: a dimension cell
+that comes out as prose means the shift was wrong, and a wrong thickness is
+worse than an unread one.
+
+**The parse alone changed nothing, which is why measuring mattered.** Ontario's
+assemblies went 0 -> 5 and coverage stayed at 9%, because
+`assembly_tags_used` called the global `repair()` directly rather than the
+repaired span reader. Ontario's *plan* sheets are glyph-ID encoded too, so the
+tag references stayed mojibake, `dominant W/R/F` came back `[None, None,
+None]`, and a schedule that now parsed went entirely unused. Applying the same
+scoped repair there took `ON_Fourplex_01` from 0 to 42 tag references and
+9% to 22% coverage.
+
+| Region | before | after |
+|---|---|---|
+| ON | 9% | **22%** (best 75%) |
+| AB | 91% | 91% |
+| QC | 66% | 66% |
+| BC | 59% | 59% |
+| ATL | 22% | 22% |
+| catalogue median | 44% | 44% |
+
+**Left alone — two further Ontario blockers that are not mojibake.** The queue
+predicted roughly +66 points for Ontario on the assumption that assemblies were
+the only obstacle. They were one of three:
+
+1. `n_storeys = 0` — "fewer than two floor datums found" on every ON multiplex.
+   No storey height means no exterior wall and no floor assemblies, which is
+   most of the carbon. A separate problem from text encoding.
+2. **No readable foundation plan exists in those sets at all**, so the
+   foundation system is `unknown` and slab and footing concrete cannot be
+   produced. That is a missing document rather than a parsing failure, in the
+   same category as SKMB having no assemblies schedule.
+
+Tests 587. Suite green, ruff clean, 0 crashes across 53.
+
 ### 2026-10-27 — item 2, footing schedule tables: BC 50% -> 59%, catalogue median 37% -> 44%
 
 **Kept.** BC states its footings in a schedule rather than inline the way

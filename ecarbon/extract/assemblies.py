@@ -417,6 +417,45 @@ def defer_match(text: str) -> str | None:
     return m.group(1).title() if m else None
 
 
+# Glyph-ID shifts to try on a dimension cell the global repair declines.
+# 0x1D explains every affected sheet in the catalogue; the rest are a sweep.
+_CELL_SHIFTS = (0x1D, 0x1F, 0x1E, 0x20)
+
+
+def repair_schedule_cell(text: str) -> str:
+    """Recover a schedule cell that `intake.textrepair` deliberately refuses.
+
+    Ontario's five multiplex schedules are glyph-ID encoded, and the whole
+    sheet decodes under a single 0x1D shift: `7<3(` is `TYPE`, `9$5` is `VAR`,
+    and `\\x16\\x12\\x17\\x05\\x12\\x14\\x1cPP` is `3/4"/19mm`. The global
+    repair handles the first two and refuses the third, because `PP` -- which
+    is `mm` -- contains letters, and any cell with letters is left alone. That
+    guard is what stops `R-22` becoming `oJOO` across 1,465 pages of sheet
+    classification, so it is not loosened; this is scoped to schedule cells.
+
+    Two kinds of cell need this. A thickness such as `3/4"/19mm` is refused
+    because `PP` contains letters, and an assembly tag such as `W1` is refused
+    because it is too short to score as prose, has one digit where a sheet
+    number needs two, and contains a letter so it fails the dimension test.
+
+    A shift is accepted only when the result is one of those two things: a real
+    numeric thickness, or a well-formed assembly tag. Word-likeness is
+    deliberately not enough -- a dimension cell that comes out as prose means
+    the shift was wrong, and a wrong thickness is worse than an unread one. A
+    cell with no control characters is returned untouched, since it was never
+    glyph-ID encoded.
+    """
+    if not any(ord(c) < 0x20 and c not in "\n\r\t" for c in text):
+        return text
+    for by in _CELL_SHIFTS:
+        cand = "".join(
+            chr(o + by) if 0 < (o := ord(c)) < 0x80 else c for c in text
+        )
+        if parse_thickness(cand)[0] is not None or _TAG_RE.match(cand):
+            return cand
+    return text
+
+
 def _spans(page: pymupdf.Page) -> list[tuple[float, float, str]]:
     """(row, column, text) for every text span, in reading order.
 
@@ -435,7 +474,10 @@ def _spans(page: pymupdf.Page) -> list[tuple[float, float, str]]:
             spans = [s for s in line.get("spans", []) if s["text"].strip()]
             turns[key] = turns.get(key, 0) + len(spans)
             for s in spans:
-                rows.append((s["bbox"][1], s["bbox"][0], repair(s["text"].strip())[0]))
+                fixed = repair(s["text"].strip())[0]
+                rows.append(
+                    (s["bbox"][1], s["bbox"][0], repair_schedule_cell(fixed))
+                )
 
     if not rows:
         return []
@@ -863,7 +905,11 @@ def assembly_tags_used(design) -> dict[str, int]:
             for block in doc[s.page].get_text("dict")["blocks"]:
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
-                        t = repair(span["text"].strip())[0]
+                        # Same scoped repair as the schedule reader. Ontario's
+                        # plan sheets are glyph-ID encoded too, so without it
+                        # the tag references stay mojibake, no assembly is ever
+                        # selected, and a schedule that now parses goes unused.
+                        t = repair_schedule_cell(repair(span["text"].strip())[0])
                         if _TAG_RE.match(t):
                             counts[t] += 1
     finally:
