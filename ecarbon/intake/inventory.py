@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import pymupdf
@@ -328,7 +329,22 @@ def inventory(
     `with_scale` additionally calibrates each readable sheet (Step 8). It is off
     by default because calibration re-reads every text span and roughly doubles
     the time, and the intake inventory is also used where scale is irrelevant.
+
+    The result is cached per (file, with_scale), because one takeoff asks for it
+    eight times -- the builder, the foundation specs, the levels, the assemblies
+    twice and the openings twice -- and each call otherwise re-parses the whole
+    PDF. Callers get a deep copy of the sheet list, since `SheetInfo` is mutable
+    and `set_toolchain` writes to it; handing out the cached objects would let
+    one caller's edit reach every other.
     """
+    sheets, probes, producer = _inventory_cached(str(path), with_scale)
+    return [s.model_copy(deep=True) for s in sheets], probes, producer
+
+
+@lru_cache(maxsize=8)
+def _inventory_cached(
+    path: str, with_scale: bool
+) -> tuple[list[SheetInfo], list[PageProbe], str]:
     from ecarbon.intake.classify import classify_page
 
     sheets: list[SheetInfo] = []

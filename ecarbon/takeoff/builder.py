@@ -83,6 +83,11 @@ STUD_FRAMING_FRACTION = 0.15
 # at 0.98-0.99, and those that come in a third short sit at 0.51-0.72.
 PLAN_EXTENT_TOLERANCE = 0.15
 
+# Below this many windows, a dwelling can legitimately have more windows than
+# doors, so the door-tagging check is not applied. Calibrated on the
+# catalogue: QC_ADU_01 has four windows and three doors and is exactly right.
+DOOR_TAGGING_WINDOW_FLOOR = 12
+
 
 @dataclass
 class TakeoffInputs:
@@ -582,6 +587,39 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     f"Window {o.tag} has no usable size in the schedule, so its area is "
                     f"not counted."
                 ),
+            )
+        )
+
+    # Are the doors all tagged?
+    #
+    # In a dwelling every room needs a door and few rooms have more than one
+    # or two windows, so interior doors normally outnumber windows. A count
+    # where they do not means some doors were scheduled but never tagged on a
+    # plan -- which is what AB_Rowhouse_01 and AB_Rowhouse_02 do, and their
+    # door counts come in 58% and 61% short against the IFC while their window
+    # counts are exact. Measured across the catalogue: where our doors equal or
+    # exceed our windows the median door error is 0.0% over 39 designs; where
+    # they are fewer it is 59%.
+    #
+    # The window floor exists because a small dwelling can legitimately have
+    # more windows than doors -- QC_ADU_01 has four windows and three doors and
+    # is exactly right. Twelve is calibrated on the catalogue, not derived.
+    window_count = sum(o.count for o in windows)
+    door_count = sum(o.count for o in doors)
+    if door_count < window_count and window_count >= DOOR_TAGGING_WINDOW_FLOOR:
+        gaps.append(
+            Gap(
+                code=GapCode.OPENING_SCHEDULE_MISSING,
+                severity=GapSeverity.BLOCKING,
+                message=(
+                    f"Only {door_count} doors are tagged on the plans against "
+                    f"{window_count} windows. A dwelling normally has more doors than "
+                    f"windows, because every room needs one, so some doors are "
+                    f"scheduled but never tagged and this count is unreliable — on "
+                    f"the designs where this holds it has been around 60% short. The "
+                    f"door quantity should be corrected by hand."
+                ),
+                affects=["ln-doors"],
             )
         )
 

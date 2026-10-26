@@ -10,6 +10,52 @@ Generated 2026-10-25 against 53 drawing sets / 52 packages.
 
 ---
 
+## Read this first: the headline figure is a best case
+
+    python scripts/run_pipeline.py
+
+Running the whole pipeline on all 53 sets, no code changes, nothing tuned per
+design:
+
+| | Result |
+|---|---|
+| Crashed | **0 of 53** |
+| Produced quantities | 45 |
+| Produced none **and reported why** | 8 (the textless NOR sets) |
+| Seconds per design | median **13.2**, worst 24.5 |
+| Element coverage | median **40%**, best 91%, worst 0% |
+| Designs reaching 80% coverage | **7 of 45** |
+
+| Region | n | Coverage, median | Best | Intensity kgCO₂e/m², median |
+|---|---|---|---|---|
+| **Alberta** | 7 | **91%** | 91% | 132.5 |
+| Quebec | 7 | 48% | 62% | 110.7 |
+| British Columbia | 7 | 40% | 40% | 20.9 |
+| Atlantic | 9 | 24% | 48% | 16.1 |
+| Ontario | 7 | 10% | 82% | 22.1 |
+| SKMB | 7 | 10% | 10% | 8.3 |
+| NOR | 9 | — | — | — |
+
+**Alberta is the region this was developed against, and it shows.** Six of its
+seven sets reach 91% element coverage at an intensity of 122–166 kgCO₂e/m²,
+which is a plausible product-stage figure. Elsewhere coverage runs 10–48% and
+the intensity falls to 8–42 kgCO₂e/m² — not because those buildings are
+lighter, but because a partial bill of quantities produces a partial total.
+Intensity tracks coverage almost exactly, which is the expected signature and
+also the reason every total in this system is reported with the share of the
+building it reaches.
+
+So: where a figure below is quoted for AB_Fourplex_01 — 91% coverage, 37,536
+kgCO₂e, 122.7 kgCO₂e/m² — read it as **the best case on the development
+region**, not as typical. The median design gets 40%.
+
+What separates them is whether two sheets parse. A design reaches 80%+ only
+when both its assemblies schedule and its openings schedule are readable:
+Alberta's are, Ontario's multiplexes have neither, and BC parses openings but
+loses its exterior wall assembly to the plausibility gate.
+
+---
+
 ## What is measured against what
 
 Three independent references, each with real limits:

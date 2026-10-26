@@ -252,3 +252,73 @@ class TestPlanExtentCheck:
         if doors is not None:
             # The raw count from the plans, unscaled.
             assert doors.quantity == 23.0
+
+
+@needs_data
+class TestDoorTaggingCheck:
+    """Not every drawing tags every door.
+
+    In a dwelling every room needs a door and few rooms have more than one or
+    two windows, so interior doors normally outnumber windows. Where they do
+    not, some doors were scheduled but never tagged on a plan. Measured against
+    the IFC: where our doors equal or exceed our windows the median door error
+    is 0.0% across 39 designs; where they are fewer it is 59%.
+    """
+
+    def flagged(self, key: str) -> bool:
+        from ecarbon.bench.bpr import parse_bpr
+        from ecarbon.models import ProjectFacts
+        from ecarbon.takeoff.builder import build_takeoff
+
+        design = get_design(key)
+        bpr = parse_bpr(str(design.bpr[0]))
+        takeoff = build_takeoff(
+            design,
+            ProjectFacts(
+                name=key,
+                gfa_m2=bpr.best_gfa_m2,
+                gfa_basis="gross",
+                storeys=bpr.storeys,
+                units=bpr.units,
+            ),
+        )
+        return any("doors are tagged" in g.message for g in takeoff.gaps)
+
+    @pytest.mark.parametrize("key", ["AB_Rowhouse_01", "AB_Rowhouse_02"])
+    def test_partial_door_tagging_is_flagged(self, key):
+        """These two schedule their doors but tag only some on the plans, and
+        come in 58% and 61% short while their window counts are exact."""
+        assert self.flagged(key)
+
+    @pytest.mark.parametrize("key", ["AB_Fourplex_01", "QC_Sixplex"])
+    def test_a_fully_tagged_set_is_not_flagged(self, key):
+        """AB_Fourplex_01 counts 40 doors against the IFC's 40."""
+        assert not self.flagged(key)
+
+    def test_a_small_dwelling_is_not_flagged_for_having_more_windows(self):
+        """QC_ADU_01 has four windows and three doors and is exactly right, so
+        the check needs a floor or it fires on every studio."""
+        assert not self.flagged("QC_ADU_01")
+
+    def test_the_two_count_checks_are_independent(self):
+        """Plan extent and door tagging are different failures. The stacked
+        townhouses draw one unit of a block; the rowhouses draw every unit but
+        tag only some doors. Each check catches its own."""
+        from ecarbon.bench.bpr import parse_bpr
+        from ecarbon.models import ProjectFacts
+        from ecarbon.takeoff.builder import build_takeoff
+
+        design = get_design("ON_Stacked_Townhouse_01")
+        bpr = parse_bpr(str(design.bpr[0]))
+        takeoff = build_takeoff(
+            design,
+            ProjectFacts(
+                name="ON_Stacked_Townhouse_01",
+                gfa_m2=bpr.best_gfa_m2,
+                gfa_basis="gross",
+                storeys=bpr.storeys,
+            ),
+        )
+        messages = [g.message for g in takeoff.gaps]
+        assert any("disagree about how much" in m for m in messages)
+        assert not any("doors are tagged" in m for m in messages)
