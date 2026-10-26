@@ -99,6 +99,8 @@ class TakeoffInputs:
     footprint_page: int | None = None
     spec: FoundationSpec = field(default_factory=FoundationSpec)
     heights: StoreyHeights = field(default_factory=StoreyHeights)
+    # True when the footprint survived only without the stated-area check.
+    footprint_uncorroborated: bool = False
     assemblies: dict[str, Assembly] = field(default_factory=dict)
     tag_refs: dict[str, int] = field(default_factory=dict)
 
@@ -123,25 +125,59 @@ def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs
 
     doc = pymupdf.open(design.drawings_pdf)
     try:
-        for s in sheets:
-            if s.sheet_type not in PLAN_TYPES or not s.readable:
-                continue
-            fp = detect_footprint(doc[s.page], calibrate(doc[s.page]), expected_area_m2)
-            if fp and fp.confident:
-                inputs.footprint, inputs.footprint_sheet, inputs.footprint_page = (
-                    fp,
-                    s.sheet_no,
-                    s.page,
-                )
+        plans = [s for s in sheets if s.sheet_type in PLAN_TYPES and s.readable]
+
+        # The stated floor area corroborates a measured footprint, and a
+        # mismatch is usually a wrong measurement. But not always: on a
+        # repeated-unit block the Building Performance Report states floor area
+        # per unit while the plan draws the whole block, so the expectation is
+        # a third of the truth and rejects the correct answer.
+        # ATL_Stacked_Townhouse_01 expects 66 m2, measures 203.1 m2 and the IFC
+        # says 203.2 -- a 0.05% match thrown away by an area gate.
+        #
+        # So the expectation is tried first and, only if nothing confident
+        # survives it, the plans are read again without it. The second pass is
+        # recorded so the caller knows the area was never corroborated.
+        for expectation in (expected_area_m2, None):
+            for s in plans:
+                fp = detect_footprint(doc[s.page], calibrate(doc[s.page]), expectation)
+                if fp and fp.confident:
+                    inputs.footprint, inputs.footprint_sheet, inputs.footprint_page = (
+                        fp,
+                        s.sheet_no,
+                        s.page,
+                    )
+                    inputs.footprint_uncorroborated = expectation is None
+                    break
+                if fp and inputs.footprint is None:
+                    inputs.footprint, inputs.footprint_sheet, inputs.footprint_page = (
+                        fp,
+                        s.sheet_no,
+                        s.page,
+                    )
+            if inputs.footprint is not None and inputs.footprint.confident:
                 break
-            if fp and inputs.footprint is None:
-                inputs.footprint, inputs.footprint_sheet, inputs.footprint_page = (
-                    fp,
-                    s.sheet_no,
-                    s.page,
-                )
+            if expectation is None or expected_area_m2 is None:
+                break
     finally:
         doc.close()
+
+    if inputs.footprint_uncorroborated and expected_area_m2:
+        gaps.append(
+            Gap(
+                code=GapCode.GEOMETRY_AMBIGUOUS,
+                severity=GapSeverity.WARNING,
+                message=(
+                    f"The footprint measures {inputs.footprint.area_m2:.1f} m2 but the "
+                    f"stated floor area implies about {expected_area_m2:.0f} m2 per "
+                    f"storey, so the two could not be reconciled and the measurement "
+                    f"is reported without that corroboration. On a repeated-unit block "
+                    f"this is expected -- the report states area per unit while the plan "
+                    f"draws the whole block -- but it also fits a mis-measured plan, so "
+                    f"check the footprint before relying on areas derived from it."
+                ),
+            )
+        )
 
     # The assemblies schedule turns an element area into materials. Without it
     # a wall is only its studs, which is about a sixth of its carbon.

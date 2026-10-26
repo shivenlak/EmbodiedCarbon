@@ -152,6 +152,58 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — footprint: retry without the stated-area check
+
+**Kept, and the measured footprint accuracy is unchanged.**
+`scripts/score_footprint.py` still reads median error 3.3%, 32 of 38 within
+10%, worst 63.3% — identical to before, which was the condition for keeping
+this at all.
+
+Atlantic's four footprint failures were not a detection problem: the
+stated-area check was rejecting a correct measurement.
+`ATL_Stacked_Townhouse_01` expects 66 m2 (GFA 199 over 3 storeys) while its
+footprint is 203 m2, a ratio of 3.1 against a 2.5 gate. Measured without the
+expectation it gives **203.1 m2 against the IFC's 203.2 — 0.05%**. The
+per-unit-versus-whole-block mismatch again: the Building Performance Report
+states floor area per unit while the plan draws the whole block.
+
+So the expectation is tried first and, only if nothing confident survives it,
+the plans are read again without it. The second pass sets
+`footprint_uncorroborated` and raises a warning, because the condition fits a
+repeated-unit block *and* a genuinely mis-measured plan and the geometry alone
+cannot tell them apart.
+
+Designs reaching 80% coverage: **5 of 45 -> 6 of 45**. `AB_Rowhouse_01` went
+10% -> 91%, now producing quantities from a correct 143.2 m2 whole-block
+footprint (IFC 160.5) where before it produced almost none.
+
+**Judgement call, left for a human.** `AB_Rowhouse_01` now reports 479.9
+kgCO2e/m2, which is implausible for A1-A3 when published whole-life figures top
+out at 731. The quantities are right; the *denominator* is wrong. Its BPR
+states `units=1, gfa=74 m2` — one unit of a rowhouse block — while the drawings
+depict the whole block. Both facts are already flagged, the second as blocking:
+
+> The plans depict 286 m2 of floor across 2 storeys, but this project states
+> 74 m2 — a ratio of 0.26.
+
+So nothing is silently wrong. But an intensity that is 4x out on its face is
+worth more than a gap beside it, and the options are a decision about what to
+publish rather than a measurement:
+
+1. suppress the intensity when the plan-extent check fails;
+2. report it against the measured floor area (footprint x storeys) with the
+   basis relabelled, which changes what `intensity_basis` means;
+3. leave it, since it is flagged blocking already.
+
+Not decided unattended.
+
+**Left alone:** `ATL_Stacked_Townhouse_01` is still at 9% despite now having a
+footprint. Its blocker is levels — `n_storeys=1`, so no wall height, and its
+schedule yields only W4 and W6 with no R, F, P or N assembly. Atlantic's
+regional median therefore stays at 22%; its best is 57%.
+
+Catalogue median unchanged at 44%. Crashes 0 of 53. Tests 599, suite green.
+
 ### 2026-10-27 — Atlantic assemblies: 3 -> 23 read, four designs to 44-57%
 
 **Kept.** Atlantic's schedules parsed all along; its assembly *names* were
