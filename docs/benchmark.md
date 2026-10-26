@@ -29,7 +29,7 @@ design:
 | Region | n | Coverage, median | Best | Intensity kgCO₂e/m², median |
 |---|---|---|---|---|
 | **Alberta** | 7 | **91%** | 91% | 132.5 |
-| Quebec | 7 | 57% | 57% | 110.7 |
+| Quebec | 7 | 66% | 66% | 116.8 |
 | British Columbia | 7 | 37% | 37% | 20.9 |
 | Atlantic | 9 | 22% | 44% | 16.1 |
 | Ontario | 7 | 9% | 75% | 22.1 |
@@ -322,9 +322,40 @@ benchmark:
   Estimates contain quantity take-offs but are not in the data package, so
   every figure above is measured against geometry we derived ourselves from
   the IFCs, not against a quantity surveyor's bill.
-- **Interior partitions are not quantified.** They need interior wall lengths,
-  which the current footprint detection does not produce. That is the 9% of
-  element coverage still missing on AB_Fourplex_01.
+- **Interior partitions are not quantified**, and this was tried properly
+  rather than assumed impossible. The approach was sound on paper: the
+  assemblies schedule states each partition's built depth (P1 121 mm, P2
+  201 mm, P3 235 mm, P5 118 mm), a wall is two parallel lines separated by its
+  thickness, and furniture and door swings are not. Measured against partition
+  run lengths taken from the IFC geometry:
+
+  | Design | Detected | IFC | |
+  |---|---|---|---|
+  | AB_Fourplex_01 | 111.8 m | 158.8 m | −30% |
+  | AB_Fourplex_02 | 180.9 m | 238.6 m | −24% |
+  | AB_Sixplex | 180.1 m | 262.2 m | −31% |
+  | AB_Rowhouse_02 | 158.0 m | 213.4 m | −26% |
+  | QC_Fourplex_01 | 47.8 m | 180.7 m | −74% |
+  | QC_Sixplex | 152.1 m | 308.0 m | −51% |
+  | BC_Duplex | 63.8 m | 128.9 m | −50% |
+
+  Alberta is consistently about 28% low, which looked like a fixable bias —
+  short wall stubs below the minimum segment length, or pairs rejected for
+  partial overlap. It is not: relaxing the minimum length from 400 mm to
+  100 mm, the overlap requirement from 0.6 to 0.25 and the thickness tolerance
+  from 8 mm to 14 mm moves Alberta from −30% to −33% and Quebec not at all.
+  The missing partitions are not short — they are not in the wall lineweight
+  group at all. Searching every group instead overshoots by +350%, because
+  poché hatching, cabinetry and door swings also produce parallel pairs at
+  partition spacings.
+
+  So the detection finds roughly 70% of partitions on the region it was built
+  against and 25–50% elsewhere, with no parameter that improves both. A line
+  wrong by up to three-fold on 8% of a building's carbon is worse than a
+  stated gap, so none is produced. What would fix it is classifying wall
+  linework directly rather than inferring it from lineweight — the ~20
+  layer-labelled sets in this catalogue carry `A-WALL` layer names and could
+  supply training labels for exactly that.
 - **Cladding and roofing carry no carbon**, because CMHC leaves them
   deliberately unspecified as placeholders. Defaulting them would move about
   12% of a home's embodied carbon on a choice nobody made.
