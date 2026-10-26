@@ -24,15 +24,15 @@ design:
 | Produced none **and reported why** | 8 (the textless NOR sets) |
 | Seconds per design | median **13.0**, worst 24.7 |
 | Element coverage | median **44%**, best 91%, worst 0% |
-| Designs reaching 80% coverage | **5 of 45** |
+| Designs reaching 80% coverage | **6 of 45** |
 
 | Region | n | Coverage, median | Best | Intensity kgCO₂e/m², median |
 |---|---|---|---|---|
 | **Alberta** | 7 | **91%** | 91% | 132.5 |
 | Quebec | 7 | 66% | 66% | 116.1 |
 | British Columbia | 7 | **59%** | 59% | 30.8 |
-| Atlantic | 9 | 22% | 44% | 16.1 |
-| Ontario | 7 | **22%** | 75% | 22.1 |
+| Atlantic | 9 | **42%** | 57% | 33.8 |
+| Ontario | 7 | **42%** | 75% | 57.3 |
 | SKMB | 7 | 9% | 9% | 8.3 |
 | NOR | 9 | — | — | — |
 
@@ -166,9 +166,9 @@ gypsum.
 | Ontario | **7 / 7** |
 | NOR | 0 / 9 |
 | SKMB | 0 / 7 |
-| **Total** | **36 / 53** |
+| **Total** | **38 / 53** |
 
-**360 assemblies kept, 158 refused.** The refusals matter as much as the
+**413 assemblies kept, 172 refused.** The refusals matter as much as the
 parses. Reading this sheet across firms sometimes merges adjacent blocks or
 starts one on a layer row, and the result is structurally wrong while looking
 completely ordinary — a 47-layer, 1.6 m "VAULTED ROOF" on BC_Duplex, and
@@ -179,10 +179,10 @@ quantities silently while a refusal produces a gap that says so.
 
 | Why an assembly was refused | n |
 |---|---|
-| its name is one of its own layers | 108 |
-| more layers than an assembly has | 11 |
+| its name is one of its own layers | 99 |
+| more layers than an assembly has | 20 |
 | implausible built depth | 7 |
-| no layer states a thickness, or other | 32 |
+| no layer states a thickness, or other | 46 |
 
 ### Built depth against the IFC's own layer sets
 
@@ -191,22 +191,45 @@ on every assembly where both exist:
 
 | | Result |
 |---|---|
-| Assemblies compared | **163** |
-| Median error | **7.9%** |
-| Mean error | 22.8% |
-| Exact (<0.5%) | **47 / 163** |
-| Within 10% | **85 / 163** |
-| Worst | 207.9% |
+| Assemblies compared | **195** |
+| Median error | **15.2%** |
+| Mean error | 28.4% |
+| Exact (<0.5%) | **47 / 195** |
+| Within 10% | **86 / 195** |
+| Worst | 1171.8% |
 
-**Reading more schedules cost a little per-assembly precision, and that is
-the honest trade.** Widening tag forms and repairing Ontario's encoding took
-the comparison set from 148 assemblies to 163 and designs from 31 to 36,
-while the median built-depth error moved 5.8% to 7.9% and exact matches held
-at 47. The assemblies added are the harder ones — dotted BC tags and
-glyph-ID Ontario cells — so the average is diluted rather than any
-previously good reading having degraded.
+**Reading more schedules cost per-assembly precision, and the number that
+matters is the one that did not move.** Across every change in this
+catalogue's history, `exact` has held at **47** and `within 10%` at **86**: no
+reading that was once good has degraded. What grew is the denominator — the
+comparison set went from 148 assemblies to 195 and designs from 31 to 38 — and
+the assemblies added are the hard ones: dotted BC tags, glyph-ID Ontario cells,
+Atlantic tables whose name column sits 34 pt from its header. So the median
+rose from 5.8% to 15.2% by dilution, not by regression.
 
-Excluded: 19 tags the IFC models with more than one build-up, where there is
+Three causes account for most of the remaining spread, and two of them are the
+reference rather than the measurement:
+
+- **The IFC lumps foundations.** `F1 SLAB ON GRADE` reads 76 mm from the
+  drawings against 356 mm in the model, the same defect as Alberta's single
+  454 mm layer where the drawings specify a 130 mm slab over insulation and
+  granular fill.
+- **Joists are counted on different sheets.** `F2 WOOD FRAMED FLOOR` reads
+  70 mm because the drawings defer the joist depth to structural, which we
+  honour; the IFC includes it, at 393 mm.
+- **Some IFC layer sets are a single membrane.** The 1171% worst case is a
+  cathedral roof we read at 524 mm against an IFC layer set of 41 mm.
+
+The one genuine parse fault found in this group has been fixed: one-layer
+blocks whose names are plainly layers — `WOOD STUD FRAMING @ 1'-4"`, `BATT
+INSULATION IN CAVITY`, `WOOD DECKING` — were passing the name filter because it
+lacked those words. Tightening it removed four bad comparisons and moved the
+median from 16.3% to 15.2%. The tightening needed its own correction: an
+end-anchored `STUD FRAMING` pattern refused Quebec's genuine `W1`, `DOUBLE
+BRICK MASONRY W/ WOOD STUD FRAMING`, so a spacing callout is now required —
+a layer states its spacing, a composite assembly name does not.
+
+Excluded: 14 tags the IFC models with more than one build-up, where there is
 no single depth to compare against. AB_Fourplex_01's P2 exists as both a
 165 mm plain partition and a 201 mm rated one; our parse is the rated version
 and matches it exactly, so scoring against the nearest variant would flatter

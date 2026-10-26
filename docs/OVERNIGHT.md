@@ -152,6 +152,50 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — published figures refreshed, and a cost published with them
+
+Rescoring after the rotation work showed assemblies got **worse**, not better,
+and that is now in the benchmark rather than smoothed over.
+
+| | before tonight | now |
+|---|---|---|
+| designs with trustworthy assemblies | 31 / 53 | **38 / 53** |
+| assemblies kept / refused | 291 / 115 | **413 / 172** |
+| built depth, compared | 148 | **195** |
+| built depth, median error | 5.8% | **15.2%** |
+| built depth, **exact** | **47** | **47** |
+| built depth, **within 10%** | 86 | **86** |
+| ATL coverage | 22% | **42%** |
+| ON coverage | 9% | **42%** |
+| BC coverage | 37% | **59%** |
+| designs ≥80% coverage | 5 / 45 | **6 / 45** |
+
+**The number that matters is the one that did not move.** `exact` held at 47
+and `within 10%` at 86 through every change tonight: no reading that was once
+good has degraded. The denominator grew — 148 comparisons to 195, 31 designs
+to 38 — and the assemblies added are the hard ones. The median rose by
+dilution, not regression, and the benchmark now says exactly that.
+
+Two of the three remaining causes are the *reference*, not the measurement:
+the IFC lumps foundations (F1 reads 76 mm against 356), and joists are counted
+on a different sheet (F2 reads 70 mm because the drawings defer them, against
+393 in the model). The 1171% worst case is a cathedral roof read at 524 mm
+against an IFC layer set of 41 mm.
+
+**One genuine parse fault was found and fixed in this group:** one-layer blocks
+whose names are plainly layers — `WOOD STUD FRAMING @ 1'-4"`, `BATT INSULATION
+IN CAVITY`, `WOOD DECKING` — passed the name filter because it lacked those
+words. Tightening it removed four bad comparisons, 16.3% -> 15.2%. The
+tightening then needed its own correction: an end-anchored `STUD FRAMING`
+pattern refused Quebec's genuine `W1`, `DOUBLE BRICK MASONRY W/ WOOD STUD
+FRAMING`, so a spacing callout is now required — a layer states its spacing, a
+composite assembly name does not.
+
+Openings were unaffected by the shared reader: windows 5.4% median, doors 1.4%,
+identical. Footprint 3.3% and sheet identification 97.9%/95.1% likewise.
+
+Tests 612. Suite green, ruff clean, 0 crashes across 53.
+
 ### 2026-10-27 — storey heights on rotated sections: ATL and ON both +20
 
 **Kept. The largest single gain of the session**, across 16 designs.

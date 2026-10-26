@@ -160,7 +160,17 @@ MAX_PLAUSIBLE_DEPTH_MM = 800.0
 # a single layer.
 _MATERIAL_LIKE_NAME_RE = re.compile(
     r"GYPSUM|PLACEHOLDER|PLACE\s?HOLDER|AIR\s+BARRIER|VAPOU?R\s+(?:CONTROL|BARRIER)"
-    r"|STRAPPING|MEMBRANE|SHEATHING|PLYWOOD|PARGING|JOISTS?\s*@|CONCRETE\s*$",
+    r"|STRAPPING|MEMBRANE|SHEATHING|PLYWOOD|PARGING|JOISTS?\s*@|CONCRETE\s*$"
+    # Added after measuring: these slipped through as one-layer "assemblies"
+    # on Atlantic and Ontario -- "WOOD STUD FRAMING @ 1'-4"", "BATT INSULATION
+    # IN CAVITY", "WOOD DECKING". FRAMING is matched only as a trailing word or
+    # before a spacing callout, so a real assembly name like "WOOD FRAMED
+    # FLOOR" or "2x6 WOOD STUD W/ EXTERIOR INSULATION" is untouched.
+    # A spacing callout is required after FRAMING, because a layer states one
+    # ("WOOD STUD FRAMING @ 1'-4"") and a composite assembly name does not
+    # ("DOUBLE BRICK MASONRY W/ WOOD STUD FRAMING", Quebec's real W1, which an
+    # end-anchored form refused).
+    r"|\bBATT\b|\bDECKING\b|STUD\s+FRAMING\s*@|FURRING\s+CHANNEL",
     re.I,
 )
 # A cell carrying words rather than a dimension: three or more letters in a row.
