@@ -80,6 +80,75 @@ def base_sheet(sheet_no: str | None) -> str | None:
     return m.group(1) if m else sheet_no
 
 
+# A sheet title names the storey, then optionally the option it draws:
+# "MAIN FLOOR PLAN - ACCESSIBLE READY", "MAIN FLOOR PLAN - ENHANCED
+# ACCESSIBILITY". Everything from the first dash is the option.
+_STOREY_TITLE_RE = re.compile(r"^\s*([^-–]+)")
+
+
+def _title_head(sheet) -> str:
+    """The storey a title names, before any option suffix."""
+    title = (getattr(sheet, "title", None) or "").upper()
+    m = _STOREY_TITLE_RE.match(title)
+    return m.group(1).strip() if m else title.strip()
+
+
+def group_by_storey(sheets: list) -> list[list]:
+    """Plan sheets grouped so each storey is counted once.
+
+    Neither signal is sufficient alone, and each fixes the other's failures:
+
+    * The **sheet number** catches `A101` with `A101a`, the usual way an
+      accessibility option is marked. It misses AB_ADU_01, which numbers its
+      two options `A101` and `A102` -- they look like different storeys and are
+      both the main floor, and counting both read 15 doors against the 9 its
+      model contains.
+    * The **title head** catches that pair, both being "MAIN FLOOR PLAN". Used
+      alone it is worse: several designs title an option "ACCESSIBLE-READY MAIN
+      FLOOR PLAN", whose head is "ACCESSIBLE", so it splits groups the sheet
+      number had correctly merged. Measured: it fixed AB_ADU_01 and broke five
+      others, taking ON_Fourplex_02's doors from exactly right to 44% over.
+
+    So two sheets are the same storey when **either** signal says so, and the
+    relation is closed transitively. Fewer, larger groups can only undercount a
+    storey, never double one -- the safer direction, and the one the gap report
+    already warns about.
+    """
+    parent = list(range(len(sheets)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        parent[find(i)] = find(j)
+
+    for i, a in enumerate(sheets):
+        for j in range(i + 1, len(sheets)):
+            b = sheets[j]
+            same_number = (
+                base_sheet(getattr(a, "sheet_no", None)) is not None
+                and base_sheet(getattr(a, "sheet_no", None))
+                == base_sheet(getattr(b, "sheet_no", None))
+            )
+            head_a, head_b = _title_head(a), _title_head(b)
+            same_title = bool(head_a) and head_a == head_b
+            if same_number or same_title:
+                union(i, j)
+
+    buckets: dict[int, list] = {}
+    for i, sheet in enumerate(sheets):
+        buckets.setdefault(find(i), []).append(sheet)
+    # Architectural sheets before structural ones, and a base number before its
+    # suffixed variant, so the sheet that carries the tags is read.
+    return [
+        sorted(group, key=lambda s: (getattr(s, "sheet_no", "") or ""))
+        for _k, group in sorted(buckets.items())
+    ]
+
+
 def parse_ft_in(text: str) -> float | None:
     """Millimetres from a feet-and-inches cell, or None."""
     m = _FT_IN_RE.match(text.strip())
@@ -230,17 +299,13 @@ def count_on_plans(design, openings: list[Opening]) -> tuple[dict[str, str], lis
     by_tag = {o.tag: o for o in openings}
 
     # Group alternative plans of one storey, and prefer the base sheet.
-    groups: dict[str, list] = {}
-    for s in plans:
-        groups.setdefault(base_sheet(s.sheet_no) or f"p{s.page}", []).append(s)
-
     chosen: dict[str, str] = {}
     notes: list[str] = []
     doc = pymupdf.open(design.drawings_pdf)
     try:
-        for base, members in sorted(groups.items()):
-            members.sort(key=lambda s: (s.sheet_no != base, s.sheet_no or ""))
+        for members in group_by_storey(plans):
             pick = members[0]
+            base = pick.sheet_no or f"p{pick.page}"
             chosen[base] = pick.sheet_no or f"page {pick.page + 1}"
             if len(members) > 1:
                 others = ", ".join(str(m.sheet_no) for m in members[1:])

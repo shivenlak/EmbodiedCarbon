@@ -650,3 +650,41 @@ Tests 558 -> 578. Suite green, ruff clean.
 Baseline recorded above. Item 1 diagnosed but not yet fixed: BC's dotted tag
 form found by inspecting sheet A002 of `BC_Duplex`, where tags read `W1.1` and
 `W1.2` at x=241 while `_TAG_RE` matches neither.
+
+### Interior partitions measured, and an Ontario regression to investigate
+
+**Won:** Alberta reached **100% element coverage on six of seven designs** (was
+91%). Interior partition run length is now measured from the plan linework at
+the wall lineweight, validated against the IFC on all seven Alberta designs:
+median 5.7%, six within 10%, worst +92% (AB_ADU_02, a small dwelling whose
+cabinetry sits at partition spacings). Labelled `inferred` rather than
+`assumed` because it is a measurement; the spread, the accuracy and the four
+rejected approaches all travel with the line, and the carbon total is reported
+both ways — 48,613 kgCO2e including partitions, 37,536 excluding.
+
+The breakthrough was a spacing histogram, not a new idea: the wall-lineweight
+group's neighbour spacings on AB_Fourplex_01 read `[(121, 20), (36, 6),
+(2, 5), (241, 3)]`, and 121 mm is exactly P1's stated depth. The partitions had
+always been in that group — an earlier 1000 mm minimum segment length had
+deleted them, because that group holds 297 segments under 250 mm (partition
+faces break at every door, jamb and junction).
+
+**Also fixed, and worth more:** `AB_ADU_01` numbers its accessibility options
+`A101` and `A102`, so one storey was counted twice — 15 doors against the
+model's 9. Neither signal fixes this alone, and each repairs the other's
+failure: sheet numbers miss `A101`/`A102`, while title heads break five designs
+that title an option "ACCESSIBLE-READY MAIN FLOOR PLAN" (head "ACCESSIBLE").
+Two sheets are now one storey when **either** agrees, closed transitively.
+Catalogue openings: windows median 5.4% -> **4.0%**, doors 1.4% -> **0.0%**.
+
+**Regression, not yet explained — for the accuracy deep dive:** Ontario's
+median coverage fell **42% -> 29%**, four designs each losing 2 lines, while
+`ON_ADU_02` rose 75% -> 83%. `ON_Fourplex_01` yields only four assembly tags
+(`F2 N1 W1 W3`) with no roof tag, so the roof lines cannot be coming from the
+schedule and the earlier 10-line result needs tracing against HEAD rather than
+guessing. Alberta, the scored region, is unaffected and gated. Catalogue median
+rose 44% -> 52% and designs at >=80% went 6 -> 7, so this lands net positive,
+but the Ontario loss is real and is logged rather than absorbed.
+
+Coverage now: AB 100%, QC 74%, BC 67%, ATL 44%, ON 29%, NOR 9%, SKMB 9%;
+catalogue median 52%. 650 tests, ruff clean, 0 crashes across 53 sets.

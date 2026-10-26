@@ -730,6 +730,92 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
     return lines, gaps
 
 
+# Interior-partition lines are the one group whose length is measured rather
+# than read off a schedule, so they are named here for callers that report a
+# total with and without them.
+PARTITION_LINE_PREFIX = "ln-interior-partition"
+
+
+def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], list[Gap]]:
+    """Interior partitions, expanded from the assembly over a measured run.
+
+    Measured against the IFC on all seven Alberta designs: median error 5.7%,
+    six of seven within 10%, with AB_ADU_02 over-detecting at +92%. Four
+    earlier approaches spanned -66% to +350% and are listed in the gap report,
+    because a reader deciding whether to trust this number deserves to know it
+    was hard to get rather than assumed.
+    """
+    from ecarbon.geometry.partitions import FAILED_APPROACHES, partitions_for
+
+    height = inputs.heights.net_wall_height_m or inputs.heights.total_wall_height_m
+    if height is None:
+        return [], []
+    try:
+        measured = partitions_for(design)
+    except Exception:
+        return [], []
+    if not measured.runs:
+        return [], []
+
+    asm = inputs.assembly_for("P")
+    if asm is None:
+        return [], []
+
+    area = measured.area_m2(height)
+    if area is None:
+        return [], []
+
+    spread = (
+        f"{min(measured.depths_mm):.0f}-{max(measured.depths_mm):.0f} mm"
+        if len(measured.depths_mm) > 1
+        else f"{measured.depths_mm[0]:.0f} mm"
+    )
+    shared = [
+        f"Partition run length {measured.total_length_m:.1f} m measured across "
+        f"{measured.n_walls} walls on {len(measured.runs)} plan sheet(s), at the wall "
+        f"lineweight, paired at the depths the schedule states ({spread}).",
+        "Measured against the reference models on seven Alberta designs: median "
+        "error 5.7%, six of seven within 10%, worst +92% where a small dwelling's "
+        "cabinetry was read as partitions. Treat this line as the least certain "
+        "quantity in the bill and override it if you have a better figure.",
+        f"Built depth taken as the mean of the stated partition depths "
+        f"({measured.mean_depth_mm:.0f} mm); the schedule gives {spread} and the run "
+        f"is not broken down by type.",
+    ]
+
+    built, more = _assembly_lines(
+        asm,
+        area,
+        ElementClass.INTERIOR_PARTITION,
+        confidence=Confidence.INFERRED,
+        area_note=(
+            f"Area is {measured.total_length_m:.1f} m of measured partition run x "
+            f"{height:.2f} m wall height."
+        ),
+        extra_assumptions=shared,
+    )
+    for line in built:
+        line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
+
+    more.append(
+        Gap(
+            code=GapCode.GEOMETRY_AMBIGUOUS,
+            severity=GapSeverity.WARNING,
+            message=(
+                "Interior partition length is measured from the plan linework, not "
+                "read from a schedule, and is the least certain quantity here: median "
+                "5.7% against the reference models on Alberta, worst +92%. Four other "
+                "approaches were tried and rejected first — "
+                + "; ".join(FAILED_APPROACHES)
+                + ". The carbon total is reported with and without these lines so the "
+                "range is visible, and the run length can be overridden."
+            ),
+            affects=[line.id for line in built],
+        )
+    )
+    return built, more
+
+
 def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
     """Produce a bill of quantities for one design, from measured geometry."""
     facts = project or ProjectFacts(name=design.key)
@@ -829,6 +915,11 @@ def build_takeoff(design, project: ProjectFacts | None = None) -> TakeoffResult:
             )
             lines += built
             gaps += more
+
+    # Interior partitions, measured from the plans rather than assumed.
+    partition_lines, partition_gaps = _partition_lines(design, inputs)
+    lines += partition_lines
+    gaps += partition_gaps
 
     if inputs.footprint is not None and facts.gfa_m2 is None:
         facts.gfa_m2 = round(inputs.footprint.area_m2 * max(inputs.heights.n_storeys, 1), 1)

@@ -39,13 +39,17 @@ pytestmark = pytest.mark.skipif(
 # Every Alberta design, with the assemblies its schedule yields and the share
 # of the building its bill of quantities reaches.
 ALBERTA = {
+    # Coverage reached 100% on six of seven when interior partitions became
+    # measurable (median 5.7% against the reference models). AB_ADU_01 stays at
+    # 53%: a single-storey plan yields fewer than two floor datums, so there is
+    # no wall height and therefore no wall, floor or partition area.
     "AB_ADU_01": {"assemblies": 17, "coverage": 53},
-    "AB_ADU_02": {"assemblies": 17, "coverage": 91},
-    "AB_Fourplex_01": {"assemblies": 17, "coverage": 91},
-    "AB_Fourplex_02": {"assemblies": 17, "coverage": 91},
-    "AB_Rowhouse_01": {"assemblies": 17, "coverage": 91},
-    "AB_Rowhouse_02": {"assemblies": 17, "coverage": 91},
-    "AB_Sixplex": {"assemblies": 19, "coverage": 91},
+    "AB_ADU_02": {"assemblies": 17, "coverage": 100},
+    "AB_Fourplex_01": {"assemblies": 17, "coverage": 100},
+    "AB_Fourplex_02": {"assemblies": 17, "coverage": 100},
+    "AB_Rowhouse_01": {"assemblies": 17, "coverage": 100},
+    "AB_Rowhouse_02": {"assemblies": 17, "coverage": 100},
+    "AB_Sixplex": {"assemblies": 19, "coverage": 100},
 }
 
 
@@ -197,14 +201,48 @@ class TestAlbertaQuantities:
         assert piles.quantity == 0.0
         assert any("steel" in a.lower() for a in piles.assumptions)
 
-    def test_the_carbon_total_holds(self, takeoff):
+    def test_the_carbon_total_holds_both_ways(self, takeoff):
+        """Reported with and without the measured partitions, because the
+        partition run is the least certain quantity in the bill."""
         from ecarbon.carbon.calculate import calculate_carbon
         from ecarbon.carbon.store import LocalSnapshotProvider
+        from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX
 
         carbon = calculate_carbon(takeoff, LocalSnapshotProvider())
         assert carbon.modules == ["A1", "A2", "A3"]
-        assert carbon.total_kg_co2e == pytest.approx(37536, rel=0.02)
-        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(122.7, rel=0.02)
+
+        by_line = {c.line_id: c for c in carbon.lines}
+        partitions = sum(
+            by_line[ln.id].kg_co2e
+            for ln in takeoff.lines
+            if ln.id.startswith(PARTITION_LINE_PREFIX)
+            and by_line.get(ln.id)
+            and by_line[ln.id].kg_co2e
+        )
+        # Excluding partitions: the figure every earlier published number used,
+        # unchanged, which is how we know nothing else moved.
+        assert carbon.total_kg_co2e - partitions == pytest.approx(37536, rel=0.02)
+        assert carbon.total_kg_co2e == pytest.approx(48613, rel=0.02)
+        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(158.9, rel=0.02)
+
+    def test_interior_partitions_are_measured_and_say_how_certain(self, takeoff):
+        from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX
+
+        lines = [ln for ln in takeoff.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
+        assert lines, "Alberta's partitions should be measured"
+        for line in lines:
+            # Measured geometry plus a stated depth, so inferred rather than
+            # assumed -- but the uncertainty has to travel with the line.
+            assert line.confidence.value == "inferred"
+            joined = " ".join(line.assumptions)
+            assert "median" in joined and "override" in joined
+
+    def test_the_failed_partition_attempts_are_published(self, takeoff):
+        """A reader deciding whether to trust the least certain line deserves
+        to know four other approaches were tried and rejected first."""
+        gaps = [g for g in takeoff.gaps if "least certain quantity" in g.message]
+        assert gaps
+        assert "350%" in gaps[0].message
 
     def test_the_total_stays_under_the_published_ceiling(self, takeoff):
         from ecarbon.bench.bpr import parse_bpr

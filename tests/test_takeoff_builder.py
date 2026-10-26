@@ -137,19 +137,14 @@ class TestEndToEnd:
             assert line.missing_reason
             assert line.kg_co2e is None
 
-    def test_a_partial_takeoff_says_so(self, run):
-        """A low carbon total that does not announce itself as partial is
-        indistinguishable from a good result."""
+    def test_a_complete_takeoff_does_not_claim_to_be_partial(self, run):
+        """AB_Fourplex_01 reaches every element class once interior partitions
+        are measured, so the partial warning must stop firing. The warning
+        existing when it should not is the same fault as it missing when it
+        should: both mislead."""
         takeoff, _, _ = run
-        partial = [g for g in takeoff.gaps if "PARTIAL" in g.message]
-        assert partial, "no gap warns that the carbon total is partial"
+        assert [g for g in takeoff.gaps if "PARTIAL" in g.message] == []
 
-        # Reconstruct the figure from the takeoff's own output rather than
-        # recomputing it with different arguments. Classes this building does
-        # not have leave the denominator, and the builder says which in its
-        # own gaps -- so calling coverage_report() without them gave a
-        # different percentage than the one reported, which is how this test
-        # caught the inconsistency.
         absent = {
             cls
             for cls in ELEMENT_CARBON_SHARE
@@ -159,9 +154,8 @@ class TestEndToEnd:
             )
         }
         covered, missing = coverage_report(takeoff.lines, absent)
-        assert 0.0 < covered < 1.0
-        assert missing
-        assert f"{covered:.0%}" in partial[0].message
+        assert covered == 1.0, "every applicable element class should be reached"
+        assert missing == []
 
     def test_an_element_the_building_lacks_is_not_called_missing(self, run):
         """This design sits on grade beams over screw piles with no basement,
@@ -181,8 +175,12 @@ class TestEndToEnd:
             assert gap.severity.value == "info"
             # The claim is only made where the drawings support it.
             assert "screw piles" in gap.message or "footing" in gap.message
-        partial = next(g for g in takeoff.gaps if "PARTIAL" in g.message)
-        assert "foundation wall" not in partial.message
+        # And with every other class reached, nothing is reported missing.
+        covered, missing = coverage_report(
+            takeoff.lines, {ElementClass.FOUNDATION_WALL}
+        )
+        assert covered == 1.0
+        assert missing == []
 
     def test_contribution_analysis_is_produced(self, run):
         """Criterion 3 requires contribution analysis by material category."""
