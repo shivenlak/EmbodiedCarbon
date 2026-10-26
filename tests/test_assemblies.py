@@ -456,3 +456,28 @@ class TestDominantTagMapping:
         available = {"W1.2", "W1.1", "W2"}
         assert dominant_tag(tags, "W", available) == "W1.1"
 
+
+class TestLearnColumnsNameFilter:
+    def test_material_like_column_is_not_chosen_as_name_column(self):
+        from ecarbon.extract.assemblies import learn_columns
+
+        # Cells with a thickness column at x=100, material column at x=300 (wordiest),
+        # an indented vapour barrier column at x=200, and a real name column at x=180.
+        cells = [
+            (10.0, 100.0, '3/4"/19mm'),
+            (20.0, 100.0, '1/2"/13mm'),
+            (10.0, 200.0, "VAPOUR BARRIER"),
+            (20.0, 200.0, "RIGID INSULATION"),
+            (5.0, 180.0, "EXTERIOR ENVELOPE WALL"),
+            (10.0, 300.0, "WOOD STUD FRAMING REFER TO STRUCTURAL"),
+            (20.0, 300.0, "MINERAL WOOL BATT IN CAVITY"),
+            (30.0, 300.0, "EXTERIOR GRADE PLYWOOD SHEATHING"),
+            (40.0, 300.0, "TYPE X GYPSUM WALL BOARD"),
+        ]
+        tx, mx, nx = learn_columns(cells, desc_x=190.0)
+        assert tx == 100.0
+        assert mx == 300.0
+        # x=180 should win over x=200 because x=200 is material-like
+        assert nx == 180.0
+
+

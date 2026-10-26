@@ -552,15 +552,22 @@ def learn_columns(
     mat_x = material[0] if material else None
 
     # The assembly name sits near the header's own x and is neither of the
-    # above. Chosen by how many cells it holds rather than by proximity alone:
-    # Atlantic's name column is 34 pt from its DESCRIPTION header with 9 names
-    # in it, while a 1-cell noise cluster sits 3 pt away. A 24 pt window picked
-    # the noise, so every block began on a layer row and all 10 of its W, R, P
-    # and N assemblies were refused as "name is a material".
+    # above. Chosen by how many cells it holds rather than by proximity alone,
+    # and must not be a material column (e.g. indented vapour barrier rows).
     name_pool = [
         c
         for c in scored
-        if c[0] not in {thick_x, mat_x} and abs(c[0] - desc_x) < NAME_COLUMN_WINDOW
+        if c[0] not in {thick_x, mat_x}
+        and abs(c[0] - desc_x) < NAME_COLUMN_WINDOW
+        and (
+            sum(
+                1
+                for _, x, t in cells
+                if abs(x - c[0]) <= 9.0 and _MATERIAL_LIKE_NAME_RE.search(t)
+            )
+            / max(c[1], 1)
+        )
+        < 0.3
     ]
     name_x = (
         max(name_pool, key=lambda c: (c[1], -abs(c[0] - desc_x)))[0] if name_pool else None
