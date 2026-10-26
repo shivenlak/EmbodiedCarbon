@@ -366,3 +366,94 @@ def export_report(project_id: str) -> HTMLResponse:
 
     p = _get(project_id)
     return HTMLResponse(report_html(p.takeoff, p.carbon))
+
+
+# -- click-to-trace --------------------------------------------------------
+
+
+class TraceRegionOut(BaseModel):
+    """Where one line's quantity came from, on one page.
+
+    `kind` is a claim about strength of evidence and the UI must not flatten
+    it: `measured_geometry` means the rectangles are the linework that was
+    measured, `schedule_row` means they are the text the figure was read from,
+    and `sheet_only` means the region could not be located and nothing is
+    highlighted.
+    """
+
+    page: int
+    sheet_no: str | None = None
+    kind: str
+    note: str
+    rects: list[tuple[float, float, float, float]] = Field(default_factory=list)
+    page_width: float = 0.0
+    page_height: float = 0.0
+    image_url: str | None = None
+
+
+def _design_for(project_id: str):
+    design = _catalogue().get(project_id)
+    if design is None:
+        raise HTTPException(
+            404,
+            f"project {project_id!r} has no drawings on this machine, so there is "
+            "nothing to trace to. The demo project is fixture-backed; set $EC_DATA "
+            "and use a catalogue design to trace a line to its sheet.",
+        )
+    return design
+
+
+@app.get("/projects/{project_id}/trace/{line_id}", response_model=list[TraceRegionOut])
+def get_trace(project_id: str, line_id: str) -> list[TraceRegionOut]:
+    """Criterion 2's strong form: the region of the sheet a quantity came from.
+
+    Returns one entry per page, because a quantity measured on every storey --
+    interior partitions -- genuinely comes from more than one sheet.
+    """
+    from ecarbon.trace import trace_line
+
+    p = _get(project_id)
+    try:
+        p.takeoff.line(line_id)
+    except KeyError:
+        raise HTTPException(404, f"no line {line_id!r}") from None
+
+    regions = trace_line(_design_for(project_id), p.takeoff, line_id)
+    return [
+        TraceRegionOut(
+            page=r.page,
+            sheet_no=r.sheet_no,
+            kind=r.kind,
+            note=r.note,
+            rects=r.rects,
+            page_width=r.page_width,
+            page_height=r.page_height,
+            image_url=f"/projects/{project_id}/trace/{line_id}/image.png?page={r.page}",
+        )
+        for r in regions
+    ]
+
+
+@app.get("/projects/{project_id}/trace/{line_id}/image.png")
+def get_trace_image(project_id: str, line_id: str, page: int, dpi: int = 110):
+    """The source page as a PNG with the measured regions outlined.
+
+    The drawings are licence-restricted: CMHC forbids redistributing them, so
+    this renders for the person running the tool and the service must not be
+    exposed publicly with a catalogue attached.
+    """
+    from fastapi.responses import Response
+
+    from ecarbon.trace import render_page, trace_line
+
+    p = _get(project_id)
+    design = _design_for(project_id)
+    regions = [r for r in trace_line(design, p.takeoff, line_id) if r.page == page]
+    if not regions:
+        raise HTTPException(404, f"line {line_id!r} does not trace to page {page}")
+    rects = [rect for r in regions for rect in r.rects]
+    try:
+        png = render_page(design, page, rects, dpi=max(40, min(dpi, 300)))
+    except IndexError as exc:
+        raise HTTPException(404, str(exc)) from None
+    return Response(content=png, media_type="image/png")

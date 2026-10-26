@@ -103,6 +103,11 @@ class TakeoffInputs:
     footprint_uncorroborated: bool = False
     assemblies: dict[str, Assembly] = field(default_factory=dict)
     tag_refs: dict[str, int] = field(default_factory=dict)
+    # Sheet number -> page, so a line that cites a sheet points at that sheet's
+    # page. Without it a provenance can name S201 and carry the footprint's
+    # page, which reads correctly in a table and sends click-to-trace to the
+    # wrong drawing.
+    sheet_pages: dict[str, int] = field(default_factory=dict)
 
     def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
         """The assembly of one group that this design actually uses."""
@@ -120,7 +125,9 @@ class TakeoffInputs:
 def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs, list, list[Gap]]:
     """Run the extraction stages for one design."""
     sheets, _, _ = inventory(design.drawings_pdf, with_scale=True)
-    inputs = TakeoffInputs()
+    inputs = TakeoffInputs(
+        sheet_pages={s.sheet_no.upper(): s.page for s in sheets if s.sheet_no}
+    )
     gaps: list[Gap] = list(readability_gaps(sheets)) + list(coverage_gaps(sheets))
 
     doc = pymupdf.open(design.drawings_pdf)
@@ -244,11 +251,18 @@ def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs
 
 
 def _prov(inputs: TakeoffInputs, sheet: str | None = None, detail: str | None = None) -> Provenance:
-    return Provenance(
-        page=inputs.footprint_page if inputs.footprint_page is not None else 0,
-        sheet_no=sheet or inputs.footprint_sheet,
-        detail=detail,
-    )
+    """Provenance whose page is the page of the sheet it names.
+
+    The foundation and level lines cite the structural sheet their figures are
+    stated on, which is not the plan the footprint was measured from. Taking
+    the footprint's page regardless put AB_Fourplex_01's slab on page 10 (A101)
+    while naming S201, which is page 24.
+    """
+    named = sheet or inputs.footprint_sheet
+    page = inputs.sheet_pages.get((named or "").upper())
+    if page is None:
+        page = inputs.footprint_page if inputs.footprint_page is not None else 0
+    return Provenance(page=page, sheet_no=named, detail=detail)
 
 
 def _foundation_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:

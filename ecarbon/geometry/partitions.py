@@ -99,6 +99,9 @@ class PartitionRun:
     page: int
     length_m: float
     n_walls: int
+    # Page-point rectangles of the walls actually measured, so a reader can be
+    # shown the linework the number came from rather than told to trust it.
+    rects: list[tuple[float, float, float, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -191,6 +194,7 @@ def partitions_on_page(
     widest = max(depths_mm)
     total = 0.0
     walls = 0
+    rects: list[tuple[float, float, float, float]] = []
     for horizontal in (True, False):
         pool = [s for s in wall_segs if (s.is_horizontal if horizontal else s.is_vertical)]
         if not pool:
@@ -213,10 +217,21 @@ def partitions_on_page(
                 seen.add(key)
                 total += overlap / 1000.0
                 walls += 1
+                lo, hi = sorted((offset_a, offset_b))
+                near, far = max(a0, b0), min(a1, b1)
+                rects.append(
+                    (near, lo, far, hi) if horizontal else (lo, near, hi, far)
+                )
 
     if not walls:
         return None
-    return PartitionRun(sheet=sheet, page=page.number, length_m=round(total, 2), n_walls=walls)
+    return PartitionRun(
+        sheet=sheet,
+        page=page.number,
+        length_m=round(total, 2),
+        n_walls=walls,
+        rects=rects,
+    )
 
 
 def partitions_for(design) -> Partitions:
