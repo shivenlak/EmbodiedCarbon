@@ -141,6 +141,10 @@ _CAVITY_FILL_RE = re.compile(r"CAVITY\s+(IN-?FILL|FILL)|BATT|IN-?FILL\s+INSULATI
 # table on the sheet: 988.5 header with 952.7/1024.8 cells, and 1830.1 with
 # 1794.3/1866.4.
 COL_TOL = 14.0
+# How far a name column may sit from its own DESCRIPTION header. Wide enough
+# for Atlantic's 34 pt offset, narrow enough to exclude the performance column,
+# which is 190 pt out on every layout measured.
+NAME_COLUMN_WINDOW = 50.0
 # Sanity bounds on a parsed assembly. A low-rise wall, roof or floor runs to a
 # dozen layers and a few hundred millimetres; well past that means the parse
 # merged blocks rather than that the building is unusual.
@@ -565,11 +569,20 @@ def learn_columns(
     material = max(material_pool, key=lambda c: (c[1], c[3]), default=None)
     mat_x = material[0] if material else None
 
-    # The assembly name sits at the header's own x and is neither of the above.
+    # The assembly name sits near the header's own x and is neither of the
+    # above. Chosen by how many cells it holds rather than by proximity alone:
+    # Atlantic's name column is 34 pt from its DESCRIPTION header with 9 names
+    # in it, while a 1-cell noise cluster sits 3 pt away. A 24 pt window picked
+    # the noise, so every block began on a layer row and all 10 of its W, R, P
+    # and N assemblies were refused as "name is a material".
     name_pool = [
-        c for c in scored if c[0] not in {thick_x, mat_x} and abs(c[0] - desc_x) < 24.0
+        c
+        for c in scored
+        if c[0] not in {thick_x, mat_x} and abs(c[0] - desc_x) < NAME_COLUMN_WINDOW
     ]
-    name_x = max(name_pool, key=lambda c: c[1])[0] if name_pool else None
+    name_x = (
+        max(name_pool, key=lambda c: (c[1], -abs(c[0] - desc_x)))[0] if name_pool else None
+    )
     return thick_x, mat_x, name_x
 
 

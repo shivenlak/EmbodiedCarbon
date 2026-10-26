@@ -152,6 +152,51 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — Atlantic assemblies: 3 -> 23 read, four designs to 44-57%
+
+**Kept.** Atlantic's schedules parsed all along; its assembly *names* were
+being missed. Its name column sits 34 pt from its own DESCRIPTION header with
+9 names in it, while a 1-cell noise cluster sits 3 pt away — and the name
+window was 24 pt, so the noise won. Every block then began on a layer row and
+all ten of Atlantic's W, R, P and N assemblies were refused as "name is a
+material".
+
+The name column is now chosen by how many cells it holds, with proximity only
+as a tiebreak, and the window widened to 50 pt — wide enough for Atlantic's
+offset, narrow enough to exclude the performance column, which measures 190 pt
+out on every layout in the catalogue.
+
+`ATL_Sixplex` 3 -> 23 assemblies kept, now with W, R, P and N groups. Checked
+against every other firm before accepting: AB unchanged at 17 kept / 0 refused,
+BC 15 -> 16, ON now also picks up N1.
+
+Four Atlantic designs moved substantially:
+
+| Design | before | after | intensity |
+|---|---|---|---|
+| ATL_Sixplex | 48% | **57%** | 81.3 kgCO2e/m² |
+| ATL_Stacked_Townhouse_02 | 48% | **57%** | 168.8 |
+| ATL_Fourplex_02 | 48% | 44% | 94.6 |
+| ATL_Fourplex_03 | 32% | **44%** | 61.3 |
+
+**The regional median did not move (22%), and the reason is a different
+blocker.** Four of Atlantic's nine designs — both ADUs, Fourplex_01 Opt 2 and
+Stacked_Townhouse_01 — detect **no footprint at all**, so every geometric
+quantity is blocked no matter how well the schedules read. They produce only
+windows and doors, which come from schedules rather than geometry. The median
+of nine designs lands on one of those. Best rose 44% -> 57%.
+
+So the next Atlantic work is footprint detection on those four, not schedules.
+
+**Quiet regression, recorded:** QC_Fourplex_01 went 11 -> 10 assemblies. It
+lost `N1`, which is no longer formed as an assembly at all rather than being
+refused. It was not producing a line — the builder expands W, R, F and the slab,
+not the N group — so coverage is unchanged at 66%, but the block boundaries for
+that one table shifted and it is worth knowing.
+
+Catalogue median unchanged at 44%. Crashes 0 of 53. Tests 599, suite green,
+ruff clean.
+
 ### 2026-10-27 — Atlantic footings: not a parsing problem
 
 **No coverage change, and that is the correct outcome.** This was queued as
