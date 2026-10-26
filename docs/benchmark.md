@@ -473,6 +473,40 @@ the substitution figure was overstated until the fix.
 
 ---
 
+## What we throw away, and why
+
+    python scripts/audit_discards.py
+
+Scoring reports what survived, so a discarded thing never appears in one.
+Every accuracy bug found in this project was a silent discard — a filter
+removing real data while the stage returned a plausible result and raised
+nothing — so the discards are instrumented directly.
+
+| Refusal cause | n |
+|---|---|
+| Name looks like a material | **99** |
+| No thickness stated | 46 |
+| Other | 20 |
+| Implausibly deep | 7 |
+
+**108 of the 172 refusals still carried three or more layers and a stated
+depth**, including an 11-layer, 315 mm block on BC_Rowhouse that reads exactly
+like a real exterior wall. That looks like a large recoverable loss, and it is
+the obvious next improvement to attempt.
+
+It was attempted, and measured, and it is not one. Those blocks score 86.4%
+median error against the IFC with none of 25 inside 10%. A name that reads
+like a material means the block's edges are in the wrong place, so its
+build-up is wrong too. The 63% of refusals that look recoverable are correctly
+refused, and we now know that rather than assuming it in either direction.
+
+What this audit does change is where to look next. The remaining causes are
+not all equal: "no thickness stated" (46) is a parsing gap where the drawing
+does state thicknesses we failed to associate, and that is a different problem
+from a mis-split block.
+
+---
+
 ## What this does not measure
 
 Stated plainly, because a benchmark that only reports its wins is not a
@@ -499,13 +533,29 @@ benchmark:
   front of the builder rather than a number put into the total.
 - **A4–A5 are architecture only**, as the scope permits — the extension points
   exist, the modules are not implemented.
-- **Ontario regressed and it is not yet explained.** Making the storey
-  grouping agree on either signal took Alberta to 100% and fixed the door
-  count, but Ontario's median coverage fell 42% → 29%, four designs losing two
-  lines each while ON_ADU_02 rose 75% → 83%. `ON_Fourplex_01` yields only four
-  assembly tags (`F2 N1 W1 W3`) with no roof tag, so the roof lines cannot be
-  coming from the schedule and the earlier result needs tracing rather than
-  guessing. Alberta is unaffected and gated. It is logged rather than absorbed.
+- **Ontario's coverage fell 42% to 29%, and that was correct.** This document
+  previously said the fall was unexplained and blamed the storey-grouping
+  change. Both claims were wrong, and running the old code settled it: at the
+  commit before that change, Ontario already read 29%.
+
+  The real cause was a one-layer name filter tightened two commits earlier to
+  improve built-depth accuracy. It took Ontario's `R2` roof assembly with it,
+  and `R2` is worth exactly the 13% that was lost. The commit that made the
+  change reported "ON coverage 9% -> 42%" — a figure measured *before* the
+  tightening it contained, never re-measured after. That is the whole failure:
+  a threshold tuned on one metric and never checked against another.
+
+  The refusal itself was then challenged with data rather than assumed right.
+  Keeping blocks whose name looks like a material but which carry three or
+  more layers recovers 77 assemblies across the catalogue — and they are
+  wrong: 86.4% median error against the IFC with **none** of 25 inside 10%,
+  against 20.1% median and 90 of 223 inside 10% for cleanly-named assemblies.
+  Ontario's `R2` reads 124 mm over 5 layers where the model says 490 mm, is
+  named "WOOD DECKING", and repeats one glyph-shifted layer twice.
+
+  So the 13 points Ontario lost were 13 points of wrong answer. Coverage and
+  correctness are different axes, and this benchmark had been reporting the
+  first as though it implied the second.
 - **Held-out discipline is imperfect.** These numbers are measured across the
   whole catalogue rather than a strictly untouched slice, so treat them as
   development figures. The honest test is Landmark's own sets, which we have

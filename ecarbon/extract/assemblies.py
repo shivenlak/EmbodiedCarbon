@@ -150,6 +150,25 @@ NAME_COLUMN_WINDOW = 50.0
 # dozen layers and a few hundred millimetres; well past that means the parse
 # merged blocks rather than that the building is unusual.
 MAX_PLAUSIBLE_LAYERS = 15
+# Tried and rejected on measurement, recorded so it is not retried:
+#
+# "name looks like a material" is the largest single refusal cause -- 99 of
+# 172 across the catalogue -- and 108 refusals still carried three or more
+# layers and a stated depth, including an 11-layer 315 mm block on BC_Rowhouse
+# that reads exactly like a real exterior wall. The obvious hypothesis is that
+# such a block IS a real assembly whose name cell was misread, so keeping it
+# and flagging the name would recover 77 assemblies.
+#
+# It does recover them, and they are wrong. Scored against the IFC's own layer
+# sets, assemblies kept this way run a 86.4% median error with **none** of 25
+# inside 10%, against 20.1% median and 90 of 223 inside 10% for assemblies
+# whose name parsed cleanly. ON_Fourplex_01's R2 is the clearest case: read as
+# 124 mm over 5 layers where the model says 490 mm, named "WOOD DECKING", with
+# one glyph-shifted layer repeated twice.
+#
+# So a material-like name is not a caption problem. It means the block's edges
+# are in the wrong place, and the build-up inside it is wrong too. The refusal
+# stands, and the coverage it costs is coverage we should not want.
 MAX_PLAUSIBLE_DEPTH_MM = 800.0
 # An assembly "name" that is really one of its own layers, which is what a
 # block starting on the wrong row looks like.
@@ -376,12 +395,23 @@ class Assembly:
                 "no layer states a thickness, so this is either a note block or a "
                 "mis-split one rather than an assembly"
             )
-        if _MATERIAL_LIKE_NAME_RE.search(self.name):
+        if self.name_is_suspect:
             return (
                 f"the name {self.name!r} is a material rather than an assembly, so the "
                 f"block began on a layer row and its first layer is missing"
             )
         return None
+
+    @property
+    def name_is_suspect(self) -> bool:
+        """Whether the name reads like a material rather than an assembly.
+
+        On a thin block this means the block is not an assembly. On a block
+        with a real build-up it means only that the name is wrong, which is a
+        caption problem, not a quantity problem -- so the quantities are kept
+        and the name is reported as unreliable.
+        """
+        return bool(_MATERIAL_LIKE_NAME_RE.search(self.name))
 
     @property
     def is_slab_on_grade(self) -> bool:
