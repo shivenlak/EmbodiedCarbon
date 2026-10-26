@@ -8,6 +8,13 @@ from fastapi.testclient import TestClient
 
 from ecarbon.api.main import app
 
+try:
+    from ecarbon.config import discover
+
+    _HAVE_DATA = len(discover()) >= 52
+except Exception:
+    _HAVE_DATA = False
+
 
 @pytest.fixture
 def client() -> TestClient:
@@ -94,3 +101,98 @@ def test_create_project_then_read_it_back(client):
     assert t["project"]["gfa_m2"] == 500.0
     c = client.get(f"/projects/{pid}/carbon").json()
     assert c["intensity_kg_co2e_per_m2"] == pytest.approx(c["total_kg_co2e"] / 500.0, rel=1e-2)
+
+
+class TestUploadingAPlanSet:
+    """The catalogue is a development set; a builder's own drawings are the
+    product. Until this existed, running an unseen set meant putting it on
+    disk under $EC_DATA first, so the pilot path described in
+    docs/implementation_plan.md was not actually available through the API.
+    """
+
+    @pytest.fixture(scope="class")
+    def client(self):
+        from fastapi.testclient import TestClient
+
+        from ecarbon.api.main import app
+
+        return TestClient(app)
+
+    def test_a_scan_is_refused_with_a_reason(self, client):
+        """A raster export carries no geometry, and saying so beats producing
+        an empty takeoff."""
+        resp = client.post(
+            "/projects/upload",
+            files={"file": ("plans.png", b"\x89PNG\r\n\x1a\n not a pdf", "image/png")},
+        )
+        assert resp.status_code == 415
+        assert "vector PDF" in resp.json()["detail"]
+
+    def test_an_oversized_set_is_refused(self, client):
+        from ecarbon.api.main import MAX_UPLOAD_BYTES
+
+        blob = b"%PDF-1.7\n" + b"0" * (MAX_UPLOAD_BYTES + 10)
+        resp = client.post(
+            "/projects/upload",
+            files={"file": ("huge.pdf", blob, "application/pdf")},
+        )
+        assert resp.status_code == 413
+
+    def test_an_unreadable_pdf_stores_nothing_partial(self, client):
+        before = client.get("/projects").json()
+        resp = client.post(
+            "/projects/upload",
+            files={"file": ("broken.pdf", b"%PDF-1.7\nnot really", "application/pdf")},
+        )
+        assert resp.status_code == 422
+        assert "Nothing partial is stored" in resp.json()["detail"]
+        assert len(client.get("/projects").json()) == len(before)
+
+    @pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+    def test_an_uploaded_set_behaves_exactly_like_a_catalogue_one(self, client):
+        from ecarbon.config import get_design
+
+        pdf = get_design("AB_Fourplex_01").drawings_pdf
+        with open(pdf, "rb") as handle:
+            resp = client.post(
+                "/projects/upload",
+                files={"file": (pdf.name, handle, "application/pdf")},
+                data={"name": "Pilot set", "gfa_m2": "306", "storeys": "2", "units": "4"},
+            )
+        assert resp.status_code == 201
+        body = resp.json()
+        pid = body["id"]
+        assert pid.startswith("upload-")
+        # The same drawings through a different door must give the same answer.
+        assert body["n_lines"] == 20
+        assert body["total_kg_co2e"] == pytest.approx(48613, rel=0.02)
+
+        for endpoint in ("takeoff", "carbon", "intake", "substitutions", "unspecified"):
+            assert client.get(f"/projects/{pid}/{endpoint}").status_code == 200
+
+        # Click-to-trace must work on the customer's own drawings, not just
+        # on designs that happen to sit in the catalogue.
+        trace = client.get(f"/projects/{pid}/trace/ln-slab-on-grade").json()
+        assert trace and trace[0]["sheet_no"] == "S201"
+        assert trace[0]["rects"]
+        image = client.get(
+            f"/projects/{pid}/trace/ln-slab-on-grade/image.png"
+            f"?page={trace[0]['page']}&dpi=50"
+        )
+        assert image.status_code == 200
+        assert image.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    @pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+    def test_uploads_do_not_land_beside_the_catalogue(self, client):
+        """Licence-restricted designs and a caller's own files stay apart."""
+        import os
+        from pathlib import Path
+
+        from ecarbon.api.main import _upload_dir
+
+        home = _upload_dir()
+        data_root = os.environ.get("EC_DATA")
+        assert home.exists()
+        if data_root:
+            assert Path(data_root).resolve() not in home.resolve().parents
+            assert home.resolve() != Path(data_root).resolve()

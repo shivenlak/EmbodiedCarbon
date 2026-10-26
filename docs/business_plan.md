@@ -32,9 +32,9 @@ Currently, assessing embodied carbon requires hiring external sustainability con
 
 ### Value Proposition
 1. **From Weeks to 90 Seconds:** Upload drawing set PDFs and receive a complete, traceable Bill of Quantities (BoQ) and A1–A3 embodied carbon score in under 2 minutes.
-2. **Amortized Plan Economics:** Production builders build dozens or hundreds of units from a single standardized plan. A one-time \$1,500 baseline amortizes to **<\$15 per home built**.
+2. **Amortized Plan Economics:** Production builders build dozens or hundreds of units from a single standardized plan. A one-time \$1,500 baseline amortizes to **\$15 per home at 100 units from that plan, and under \$2 at 1,000** — the span of our stated customer profile. The cost is per plan, not per home, which is what makes it affordable at exactly the point a consultant assessment is not.
 3. **Traceability & Trust:** Every quantity links directly to the source drawing sheet, detail, and bounding box. No black-box AI hallucinations.
-4. **Interactive Material Optimization:** Live substitution simulator demonstrates tangible carbon cuts (e.g., \$0 cost delta switching to GUL 40% fly ash concrete reduces whole-building carbon by 25–35%).
+4. **Interactive Material Optimization:** Live substitution simulator, ranked by computed saving rather than listed alphabetically. On our reference design, switching the slab and grade beam from Portland GU 30 MPa to a 40% fly ash mix is **36.6% less carbon per cubic metre of concrete**, which is **7.1% of that building's total**; switching cavity insulation from mineral wool to dense-pack cellulose is a further **12.9%**. We quote both the per-material and the whole-building figure because they differ by a factor of five, and a saving quoted only the first way reads as five times larger than it is.
 
 ---
 
@@ -62,12 +62,15 @@ Because our architecture relies on deterministic vector parsing, scale calibrati
 | Cost Item | Cost per Plan Set | Notes |
 |---|---|---|
 | **PDF Ingestion & Vector Parsing** | \$0.02 | PyMuPDF local processing (CPU) |
-| **Scale & Datum OCR / Ladder** | \$0.05 | Lightweight localized layout parser |
+| **Scale, datum and schedule parsing** | \$0.05 | Deterministic layout parsing, no model call |
 | **Factor Store Lookup & Recompute** | \$0.01 | Local SQLite / DuckDB query (< 10 ms) |
 | **Cloud Hosting & Storage** | \$0.10 | AWS ECS / Render container allocation |
-| **Total Marginal Serving Cost** | **\$0.18** | Per 50-page drawing set |
+| **Total Marginal Serving Cost** | **\$0.18** | Per 50-page set, from a measured 13.2 s median / 25.4 s worst on one CPU core |
 
-**Gross Margin:** **> 98%** on per-plan revenue.  
+**Gross Margin:** **> 98%** on per-plan revenue. The cost structure here is
+sales, not serving — which is the direct consequence of an architecture that
+measures geometry deterministically instead of asking a large model to read
+every sheet.  
 Customer Acquisition Cost (CAC) is paid back within 2 months of an annual subscription.
 
 ---
@@ -77,13 +80,13 @@ Customer Acquisition Cost (CAC) is paid back within 2 months of an annual subscr
 | Capability | ecarbon | Handoff-H1 | One Click LCA | Manual Estimating (PlanSwift) |
 |---|---|---|---|---|
 | **Primary Focus** | **Carbon + Traceable BoQ** | Multi-trade Cost | Heavy Industrial LCA | Cost Takeoff |
-| **Drawing Input** | **Vector PDF (Standard)** | PDF / Vision Agents | Manual Entry / BIM | Manual On-Screen Tracing |
-| **Turnaround Time** | **< 2 minutes** | 5–15 minutes | Days / Weeks | 2–5 days per set |
+| **Drawing Input** | **Vector PDF, uploaded** | PDF / vision agents | Manual entry / BIM | Manual on-screen tracing |
+| **Turnaround Time** | **Under 2 min** (13 s median measured) | Not published | Days / Weeks | 2–5 days per set |
 | **Module Scope Discipline** | **Strict A1–A3 Enforced** | None | User Configured | None |
-| **Click-to-Trace Provenance** | **Yes (Sheet, Detail, BBox)** | Partial | None | Manual Links |
+| **Click-to-Trace Provenance** | **Yes — sheet, detail, and the region outlined on it** | Partial | None | Manual links |
 | **Explicit Gap Reporting** | **Yes ("We tell you what we can't read")** | No | No | No |
 | **Interactive Live Swaps** | **Yes (Ranked by kg CO₂e)** | Cost only | Re-run required | Manual spreadsheet edits |
 
 ### The Wedge
-- Competitors either focus strictly on multi-trade cost estimating (ignoring carbon and traceability) or require complex 3D BIM models that low-rise residential builders rarely maintain.
+- Competitors either focus strictly on multi-trade cost estimating (ignoring carbon and traceability) or require complex 3D BIM models that low-rise residential builders rarely maintain. **Handoff-H1 is the serious comparison** and we take its published numbers seriously: 81.6% composite against 77.6% for professional human estimators, with 78.8% of quantities inside ±25%. It does multi-trade cost takeoff with no carbon layer, no module-scope discipline and no gap reporting. We are not claiming to extract better than they do; we are claiming the carbon layer, the traceability and the refusal to guess, which is a different product.
 - **ecarbon owns the vector PDF to carbon bridge.** Once a builder adopts ecarbon for carbon compliance, the underlying BoQ is an immediate springboard into automated material cost estimating, unlocking a **\$12B+ global pre-construction estimating software market**.

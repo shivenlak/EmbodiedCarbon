@@ -12,9 +12,13 @@ unacceptable for 53 designs at startup.
 
 from __future__ import annotations
 
+import re
+import tempfile
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
@@ -47,6 +51,11 @@ app.add_middleware(
 class Project:
     id: str
     takeoff: TakeoffResult
+    # The design this was built from, when there is one. An uploaded set is
+    # not in the catalogue, so without this click-to-trace would work for
+    # catalogue designs and quietly fail for the customer's own drawings --
+    # which are the only ones a pilot actually cares about.
+    design: object | None = None
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
@@ -142,7 +151,7 @@ def _build(key: str, stated: CreateProject | None = None) -> Project:
             facts.gfa_m2 = stated.gfa_m2
             facts.gfa_basis = stated.gfa_basis  # type: ignore[assignment]
 
-    p = Project(id=key, takeoff=build_takeoff(design, facts))
+    p = Project(id=key, takeoff=build_takeoff(design, facts), design=design)
     _PROJECTS[key] = p
     return p
 
@@ -392,7 +401,8 @@ class TraceRegionOut(BaseModel):
 
 
 def _design_for(project_id: str):
-    design = _catalogue().get(project_id)
+    held = _PROJECTS.get(project_id)
+    design = getattr(held, "design", None) or _catalogue().get(project_id)
     if design is None:
         raise HTTPException(
             404,
@@ -506,7 +516,7 @@ def get_unspecified(project_id: str) -> list[UnspecifiedChoiceOut]:
     from ecarbon.extract.assemblies import assemblies_for
 
     p = _get(project_id)
-    design = _catalogue().get(project_id)
+    design = getattr(p, "design", None) or _catalogue().get(project_id)
     if design is None:
         return []
     assemblies, _refused = assemblies_for(design)
@@ -534,3 +544,114 @@ def get_unspecified(project_id: str) -> list[UnspecifiedChoiceOut]:
         )
         for c in unspecified_choices(p.takeoff, assemblies, _FACTORS)
     ]
+
+
+# -- uploading a plan set --------------------------------------------------
+
+# A drawing set is a few hundred vector pages; 120 MB is comfortably above the
+# largest in the CMHC catalogue and well below anything that would exhaust
+# memory here.
+MAX_UPLOAD_BYTES = 120 * 1024 * 1024
+_UPLOAD_ROOT: Path | None = None
+
+
+def _upload_dir() -> Path:
+    """A private directory for uploaded sets, outside the repo and $EC_DATA.
+
+    Uploads are untrusted input and are not part of the catalogue: keeping
+    them in their own tree means an upload can never be mistaken for a
+    licensed CMHC design, and nothing we ship can be overwritten by one.
+    """
+    global _UPLOAD_ROOT
+    if _UPLOAD_ROOT is None:
+        _UPLOAD_ROOT = Path(tempfile.mkdtemp(prefix="ecarbon-uploads-"))
+    return _UPLOAD_ROOT
+
+
+@app.post("/projects/upload", status_code=201)
+async def upload_project(
+    # B008 is suppressed per-argument: calling File()/Form() in the default is
+    # how FastAPI declares multipart fields, not an accidental shared default.
+    file: UploadFile = File(...),  # noqa: B008
+    name: str | None = Form(None),  # noqa: B008
+    gfa_m2: float | None = Form(None),  # noqa: B008
+    gfa_basis: str | None = Form(None),  # noqa: B008
+    storeys: int | None = Form(None),  # noqa: B008
+    units: int | None = Form(None),  # noqa: B008
+    jurisdiction: str | None = Form(None),  # noqa: B008
+) -> dict[str, object]:
+    """Run the pipeline on a plan set the caller supplies.
+
+    This is what makes the tool usable on drawings we have never seen, which
+    is the only test that counts: the catalogue is a development set, and a
+    builder's own sets are the product. Everything downstream -- gap report,
+    bill of quantities, click-to-trace, substitutions -- works identically,
+    because none of it is specialised to the catalogue.
+
+    The figures a drawing cannot state are asked for rather than guessed.
+    Gross floor area in particular decides the intensity per square metre, and
+    inferring it from a plan whose extents cover a whole block gave one
+    catalogue design an intensity six times its neighbours'.
+    """
+    from ecarbon.config import Design
+    from ecarbon.models import ProjectFacts
+    from ecarbon.takeoff.builder import build_takeoff
+
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413, f"plan set larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+        )
+    if not raw.startswith(b"%PDF-"):
+        raise HTTPException(
+            415,
+            "not a PDF. This pipeline reads vector PDF drawing sets; a scan "
+            "or an image export carries no geometry to measure.",
+        )
+
+    stem = Path(file.filename or "plan-set").stem or "plan-set"
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", stem)[:80].strip("-") or "plan-set"
+    project_id = f"upload-{uuid.uuid4().hex[:8]}-{safe}"
+
+    # Its own empty directory, so nothing in the set can land beside another
+    # upload or anything we ship.
+    home = _upload_dir() / project_id
+    home.mkdir(parents=True, exist_ok=False)
+    pdf = home / f"{safe}.pdf"
+    pdf.write_bytes(raw)
+
+    design = Design(
+        key=project_id,
+        region="UPLOAD",
+        package_dir=home,
+        drawings_pdf=pdf,
+        ifc=None,
+        h2k=[],
+        bpr=[],
+        list_of_drawings=None,
+    )
+    facts = ProjectFacts(
+        name=name or safe,
+        jurisdiction=jurisdiction,
+        gfa_m2=gfa_m2,
+        gfa_basis=gfa_basis or "gross",
+        storeys=storeys,
+        units=units,
+    )
+    try:
+        takeoff = build_takeoff(design, facts)
+    except Exception as exc:
+        raise HTTPException(
+            422,
+            f"could not read this plan set: {exc}. Nothing partial is stored.",
+        ) from exc
+
+    project = Project(id=project_id, takeoff=takeoff, design=design)
+    _PROJECTS[project_id] = project
+    return {
+        "id": project_id,
+        "n_lines": len(takeoff.lines),
+        "n_sheets": len(takeoff.sheets),
+        "n_gaps": len(takeoff.gaps),
+        "total_kg_co2e": project.carbon.total_kg_co2e,
+    }
