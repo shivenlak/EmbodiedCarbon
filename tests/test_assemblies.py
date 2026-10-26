@@ -362,3 +362,79 @@ class TestAcrossFirms:
 
         kept, _rejected = assemblies_for(get_design("NOR_Fourplex_Municipal"))
         assert kept == {}
+
+
+class TestTagForms:
+    """Tag shapes differ by firm, surveyed across every schedule TYPE column.
+
+    P#, F#, W#, R#, N#, C#, S# and the suffixed P#a are universal; W#.#, R#.#
+    and FW#.# occur only in BC. Missing the dotted form cost BC its exterior
+    wall: with one matchable tag in a 772-point band, tag segmentation could
+    not split it and the whole band merged into a 50-layer object that the
+    plausibility gate then refused.
+    """
+
+    @pytest.mark.parametrize(
+        ("tag", "prefix"),
+        [
+            ("W2", "W"), ("P1a", "P"), ("F5", "F"), ("N1", "N"),
+            ("W1.1", "W"), ("R2.1", "R"), ("FW1.1", "FW"),
+        ],
+    )
+    def test_real_tag_forms_parse(self, tag, prefix):
+        from ecarbon.extract.assemblies import tag_prefix
+
+        assert tag_prefix(tag) == prefix
+
+    @pytest.mark.parametrize("text", ["R-22", "A101", "140mm", "W1.1.1", "", "RSI"])
+    def test_other_drawing_text_is_not_a_tag(self, text):
+        from ecarbon.extract.assemblies import tag_prefix
+
+        assert tag_prefix(text) == ""
+
+    def test_a_two_letter_prefix_is_its_own_group(self):
+        """BC's FW is a foundation wall. Reading it as F would make it
+        selectable as the floor assembly and put a foundation wall's build-up
+        into a ceiling."""
+        from ecarbon.extract.assemblies import dominant_tag, tag_prefix
+
+        assert tag_prefix("FW1.1") == "FW"
+        tags = {"FW1.1": 9, "F1": 4}
+        available = {"FW1.1", "F1"}
+        assert dominant_tag(tags, "F", available) == "F1"
+        assert dominant_tag(tags, "FW", available) == "FW1.1"
+
+
+class TestZeroDepthRefusal:
+    def test_an_assembly_with_no_stated_thickness_is_refused(self):
+        """BC's FW1.1 came through four layers deep, named 'RIGID INSULATION
+        (R-20.0)', with not one thickness stated. No quantity could come from
+        it and in practice it means the block was split in the wrong place."""
+        asm = Assembly(tag="FW1.1", name="RIGID INSULATION (R-20.0)")
+        asm.layers = [layer("RIGID INSULATION", None, i) for i in range(4)]
+        reason = asm.implausible()
+        assert reason and "no layer states a thickness" in reason
+
+    def test_one_stated_layer_is_enough_to_keep_it(self):
+        asm = Assembly(tag="W1", name="EXTERIOR ENVELOPE WALL")
+        asm.layers = [layer("AIR BARRIER", None, 0), layer("GYPSUM BOARD", 16.0, 1)]
+        assert asm.implausible() is None
+
+
+class TestAssemblyNameFilter:
+    def test_a_wall_named_after_its_insulation_is_still_an_assembly(self):
+        """BC names a genuine wall '2x6 WOOD STUD W/ EXTERIOR INSULATION'. An
+        INSULATION$ rule refused it and its whole group with it."""
+        asm = Assembly(tag="W1.1", name="2x6 WOOD STUD W/ EXTERIOR INSULATION")
+        asm.layers = [layer("GYPSUM BOARD", 16.0, 0), layer("WOOD STUD FRAMING", 140.0, 1)]
+        assert asm.implausible() is None
+
+    @pytest.mark.parametrize(
+        "name",
+        ["GYPSUM WALL BOARD", "VAPOUR CONTROL BARRIER", "ROOFING PLACEHOLDER"],
+    )
+    def test_a_single_layer_name_is_still_refused(self, name):
+        asm = Assembly(tag="X1", name=name)
+        asm.layers = [layer("GYPSUM BOARD", 16.0, 0), layer("WOOD STUD FRAMING", 140.0, 1)]
+        reason = asm.implausible()
+        assert reason and "material rather than an assembly" in reason

@@ -85,8 +85,26 @@ from ecarbon.intake.textrepair import repair
 
 # "N - FOUNDATION WALL ASSEMBLIES", "W - EXTERIOR WALL ASSEMBLIES"
 _GROUP_RE = re.compile(r"^([A-Z])\s*-\s*(.+?)\s+ASSEMBL", re.I)
-# W1, W2, P1a, R3, F5, N1
-_TAG_RE = re.compile(r"^[A-Z]\d{1,2}[a-z]?$")
+# W1, W2, P1a, R3, F5, N1 -- and BC's dotted forms W1.1, R2.1, FW1.1.
+#
+# Surveyed across every schedule TYPE column in the catalogue: P#, F#, W#, R#,
+# N#, C#, S# and the lowercase-suffixed P#a/R#a are universal, while W#.# (28),
+# R#.# (21) and FW#.# (14) occur only in BC. Missing the dotted form cost BC
+# its exterior wall: with one matchable tag in a 772-point band, tag
+# segmentation could not split it and every assembly there merged into a single
+# 50-layer object that the plausibility gate then refused.
+_TAG_RE = re.compile(r"^([A-Z]{1,2})(\d{1,2})(?:\.\d{1,2})?[a-z]?$")
+
+
+def tag_prefix(tag: str) -> str:
+    """The group a tag belongs to: W1.1 -> W, FW1.1 -> FW, P1a -> P.
+
+    The whole alphabetic prefix, not its first letter. BC's `FW` is a
+    foundation wall, and treating it as `F` would make it selectable as the
+    floor assembly -- putting a foundation wall's build-up into a ceiling.
+    """
+    m = _TAG_RE.match(tag.strip())
+    return m.group(1).upper() if m else ""
 # A metric thickness anywhere in the cell, which is the reliable signal.
 _MM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*mm", re.I)
 # Imperial: the digits, spaces and slashes immediately before an inch mark.
@@ -130,9 +148,14 @@ MAX_PLAUSIBLE_LAYERS = 15
 MAX_PLAUSIBLE_DEPTH_MM = 800.0
 # An assembly "name" that is really one of its own layers, which is what a
 # block starting on the wrong row looks like.
+#
+# `INSULATION` alone is deliberately absent. BC names a genuine wall assembly
+# "2x6 WOOD STUD W/ EXTERIOR INSULATION", and an `INSULATION$` rule refused it
+# along with its whole group. The tokens kept here are ones that only ever name
+# a single layer.
 _MATERIAL_LIKE_NAME_RE = re.compile(
-    r"GYPSUM|PLACEHOLDER|PLACE\s?HOLDER|AIR\s+BARRIER|VAPOU?R|STRAPPING|MEMBRANE"
-    r"|SHEATHING|PLYWOOD|INSULATION\s*$|PARGING|JOISTS?\s*@|CONCRETE\s*$",
+    r"GYPSUM|PLACEHOLDER|PLACE\s?HOLDER|AIR\s+BARRIER|VAPOU?R\s+(?:CONTROL|BARRIER)"
+    r"|STRAPPING|MEMBRANE|SHEATHING|PLYWOOD|PARGING|JOISTS?\s*@|CONCRETE\s*$",
     re.I,
 )
 # A cell carrying words rather than a dimension: three or more letters in a row.
@@ -329,6 +352,15 @@ class Assembly:
             )
         if not self.layers:
             return "no layers found"
+        if self.total_thickness_mm <= 0.0:
+            # Not one layer states a thickness. No quantity could come from it
+            # anyway, and in practice it means the block was split in the wrong
+            # place -- BC's FW1.1 came through this way, four layers deep and
+            # named "RIGID INSULATION (R-20.0)".
+            return (
+                "no layer states a thickness, so this is either a note block or a "
+                "mis-split one rather than an assembly"
+            )
         if _MATERIAL_LIKE_NAME_RE.search(self.name):
             return (
                 f"the name {self.name!r} is a material rather than an assembly, so the "
@@ -635,6 +667,16 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 if index >= 0:
                     blocks.setdefault(index, []).append((y, text))
         else:
+            # Midpoints between consecutive tags. This is imprecise -- BC
+            # prints its tag level with the first layer rather than beside the
+            # name, so a midpoint can cut a block's last rows off -- but
+            # anchoring relative to the tag row instead was measured and is
+            # worse: it splits more blocks, and the extra ones begin on a layer
+            # so their "names" come out as "FLOOR FINISH w/ UNDERLAY" or "AT
+            # EAVE, VALLEY AND RIDGE". Catalogue-wide that moved built-depth
+            # median from 5.8% to 7.9%, exact matches from 48 to 37, and
+            # introduced a 1210% worst case. A truncated build-up is a smaller
+            # error than a fabricated one.
             tag_ys = sorted(ty for ty, _, _ in tags)
             bounds = [(a + b) / 2 for a, b in zip(tag_ys, tag_ys[1:], strict=False)]
             for y, _x, text in text_cells:
@@ -692,8 +734,11 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
         # The tag carries the group letter, so a sheet with no group banner
         # still resolves its groups. Only the readable group *name* depends on
         # the banner, and that is description, not data.
-        if asm.tag and not asm.group_letter:
-            asm.group_letter = asm.tag[0].upper()
+        if asm.tag:
+            # Always from the tag, which is the authoritative source: a banner
+            # may sit above a table it does not describe, and BC's FW group
+            # must not be read as F.
+            asm.group_letter = tag_prefix(asm.tag)
         _mark_shared_cavities(asm.layers)
     return [a for a in out if a.layers and a.tag]
 
@@ -834,9 +879,10 @@ def dominant_tag(
 ) -> str | None:
     """The most-referenced assembly of one group that the schedule defines."""
     skip = exclude or set()
+    want = letter.upper()
     scoped = {
         t: n
         for t, n in tags.items()
-        if t.upper().startswith(letter) and t in available and t not in skip
+        if tag_prefix(t) == want and t in available and t not in skip
     }
     return max(scoped, key=lambda t: scoped[t]) if scoped else None

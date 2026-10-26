@@ -152,6 +152,60 @@ python scripts/run_pipeline.py
 Newest first. One entry per session: what was attempted, what the numbers did,
 and what was left alone.
 
+### 2026-10-27 — item 1, assembly tag forms: BC 37% -> 50%
+
+**Kept.** Four changes tried, three kept, one reverted after measuring.
+
+Kept:
+- `_TAG_RE` widened to the dotted forms. Surveyed every schedule TYPE column
+  first rather than guessing: `P#`/`F#`/`W#`/`R#`/`N#`/`C#`/`S#` and `P#a` are
+  universal, while `W#.#` (28), `R#.#` (21) and `FW#.#` (14) occur only in BC.
+- Group key is now the whole alphabetic prefix via `tag_prefix`, not the first
+  character. BC's `FW` is a foundation wall and reading it as `F` would have
+  made it selectable as the floor assembly.
+- `INSULATION$` dropped from the material-like name filter. It was refusing
+  BC's genuine `2x6 WOOD STUD W/ EXTERIOR INSULATION` and its whole group.
+- An assembly where no layer states a thickness is now refused: BC's `FW1.1`
+  came through four layers deep, named `RIGID INSULATION (R-20.0)`, with no
+  dimension anywhere in it.
+
+**Reverted, with the measurement recorded in the code comment:** anchoring
+blocks one row above the tag rather than at midpoints between tags. BC prints
+its tag level with the first layer, not beside the name, so this did recover
+BC's exterior wall (`W1.1`, 11 layers, 264 mm) — but catalogue-wide it split
+more blocks and the extra ones began on layer rows, producing assemblies named
+`FLOOR FINISH w/ UNDERLAY`, `RUBBER SOUND ISOLATION` and `AT EAVE, VALLEY AND
+RIDGE`, plus a one-layer `W4`. Built-depth median 5.8% -> 7.9%, exact matches
+48 -> 37, worst case 100% -> 1210%. A truncated build-up is a smaller error
+than a fabricated one.
+
+Coverage, `scripts/run_pipeline.py`:
+
+| Region | before | after |
+|---|---|---|
+| BC | 37% | **50%** |
+| AB | 91% | 91% |
+| QC | 66% | 66% |
+| ATL | 22% | 22% |
+| ON | 9% | 9% |
+| SKMB | 9% | 9% |
+| catalogue median | 37% | 37% |
+
+BC gains 13 points on all seven designs with no regression elsewhere. The
+catalogue median does not move because BC is not the median region. Assembly
+refusals rose 115 -> 135, which is the gate working rather than a regression:
+more tags are recognised, so more blocks are evaluated and more bad ones
+correctly rejected. Built-depth accuracy held at baseline (median 5.9% vs
+5.8%, 47 vs 48 exact).
+
+**Left alone:** BC's exterior wall is still refused. The tag fix was necessary
+but not sufficient — the block-splitting underneath needs the table layout read
+properly rather than inferred from tag positions, and the one attempt at that
+made things worse. That is a judgement call about approach, not a tuning
+problem, so it is left for a human.
+
+Tests 558 -> 578. Suite green, ruff clean.
+
 ### 2026-10-26 — queue created
 
 Baseline recorded above. Item 1 diagnosed but not yet fixed: BC's dotted tag
