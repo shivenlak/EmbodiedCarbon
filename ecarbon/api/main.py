@@ -810,6 +810,135 @@ async def _require_credentials(request, call_next):
     return await call_next(request)
 
 
+# -- the takeoff, in three dimensions ---------------------------------------
+
+
+class MassingWall(BaseModel):
+    """One measured partition, in metres relative to the footprint."""
+
+    x: float
+    y: float
+    w: float
+    d: float
+    storey: int
+
+
+class Massing(BaseModel):
+    """What the drawings were understood to describe, as geometry.
+
+    Not a render of a building: every figure here is one this pipeline
+    measured, so a wrong footprint is a visibly wrong shape and partitions
+    that over-detect are walls standing where no walls are. That is the point
+    of showing it -- the uncertainty becomes something you can see rather than
+    something the gap report asserts.
+    """
+
+    width_m: float
+    depth_m: float
+    storey_heights_m: list[float]
+    walls: list[MassingWall] = Field(default_factory=list)
+    carbon_by_class: dict[str, float] = Field(default_factory=dict)
+    note: str
+
+
+@app.get("/projects/{project_id}/massing", response_model=Massing | None)
+def get_massing(project_id: str) -> Massing | None:
+    """Footprint, storey datums and measured partitions, in metres.
+
+    Partition rectangles are stored in PDF page coordinates and the footprint
+    keeps no origin, so there is no page-to-building transform to apply. They
+    are normalised against their own extent instead, which is sound here for a
+    checkable reason: on AB_Fourplex_01 the rect extent is 398 x 1248 pt, a
+    ratio of 0.319, against a measured footprint of 7.0 x 22.0 m, a ratio of
+    0.318. The partitions span the building, so their bounds are its bounds.
+
+    Returned as None rather than guessed when the footprint or the storey
+    heights are missing, which is most of the catalogue outside Alberta.
+    """
+    p = _get(project_id)
+    design = getattr(p, "design", None) or _catalogue().get(project_id)
+    if design is None:
+        return None
+
+    from ecarbon.geometry.partitions import partitions_for
+    from ecarbon.takeoff.builder import gather
+
+    try:
+        facts = p.takeoff.project
+        expected = (
+            facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
+        )
+        inputs, _sheets, _gaps = gather(design, expected)
+    except Exception:
+        return None
+
+    footprint = inputs.footprint
+    heights = inputs.heights.storey_heights_m() if inputs.heights else []
+    if footprint is None or not heights:
+        return None
+
+    walls: list[MassingWall] = []
+    try:
+        measured = partitions_for(design)
+    except Exception:
+        measured = None
+
+    if measured and measured.runs:
+        for storey, run in enumerate(measured.runs):
+            if not run.rects:
+                continue
+            xs = [v for r in run.rects for v in (r[0], r[2])]
+            ys = [v for r in run.rects for v in (r[1], r[3])]
+            x0, x1 = min(xs), max(xs)
+            y0, y1 = min(ys), max(ys)
+            span_x = (x1 - x0) or 1.0
+            span_y = (y1 - y0) or 1.0
+            # The page's long axis is the building's long axis; orientation
+            # follows from which span is larger rather than from an assumed
+            # sheet rotation.
+            flip = (span_x > span_y) != (footprint.width_m > footprint.depth_m)
+            for r in run.rects:
+                ax = (r[0] - x0) / span_x
+                ay = (r[1] - y0) / span_y
+                aw = (r[2] - r[0]) / span_x
+                ad = (r[3] - r[1]) / span_y
+                if flip:
+                    ax, ay, aw, ad = ay, ax, ad, aw
+                walls.append(
+                    MassingWall(
+                        x=round(ax * footprint.width_m, 3),
+                        y=round(ay * footprint.depth_m, 3),
+                        w=round(max(aw * footprint.width_m, 0.05), 3),
+                        d=round(max(ad * footprint.depth_m, 0.05), 3),
+                        storey=storey,
+                    )
+                )
+
+    by_class: dict[str, float] = {}
+    results = {c.line_id: c for c in p.carbon.lines}
+    for line in p.takeoff.lines:
+        result = results.get(line.id)
+        if result is None or result.kg_co2e is None:
+            continue
+        key = line.element_class.value
+        by_class[key] = round(by_class.get(key, 0.0) + result.kg_co2e, 1)
+
+    return Massing(
+        width_m=round(footprint.width_m, 2),
+        depth_m=round(footprint.depth_m, 2),
+        storey_heights_m=[round(h, 3) for h in heights],
+        walls=walls,
+        carbon_by_class=by_class,
+        note=(
+            f"{footprint.width_m:.1f} x {footprint.depth_m:.1f} m measured from "
+            f"the linework, {len(heights)} storeys from the section datums, and "
+            f"{len(walls)} partition walls measured on the plans. Every surface "
+            f"here is a quantity in the bill, so a wrong reading is a visibly "
+            f"wrong shape rather than a number you would have to check."
+        ),
+    )
+
+
 def _mount_interface() -> None:
     """Serve the built interface, if it has been built.
 

@@ -374,3 +374,25 @@ that nothing is stored beyond the session. The topbar control is now the one
 primary action on the page.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+### 7. Every sheet in the set ✅
+
+One tick per page, in page order, coloured by what the page turned out to be:
+schedules, plans, sections and elevations, then cover/legend/services. The
+sheets the bill actually cites stand taller and keep full colour, so four
+findable among forty-six.
+
+On AB_Fourplex_01 it reads: **46 sheets opened · every page classified · 4
+carry a quantity in the bill · 1 had no readable text**, with the legend
+counting Schedules 2, Plans 7, Sections & elevations 16, Cover/legends/
+services 20.
+
+The unreadable sheet is drawn **hatched rather than omitted**. A page with no
+readable text is a fact about the drawing set, not a gap in the chart, and
+dropping it would make the strip quietly flatter than the truth.
+
+This is the "45 of 46 sheets read" claim from the title block in a form where
+a reader can see which pages carried the weight — the schedules are two ticks
+out of forty-six and they are where every build-up comes from.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.

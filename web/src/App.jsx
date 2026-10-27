@@ -995,6 +995,312 @@ function SignIn({ onDone }) {
 }
 
 
+
+
+/* ------------------------------------------------------------- massing -- */
+
+// An axonometric, drawn in SVG, rather than a 3D engine.
+//
+// Three.js would be ~600 kB against a 260 kB bundle to show a box with
+// internal walls. An axonometric is also how a building is drawn rather than
+// rendered, which is the right register for a tool whose subject is drawings:
+// this is a reading of a plan set, not a visualisation of a house.
+//
+// Nothing here is decorative. The footprint is measured from the linework,
+// the storey heights come from the section datums, and every wall is one of
+// the partitions counted in the bill. So a wrong reading shows up as a wrong
+// shape -- on AB_ADU_02, where partitions over-detect by 92%, you can see
+// walls standing where no walls are.
+const ISO_X = Math.cos(Math.PI / 6);
+const ISO_Y = Math.sin(Math.PI / 6);
+
+function project(x, y, z, s) {
+  return [(x - y) * ISO_X * s, ((x + y) * ISO_Y - z) * s];
+}
+
+function face(points, fill, stroke, key, opacity = 1) {
+  return (
+    <polygon
+      key={key}
+      points={points.map(([a, b]) => `${a.toFixed(2)},${b.toFixed(2)}`).join(" ")}
+      fill={fill}
+      stroke={stroke}
+      strokeWidth="0.6"
+      strokeLinejoin="round"
+      opacity={opacity}
+    />
+  );
+}
+
+function Massing({ massing }) {
+  const [storey, setStorey] = useState(null); // null = every storey
+
+  if (!massing) return null;
+  const { width_m: W, depth_m: D, storey_heights_m: heights, walls, note } = massing;
+  if (!W || !D || !heights?.length) return null;
+
+  const s = 15;
+  const WALL_H = 0.82; // of the storey, so the slab above stays readable
+
+  const shapes = [];
+  let z = 0;
+  const datums = [0];
+  for (const h of heights) {
+    z += h;
+    datums.push(z);
+  }
+  const total = z;
+
+  // Ground slab.
+  shapes.push({
+    depth: -1,
+    el: face(
+      [
+        project(0, 0, 0, s),
+        project(W, 0, 0, s),
+        project(W, D, 0, s),
+        project(0, D, 0, s),
+      ],
+      "#e2e8f0",
+      "#94a3b8",
+      "slab-0",
+    ),
+  });
+
+  const shown = walls.filter((w) => storey == null || w.storey === storey);
+  for (const [i, w] of shown.entries()) {
+    const base = datums[w.storey] ?? 0;
+    const h = (heights[w.storey] ?? 3) * WALL_H;
+    const { x, y, w: ww, d: dd } = w;
+    const top = base + h;
+    // Two visible side faces and a cap; the hidden sides are never drawn, so
+    // a 73-wall plan stays legible rather than becoming a mesh.
+    const p = (X, Y, Z) => project(X, Y, Z, s);
+    shapes.push({
+      depth: x + y + base,
+      el: (
+        <g key={`w${i}`}>
+          {face(
+            [p(x, y + dd, base), p(x + ww, y + dd, base), p(x + ww, y + dd, top), p(x, y + dd, top)],
+            "#93b4f5",
+            "#1e40af",
+            `w${i}a`,
+          )}
+          {face(
+            [p(x + ww, y, base), p(x + ww, y + dd, base), p(x + ww, y + dd, top), p(x + ww, y, top)],
+            "#6f98ea",
+            "#1e40af",
+            `w${i}b`,
+          )}
+          {face(
+            [p(x, y, top), p(x + ww, y, top), p(x + ww, y + dd, top), p(x, y + dd, top)],
+            "#c3d6fb",
+            "#1e40af",
+            `w${i}c`,
+          )}
+        </g>
+      ),
+    });
+  }
+
+  // Storey slabs above the ground, drawn after the walls beneath them.
+  datums.slice(1).forEach((d, i) => {
+    shapes.push({
+      depth: W + D + d - 0.01,
+      el: face(
+        [project(0, 0, d, s), project(W, 0, d, s), project(W, D, d, s), project(0, D, d, s)],
+        "rgba(148,163,184,0.30)",
+        "#64748b",
+        `slab${i + 1}`,
+      ),
+    });
+  });
+
+  shapes.sort((a, b) => a.depth - b.depth);
+
+  const corners = [
+    project(0, 0, 0, s), project(W, 0, 0, s), project(W, D, 0, s), project(0, D, 0, s),
+    project(0, 0, total, s), project(W, 0, total, s), project(W, D, total, s), project(0, D, total, s),
+  ];
+  const xs = corners.map((c) => c[0]);
+  const ys = corners.map((c) => c[1]);
+  const pad = 16;
+  const vb = [
+    Math.min(...xs) - pad,
+    Math.min(...ys) - pad,
+    Math.max(...xs) - Math.min(...xs) + pad * 2,
+    Math.max(...ys) - Math.min(...ys) + pad * 2,
+  ];
+
+  return (
+    <div className="massing">
+      <div className="massing-view">
+        <svg
+          viewBox={vb.join(" ")}
+          role="img"
+          aria-label={`Axonometric of the measured building: ${W} by ${D} metres, ${heights.length} storeys, ${walls.length} measured partition walls`}
+        >
+          {shapes.map((sh) => sh.el)}
+        </svg>
+      </div>
+      <div className="massing-side">
+        <p className="massing-note">{note}</p>
+        <div className="massing-storeys">
+          <button
+            className={storey == null ? "is-on" : ""}
+            onClick={() => setStorey(null)}
+          >
+            Every storey
+          </button>
+          {heights.map((h, i) => (
+            <button
+              key={i}
+              className={storey === i ? "is-on" : ""}
+              onClick={() => setStorey(i)}
+            >
+              Storey {i + 1}
+              <span>{walls.filter((w) => w.storey === i).length} walls</span>
+            </button>
+          ))}
+        </div>
+        <p className="massing-caveat">
+          A massing of what was read, not an architectural model. If the
+          footprint were misread the box would be the wrong shape, and where
+          partitions over-detect you would see walls with no room between them
+          — which is the point of drawing it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- sheet coverage -- */
+
+// Sheet types grouped into the families that matter to a reader, in the order
+// they matter. A schedule is where the build-ups come from and is worth more
+// than its page count suggests; mechanical and electrical sheets are opened,
+// classified and then legitimately not used.
+const SHEET_FAMILY = [
+  ["schedule", "Schedules", ["assembly_schedule", "opening_schedule"], "#1e40af"],
+  [
+    "plan",
+    "Plans",
+    ["floor_plan", "foundation_plan", "roof_plan", "framing_plan", "site_plan"],
+    "#2563eb",
+  ],
+  ["section", "Sections & elevations", ["section", "elevation", "detail"], "#0891b2"],
+  [
+    "other",
+    "Cover, legends, services",
+    [
+      "title", "cover", "legend", "specification", "mechanical", "electrical",
+    ],
+    "#cbd5e1",
+  ],
+];
+
+function familyOf(type) {
+  for (const [key, , types] of SHEET_FAMILY) if (types.includes(type)) return key;
+  return "other";
+}
+
+// Every page of the set, in order, coloured by what it turned out to be and
+// marked where the bill actually drew on it. The claim "45 of 46 sheets were
+// read" is in the title block as a number; this is the same claim in a form
+// where a reader can see which ones carried the weight -- and see that the
+// unreadable one is a single tick rather than a silent omission.
+function SheetStrip({ takeoff }) {
+  const [hover, setHover] = useState(null);
+  const sheets = takeoff?.sheets || [];
+  if (!sheets.length) return null;
+
+  const cited = new Set(
+    (takeoff.lines || [])
+      .map((l) => l.provenance?.sheet_no)
+      .filter(Boolean),
+  );
+  const active = hover == null ? null : sheets[hover];
+  const counts = SHEET_FAMILY.map(([key, label, , colour]) => [
+    label,
+    colour,
+    sheets.filter((x) => x.readable && familyOf(x.sheet_type) === key).length,
+  ]);
+  const unreadable = sheets.filter((x) => !x.readable).length;
+
+  return (
+    <div className="strip-wrap">
+      <div className="strip">
+        {sheets.map((sheet, i) => {
+          const family = familyOf(sheet.sheet_type);
+          const colour =
+            SHEET_FAMILY.find(([k]) => k === family)?.[3] || "#cbd5e1";
+          const isCited = sheet.sheet_no && cited.has(sheet.sheet_no);
+          return (
+            <button
+              key={sheet.page}
+              className={`tick${isCited ? " is-cited" : ""}${
+                sheet.readable ? "" : " is-unreadable"
+              }${hover === i ? " is-hover" : ""}`}
+              style={{ "--c": colour }}
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(i)}
+              onBlur={() => setHover(null)}
+              aria-label={`${sheet.sheet_no || `page ${sheet.page + 1}`}: ${
+                sheet.title || sheet.sheet_type
+              }`}
+            />
+          );
+        })}
+      </div>
+
+      <div className="strip-read">
+        {active ? (
+          <>
+            <b>{active.sheet_no || `page ${active.page + 1}`}</b>
+            <span>
+              {(active.title || active.sheet_type || "").toString().slice(0, 78)}
+              {active.readable ? "" : " · no readable text"}
+              {active.sheet_no && cited.has(active.sheet_no)
+                ? " · a quantity is read from this sheet"
+                : ""}
+            </span>
+          </>
+        ) : (
+          <>
+            <b>{sheets.length} sheets opened</b>
+            <span>
+              every page classified · {cited.size} carry a quantity in the bill
+              {unreadable > 0 ? ` · ${unreadable} had no readable text` : ""}
+            </span>
+          </>
+        )}
+      </div>
+
+      <div className="strip-key">
+        {counts.map(([label, colour, n]) =>
+          n ? (
+            <span className="strip-key-item" key={label}>
+              <i style={{ background: colour }} />
+              {label} {n}
+            </span>
+          ) : null,
+        )}
+        {unreadable > 0 && (
+          <span className="strip-key-item">
+            <i className="hatch" />
+            unreadable {unreadable}
+          </span>
+        )}
+        <span className="strip-key-item">
+          <i className="cited" />
+          cited by the bill
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- upload -- */
 
 // The catalogue is a development set; a builder's own drawings are the
@@ -1212,6 +1518,7 @@ export default function App() {
   // `?upload=1` opens the upload dialog on load, for the same two reasons as
   // `?trace=`: a dialog that only opens on click cannot be screenshotted in
   // review, and a demo wants to link straight to the moment that matters.
+  const [massing, setMassing] = useState(null);
   const [uploading, setUploading] = useState(
     () => new URLSearchParams(window.location.search).get("upload") === "1",
   );
@@ -1257,6 +1564,14 @@ export default function App() {
         setDecisions(await getJSON(`/projects/${id}/unspecified`));
       } catch {
         setDecisions([]);
+      }
+      try {
+        // Null for most of the catalogue: a design without a footprint or
+        // storey datums has no geometry to draw, and drawing a guess would
+        // be the one thing this view exists not to do.
+        setMassing(await getJSON(`/projects/${id}/massing`));
+      } catch {
+        setMassing(null);
       }
       setStatus("ready");
     } catch (e) {
@@ -1404,6 +1719,29 @@ export default function App() {
               <Hero carbon={carbon} takeoff={takeoff} coverage={coverage} />
               <TitleBlock takeoff={takeoff} carbon={carbon} coverage={coverage} />
             </div>
+
+            {massing && (
+              <section className="card">
+                <div className="card-head">
+                  <h2>What we understood from the drawings</h2>
+                  <span className="card-note">
+                    measured footprint, section datums and counted partitions
+                  </span>
+                </div>
+                <Massing massing={massing} />
+              </section>
+            )}
+
+            <section className="card">
+              <div className="card-head">
+                <h2>Every sheet in the set</h2>
+                <span className="card-note">
+                  what each page turned out to be, and which ones the number
+                  rests on
+                </span>
+              </div>
+              <SheetStrip takeoff={takeoff} />
+            </section>
 
             <section className="card">
               <div className="card-head">
