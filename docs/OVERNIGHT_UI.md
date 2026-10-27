@@ -526,3 +526,46 @@ behaves correctly when scrolling a real viewport. If it looks wrong on
 screen, the fix is to drop `position: sticky` from `table.boq th`.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+---
+
+## The queue is done. What is left is Shiven's.
+
+Every item landed, plus the demo script and two bugs found by looking rather
+than by reasoning. 719 tests green at every commit, ruff clean, Alberta gate
+unchanged throughout.
+
+**Blocked on one thing only: the Fly trial card.** The final deploy succeeded
+and the machine stopped before `deploy/warm.sh` could run, which is the fifth
+time that has happened tonight. Until a card is on the account the link works
+for roughly five minutes after each deploy. Nothing in the code can fix it.
+
+Once the card is added:
+
+```
+fly deploy --remote-only --ha=false
+deploy/warm.sh
+```
+
+### Decisions left open, deliberately
+
+1. **Should the massing colour surfaces by carbon?** `carbon_by_class` is in
+   the response and unused. A heat map across 73 walls read as noise rather
+   than information, but that is a judgement about a demo, and it is his.
+2. **Pan and drag in the trace panel.** The zoom-to-region plus whole-sheet
+   toggle covers the demo; a drag handler competing with the scrim's
+   click-to-close is a good way to make a dialog feel broken.
+3. **Dark mode.** Tokens exist in `:root`; nothing consumes them. Not asked
+   for, so not built.
+4. **Keyboard navigation through the bill.** Reasoning in 9b.
+
+### Worth knowing before recording
+
+- The bill opens at eight lines; press `Show all 20 lines` on camera if the
+  full bill matters to the take.
+- `?trace=ln-interior-partition-p1-l0` is the strongest single frame in the
+  product: 36 measured walls outlined on a real floor plan.
+- The massing returns nothing outside Alberta, by design. Demo it on an
+  Alberta set.
+- `docs/demo_script.md` is current as of this commit and includes both new
+  views.
