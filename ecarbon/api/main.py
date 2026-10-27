@@ -12,7 +12,10 @@ unacceptable for 53 designs at startup.
 
 from __future__ import annotations
 
+import base64
+import os
 import re
+import secrets
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -20,7 +23,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from ecarbon.carbon.calculate import calculate_carbon
@@ -695,3 +698,64 @@ async def upload_project(
         "n_gaps": len(takeoff.gaps),
         "total_kg_co2e": project.carbon.total_kg_co2e,
     }
+
+
+# -- serving the app itself -------------------------------------------------
+
+# One service serves the API and the built interface from the same origin.
+# Two services would mean a CORS surface, two deploys and two things to break
+# during a demo, for no benefit when the frontend is 260 kB of static files.
+_WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
+
+# Credentials are read from the environment so none is ever committed. With
+# neither set the service is open, which is what local development wants; set
+# both and every route except the health check requires them.
+_AUTH_USER = os.environ.get("ECARBON_USER")
+_AUTH_PASSWORD = os.environ.get("ECARBON_PASSWORD")
+_OPEN_PATHS = {"/health"}
+
+
+@app.middleware("http")
+async def _require_credentials(request, call_next):
+    """HTTP basic auth over the whole service when credentials are configured.
+
+    The drawings this serves are licence-restricted, so an open deployment
+    would publish them to anyone who found the URL. Gating the whole origin --
+    interface, API and rendered sheets alike -- is the only version of this
+    that actually holds, since the trace endpoint returns page images.
+    """
+    if not (_AUTH_USER and _AUTH_PASSWORD):
+        return await call_next(request)
+    if request.url.path in _OPEN_PATHS:
+        return await call_next(request)
+
+    header = request.headers.get("authorization", "")
+    expected = base64.b64encode(
+        f"{_AUTH_USER}:{_AUTH_PASSWORD}".encode()
+    ).decode()
+    supplied = header[6:] if header.lower().startswith("basic ") else ""
+    # Compared in constant time so the comparison itself leaks nothing.
+    if not secrets.compare_digest(supplied, expected):
+        return Response(
+            status_code=401,
+            content="Credentials required.",
+            headers={"WWW-Authenticate": 'Basic realm="ecarbon"'},
+        )
+    return await call_next(request)
+
+
+def _mount_interface() -> None:
+    """Serve the built interface, if it has been built.
+
+    Mounted last so every API route above wins its path, and with html=True so
+    a deep link falls back to index.html rather than 404ing -- the interface is
+    a single page and does its own routing.
+    """
+    if not _WEB_DIST.is_dir():
+        return
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
+
+
+_mount_interface()
