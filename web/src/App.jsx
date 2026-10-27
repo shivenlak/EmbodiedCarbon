@@ -994,15 +994,172 @@ function SignIn({ onDone }) {
   );
 }
 
+
+/* ------------------------------------------------------------- upload -- */
+
+// The catalogue is a development set; a builder's own drawings are the
+// product. Until this existed the upload endpoint was reachable only by curl,
+// which meant the one thing that proves this is not a canned demo -- running
+// a set the service has never opened -- could not be done from the interface.
+function Upload({ onDone, onClose }) {
+  const [file, setFile] = useState(null);
+  const [over, setOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [facts, setFacts] = useState({
+    name: "",
+    gfa_m2: "",
+    storeys: "",
+    units: "",
+    jurisdiction: "",
+  });
+
+  const take = (f) => {
+    setError(null);
+    if (!f) return;
+    if (!/\.pdf$/i.test(f.name)) {
+      setError(
+        "This reads vector PDF drawing sets. A scan or an image export carries no geometry to measure.",
+      );
+      return;
+    }
+    setFile(f);
+    setFacts((x) => ({ ...x, name: x.name || f.name.replace(/\.pdf$/i, "") }));
+  };
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    const body = new FormData();
+    body.append("file", file);
+    for (const [k, v] of Object.entries(facts)) if (v !== "") body.append(k, v);
+    try {
+      const res = await fetch(`${API}/projects/upload`, {
+        method: "POST",
+        headers: AUTH ? { Authorization: AUTH } : {},
+        body,
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail || `upload failed (${res.status})`);
+      onDone(payload.id);
+    } catch (err) {
+      setError(String(err.message || err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div
+        className="upload"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Upload a plan set"
+      >
+        <div className="trace-head">
+          <div>
+            <div className="eyebrow">Run this on your own drawings</div>
+            <div className="trace-title">Upload a plan set</div>
+          </div>
+          <button className="trace-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        <form className="upload-body" onSubmit={submit}>
+          <label
+            className={`dropzone${over ? " is-over" : ""}${file ? " has-file" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setOver(false);
+              take(e.dataTransfer.files?.[0]);
+            }}
+          >
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              hidden
+              onChange={(e) => take(e.target.files?.[0])}
+            />
+            {file ? (
+              <>
+                <b>{file.name}</b>
+                <span>{(file.size / 1e6).toFixed(1)} MB · click to choose another</span>
+              </>
+            ) : (
+              <>
+                <b>Drop a vector PDF here</b>
+                <span>or click to choose · any set from the CMHC catalogue works</span>
+              </>
+            )}
+          </label>
+
+          {/* Asked for rather than inferred. Floor area in particular decides
+              the intensity per square metre, and guessing it from a plan whose
+              extents cover a whole block gave one catalogue design an
+              intensity six times its neighbours'. */}
+          <div className="upload-facts">
+            {[
+              ["name", "Name", "text", "As you want it shown"],
+              ["gfa_m2", "Floor area m²", "number", "Leave blank to measure it"],
+              ["storeys", "Storeys", "number", ""],
+              ["units", "Units", "number", ""],
+              ["jurisdiction", "Location", "text", "Edmonton, AB"],
+            ].map(([key, label, type, hint]) => (
+              <label key={key}>
+                <span className="eyebrow">{label}</span>
+                <input
+                  type={type}
+                  value={facts[key]}
+                  placeholder={hint}
+                  onChange={(e) =>
+                    setFacts((x) => ({ ...x, [key]: e.target.value }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+
+          {error && <p className="form-fail">{error}</p>}
+
+          <div className="upload-actions">
+            <button className="btn btn-primary" type="submit" disabled={!file || busy}>
+              {busy ? "Reading the drawings…" : "Read this plan set"}
+            </button>
+            <span className="muted">
+              {busy
+                ? "A 46-page set takes about 20 seconds."
+                : "Nothing is stored beyond this session."}
+            </span>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- topbar -- */
 
-function Topbar({ projects, projectId, onPick, exportHref, reportHref }) {
+function Topbar({ projects, projectId, onPick, exportHref, reportHref, onUpload }) {
   return (
     <header className="topbar">
       <div className="wordmark">
         e<span>carbon</span>
       </div>
       <div className="topbar-spacer" />
+      {onUpload && (
+        <button className="btn btn-primary" onClick={onUpload}>
+          Upload a plan set
+        </button>
+      )}
       {exportHref && (
         <>
           <a className="btn" href={exportHref}>
@@ -1052,6 +1209,12 @@ export default function App() {
   // One hover and one filter shared by the donut, the bars and the bill, so
   // the three read as views of the same thing rather than three tables that
   // happen to sit on one page.
+  // `?upload=1` opens the upload dialog on load, for the same two reasons as
+  // `?trace=`: a dialog that only opens on click cannot be screenshotted in
+  // review, and a demo wants to link straight to the moment that matters.
+  const [uploading, setUploading] = useState(
+    () => new URLSearchParams(window.location.search).get("upload") === "1",
+  );
   const [focus, setFocus] = useState(null);
   const [filter, setFilter] = useState(null);
   const [status, setStatus] = useState("connecting");
@@ -1223,6 +1386,7 @@ export default function App() {
         projects={projects}
         projectId={projectId}
         onPick={setProjectId}
+        onUpload={() => setUploading(true)}
         exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
         reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
       />
@@ -1320,6 +1484,23 @@ export default function App() {
       </main>
 
       <TracePanel trace={trace} onClose={() => setTrace(null)} />
+
+      {uploading && (
+        <Upload
+          onClose={() => setUploading(false)}
+          onDone={async (id) => {
+            setUploading(false);
+            // Re-list so the new set appears in the selector, then open it.
+            try {
+              const list = await getJSON("/projects");
+              setProjects(Array.isArray(list) ? list : list.projects || []);
+            } catch {
+              /* the selector will catch up on the next load */
+            }
+            setProjectId(id);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -814,3 +814,57 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 @media (prefers-reduced-motion: reduce) {
   .kpi, .bar-row { animation: none; }
 }
+
+/* ------------------------------------------------------------- upload -- */
+
+.upload {
+  width: min(680px, 100%);
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+  overflow: auto;
+  animation: rise 220ms var(--ease);
+}
+
+.upload-body { padding: var(--s4) var(--s5) var(--s5); display: grid; gap: var(--s4); }
+
+.dropzone {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: var(--s6) var(--s4);
+  border: 2px dashed var(--rule-strong);
+  border-radius: var(--r);
+  background: var(--page);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 160ms var(--ease), background 160ms var(--ease);
+}
+.dropzone b { font-size: 14px; }
+.dropzone span { font-size: 12px; color: var(--muted); }
+.dropzone:hover { border-color: var(--primary); }
+.dropzone.is-over { border-color: var(--primary); background: var(--primary-soft); }
+.dropzone.has-file { border-style: solid; border-color: var(--measured); background: var(--measured-soft); }
+
+.upload-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s3);
+}
+.upload-facts label { display: grid; gap: 4px; }
+.upload-facts input {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
+}
+.upload-facts input:focus { border-color: var(--primary); outline: none; }
+
+.upload-actions { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; }
+.upload-actions .muted { font-size: 12px; }

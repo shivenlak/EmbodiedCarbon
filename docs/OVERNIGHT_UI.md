@@ -351,3 +351,26 @@ run covers both rather than spending twenty minutes proving the same thing
 twice. Committed separately.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+### 6. Upload, as a visible feature ✅
+
+Drag-and-drop or click, with the project facts asked for rather than
+inferred. Floor area especially: guessing it from plan extents is what gave
+AB_Rowhouse_01 an intensity of 761 kgCO₂e/m², above the highest whole-life
+figure CMHC publishes for anything in the catalogue.
+
+Verified end to end against the running service rather than by inspection: a
+plan set the image has never seen returns **201, 24 lines, 56,343 kgCO₂e in
+6.2 s**, and a non-PDF is refused with **415** and a reason — a scan carries
+no geometry to measure. On success the selector re-lists and switches to the
+new set.
+
+`?upload=1` opens the dialog on load, for the same two reasons as `?trace=`:
+a dialog that only opens on click cannot be screenshotted in review, and the
+demo wants to link straight to it.
+
+The screenshot shows the drop zone, the five fact fields, and the honest line
+that nothing is stored beyond the session. The topbar control is now the one
+primary action on the page.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.
