@@ -202,6 +202,9 @@ button { font: inherit; color: inherit; }
      to match the taller and shows a column of empty white. */
   align-items: start;
 }
+@media (max-width: 1240px) {
+  .hero-grid { grid-template-columns: minmax(0, 1fr) 260px; }
+}
 @media (max-width: 1080px) { .hero-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .hero { padding: var(--s5); display: grid; gap: var(--s4); align-content: start; }
@@ -367,6 +370,7 @@ button { font: inherit; color: inherit; }
 .bar-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px 46px;
+  min-width: 0;
   align-items: center;
   gap: var(--s3);
   padding: 4px 6px;
@@ -413,6 +417,7 @@ button { font: inherit; color: inherit; }
 
 .notice-more {
   justify-self: start;
+  margin-top: 2px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--muted);
@@ -432,6 +437,10 @@ button { font: inherit; color: inherit; }
 table.boq { width: 100%; border-collapse: collapse; }
 table.boq th {
   position: sticky;
+  /* The topbar is 56px and overlays the page, so the header parks beneath it
+     rather than at 0 -- otherwise the first row slides under the brand bar.
+     A solid background is required, not optional: a translucent sticky header
+     lets the rows it is covering show through. */
   top: 56px;
   z-index: 5;
   background: #fbfcfe;
@@ -550,7 +559,15 @@ table.boq td { padding: 11px var(--s4); vertical-align: top; }
 
 /* ------------------------------------------------ open decisions / swaps -- */
 
-.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: var(--s4); }
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--s4);
+  align-items: start;
+}
+/* Below this the two panels are each too narrow to read, so they stack
+   rather than squeezing. */
+@media (max-width: 1100px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
 
 .decisions, .swaps { padding: var(--s4) var(--s5); display: grid; gap: var(--s3); }
 
@@ -779,3 +796,21 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   white-space: nowrap;
 }
 .filter-clear:hover { background: var(--primary); color: #fff; }
+
+/* One choreographed arrival per view: the tiles and the bars rise in
+   sequence while the headline counts up. 40 ms apart is enough to read as
+   deliberate and short enough that the page is settled before a reader has
+   finished looking at the number. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.kpi, .bar-row {
+  animation: rise-in 420ms var(--ease) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi, .bar-row { animation: none; }
+}

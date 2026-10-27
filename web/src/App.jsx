@@ -87,6 +87,62 @@ export function authedUrl(path) {
 }
 
 const int = (n) => (n == null ? "—" : Math.round(n).toLocaleString());
+
+// Motion is suppressed wherever a reader has asked for that, so this is
+// checked once rather than at every call site.
+const STILL =
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** A number that counts up to its value, easing out.
+ *
+ * The headline is the thing a reader looks at first, and a figure that
+ * arrives reads as a figure that was computed. It is 700 ms, once, on load
+ * and on project change -- not a flourish repeated on every render, which
+ * would make the page feel busy rather than alive.
+ */
+function useCountUp(value, duration = 700) {
+  const [shown, setShown] = useState(value ?? 0);
+  const from = useRef(0);
+
+  useEffect(() => {
+    if (value == null) return;
+    if (STILL) {
+      setShown(value);
+      return;
+    }
+    const start = performance.now();
+    const origin = from.current;
+    const delta = value - origin;
+    let raf = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      // easeOutCubic: fast enough to feel immediate, settled enough to read.
+      const eased = 1 - Math.pow(1 - t, 3);
+      setShown(origin + delta * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else from.current = value;
+    };
+    raf = requestAnimationFrame(tick);
+
+    // A headline stuck partway through counting is a wrong number on screen.
+    // requestAnimationFrame stops in a background tab and does not advance
+    // reliably under headless capture, so the true value is written once the
+    // animation should have finished whatever happened to the frames.
+    const settle = setTimeout(() => {
+      cancelAnimationFrame(raf);
+      from.current = value;
+      setShown(value);
+    }, duration + 120);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+    };
+  }, [value, duration]);
+
+  return shown;
+}
 const dec = (n, p = 1) => (n == null ? "—" : Number(n).toFixed(p));
 // A carbon line is counted when it carries a figure. `is_counted` exists on
 // the Python model as a property and is never serialised, so testing it here
@@ -141,7 +197,7 @@ function Citation({ provenance, onTrace, lineId }) {
       title={`Show where this came from on sheet ${sheet}`}
     >
       <span className="cite-sheet">{sheet}</span>
-      <span className="cite-detail">
+      <span className="cite-detail" title={provenance.detail || ""}>
         {provenance.detail || `page ${provenance.page + 1}`}
       </span>
     </button>
@@ -168,7 +224,12 @@ function TitleBlock({ takeoff, carbon, coverage }) {
   const pct = coverage == null ? null : Math.round(coverage * 100);
 
   const rows = [
-    ["Project", (p.name || "—").replace(/_/g, " ")],
+    [
+      "Project",
+      (p.name || "—")
+        .replace(/_/g, " ")
+        .replace(/\s*Technical Design Package$/i, ""),
+    ],
     ["Location", p.jurisdiction || "—"],
     [
       "Floor area",
@@ -206,6 +267,7 @@ function TitleBlock({ takeoff, carbon, coverage }) {
 }
 
 function Hero({ carbon, takeoff, coverage }) {
+  const shownTotal = useCountUp(carbon?.total_kg_co2e);
   const counted = (carbon?.lines || []).filter(isCounted).length;
   const measured = (takeoff?.lines || []).filter(
     (l) => l.confidence === "measured",
@@ -223,7 +285,7 @@ function Hero({ carbon, takeoff, coverage }) {
       <div className="hero-top">
         <div>
           <div className="figure">
-            {int(carbon?.total_kg_co2e)}
+            {carbon?.total_kg_co2e == null ? "—" : int(shownTotal)}
             <span className="figure-unit">kg CO₂e</span>
           </div>
           <div className="chips">
@@ -255,22 +317,22 @@ function Hero({ carbon, takeoff, coverage }) {
       )}
 
       <div className="kpis">
-        <div className="kpi">
+        <div className="kpi" style={{ "--i": 0 }}>
           <div className="kpi-label">Intensity</div>
           <div className="kpi-value">{dec(carbon?.intensity_kg_co2e_per_m2, 1)}</div>
           <div className="kpi-sub">kg/m² {carbon?.intensity_basis || ""}</div>
         </div>
-        <div className="kpi">
+        <div className="kpi" style={{ "--i": 1 }}>
           <div className="kpi-label">Counted</div>
           <div className="kpi-value">{counted}</div>
           <div className="kpi-sub">of {takeoff?.lines?.length ?? 0} lines</div>
         </div>
-        <div className="kpi">
+        <div className="kpi" style={{ "--i": 2 }}>
           <div className="kpi-label">Measured</div>
           <div className="kpi-value">{measured}</div>
           <div className="kpi-sub">from geometry</div>
         </div>
-        <div className="kpi">
+        <div className="kpi" style={{ "--i": 3 }}>
           <div className="kpi-label">Notices</div>
           <div className="kpi-value">{takeoff?.gaps?.length ?? 0}</div>
           <div className="kpi-sub">things we could not read</div>
@@ -352,6 +414,7 @@ function Contribution({ carbon, focus, onFocus, filter, onFilter }) {
           <div
             className={`bar-row${filter === row.key ? " is-filtered" : ""}`}
             key={row.key}
+            style={{ "--i": i }}
             onMouseEnter={() => onFocus(row.key)}
             onMouseLeave={() => onFocus(null)}
             onClick={() => onFilter(filter === row.key ? null : row.key)}

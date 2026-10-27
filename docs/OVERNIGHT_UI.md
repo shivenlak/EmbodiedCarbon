@@ -311,3 +311,43 @@ small and declarative, but that gap is worth naming rather than implying it
 was tested.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+### 4. The headline arrives ✅
+
+Counts up over 700 ms with easeOutCubic; the KPI tiles and contribution bars
+rise 40 ms apart. `prefers-reduced-motion` short-circuits both.
+
+A screenshot caught the figure mid-count at **17,723** instead of 48,613, and
+that is worth more than the animation. `requestAnimationFrame` stalls in a
+background tab and does not advance reliably under headless capture, so a
+stalled animation leaves a *wrong number on screen* — not a cosmetic glitch,
+a false total. A timeout now writes the true value once the animation should
+have finished, whatever happened to the frames. Re-captured: settles at
+48,613.
+
+### 5. Cosmetic bugs ✅
+
+- Project name no longer wraps to two lines in the title block; the
+  "Technical Design Package" suffix is stripped.
+- Truncated sheet details carry a `title`, so a clipped `W2 EXTERIOR ENVELOPE
+  WALL - NON-…` is readable on hover.
+- The sticky header's 56 px offset is now documented against the topbar it
+  parks beneath, with a note that its solid background is required rather than
+  decorative.
+- The collapsed-notices button no longer sits flush against the notice above.
+- The two-column footer stacks at 1100 px instead of squeezing two unreadable
+  columns, and the hero's title block narrows to 260 px at 1240 px.
+- Checked at 1280 and 1440.
+
+**Not verified by screenshot, and worth naming:** the KPI tiles render faded
+in every capture because headless Chrome freezes CSS animations mid-run. A
+DOM dump confirms all four tiles and labels exist and the project suffix is
+gone, and animations run normally in a real browser — but the staggered
+entrance itself has only been verified by its end state in the DOM, not by
+eye.
+
+Items 4 and 5 are both UI-only; no Python changed between them, so one suite
+run covers both rather than spending twenty minutes proving the same thing
+twice. Committed separately.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.
