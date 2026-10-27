@@ -45,6 +45,12 @@ for project in json.loads(fetch(\"/projects\")):
         # takeoff does not carry, so it is warmed too or the first viewer
         # waits 20 s for it.
         fetch(\"/projects/\" + pid + \"/massing\")
+        # unspecified re-reads the assemblies schedule, so it is cold at
+        # about 5 s until something asks for it.
+        try:
+            fetch(\"/projects/\" + pid + \"/unspecified\")
+        except Exception:
+            pass
         # Warm the traces too. A partition trace recomputes the partition
         # geometry -- about 16 s -- and it is the moment the demo is built
         # around, so the first press must not be the slow one.
@@ -56,7 +62,19 @@ for project in json.loads(fetch(\"/projects\")):
             # demo'\''s key press still took 97 s.
             for line in takeoff.get(\"lines\", []):
                 try:
-                    fetch(\"/projects/\" + pid + \"/trace/\" + line[\"id\"])
+                    regions = json.loads(
+                        fetch(\"/projects/\" + pid + \"/trace/\" + line[\"id\"])
+                    )
+                    # And the sheet image the interface will ask for, at the
+                    # dpi it asks for. Rendering a 36x24 inch page is about
+                    # two seconds, and the trace is the press the demo is
+                    # built around.
+                    for region in regions[:2]:
+                        fetch(
+                            \"/projects/\" + pid + \"/trace/\" + line[\"id\"]
+                            + \"/image.png?page=\" + str(region[\"page\"])
+                            + \"&dpi=120&highlight=0\"
+                        )
                 except Exception:
                     pass
         except Exception:

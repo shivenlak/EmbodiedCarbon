@@ -129,6 +129,12 @@ _MASSING: dict[str, object] = {}
 _TRACE: dict[tuple[str, str], object] = {}
 _SHEET_PNG: dict[tuple[str, str, int, int, bool], bytes] = {}
 
+# The open decisions re-read the assemblies schedule to find the layers the
+# drawings decline to specify -- about 5 s, every call, because unlike the
+# massing and the traces this had no cache at all. Warming it did nothing for
+# exactly that reason.
+_UNSPECIFIED: dict[str, object] = {}
+
 # The catalogue is licence-restricted and cannot be committed, so the service
 # must be useful without it: a fixture-backed project is always present. It is
 # also what the API tests run against, so they need no 2.7 GB download.
@@ -647,12 +653,16 @@ def get_unspecified(project_id: str) -> list[UnspecifiedChoiceOut]:
     from ecarbon.carbon.unspecified import unspecified_choices
     from ecarbon.extract.assemblies import assemblies_for
 
+    if project_id in _UNSPECIFIED:
+        return _UNSPECIFIED[project_id]
+
     p = _get(project_id)
     design = getattr(p, "design", None) or _catalogue().get(project_id)
     if design is None:
+        _UNSPECIFIED[project_id] = []
         return []
     assemblies, _refused = assemblies_for(design)
-    return [
+    out = [
         UnspecifiedChoiceOut(
             assembly_tag=c.assembly_tag,
             category=c.category,
@@ -676,6 +686,8 @@ def get_unspecified(project_id: str) -> list[UnspecifiedChoiceOut]:
         )
         for c in unspecified_choices(p.takeoff, assemblies, _FACTORS)
     ]
+    _UNSPECIFIED[project_id] = out
+    return out
 
 
 # -- uploading a plan set --------------------------------------------------

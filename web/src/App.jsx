@@ -920,7 +920,7 @@ function TracePanel({ trace, onClose }) {
                   <image
                     href={authedUrl(
                       `/projects/${trace.projectId}/trace/${lineId}/image.png` +
-                        `?page=${region.page}&dpi=150&highlight=0`,
+                        `?page=${region.page}&dpi=120&highlight=0`,
                     )}
                     x="0"
                     y="0"

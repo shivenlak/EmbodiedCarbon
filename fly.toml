@@ -22,11 +22,16 @@ primary_region = "sjc"
 [[vm]]
   # A 46-page plan set peaks around 540 MB; 1 GB leaves room for the render
   # of a sheet at trace time without the machine being OOM-killed mid-demo.
-  # Measured, not guessed: parsing one large set peaks near 900 MB and the
+  # Dedicated cores, not shared. This workload is pure CPU -- parsing a
+  # drawing set -- and on shared-cpu-2x an uploaded 5.9 MB set took 54 s
+  # against about 15 s on a developer laptop. The upload is the beat that
+  # proves the tool is not a canned demo, so it is worth paying for.
+  #
+  # Memory stays at 4 GB: parsing one large set peaks near 900 MB and the
   # resident total climbs past 1 GB once several are cached. 2 GB was killed
   # by QC_Sixplex, taking every previously cached design with it.
   memory = "4gb"
-  cpu_kind = "shared"
+  cpu_kind = "performance"
   cpus = 2
 
 [checks.health]
