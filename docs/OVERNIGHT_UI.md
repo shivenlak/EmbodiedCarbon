@@ -147,7 +147,50 @@ opened and which ones mattered, which is a claim no competitor makes.
 Resist a decorative 3D model or a fake building render. The subject is
 drawings; the visual should be drawings.
 
-### 8. If time remains
+### 8. The 3D massing view — only once 1–7 have landed
+
+Shiven asked for this explicitly and chose to have it **after** the rest, so
+do not start it until items 1–7 are committed and green. If the night runs
+out before then, that is the correct outcome.
+
+**It is a view of the takeoff, not a render of a building.** Every surface
+must correspond to a quantity we measured. That is what makes it worth
+showing and what separates it from a decorative model: if the footprint is
+wrong the box is visibly the wrong shape, and where partitions over-detect —
+AB_ADU_02 does, at +92% — you can see walls standing where no walls are. The
+honesty story, made visual instead of asserted.
+
+What we already measure and currently discard after computing areas:
+
+| | |
+|---|---|
+| Footprint | `inputs.footprint.width_m` × `depth_m` |
+| Storey datums | `inputs.heights.storey_heights_m()` |
+| Partitions | `partitions_for(design)` → `run.rects`, 73 rectangles in page points |
+| Openings | counts per storey from `openings_for` |
+| Per-element carbon | already on each `CarbonLine` |
+
+**Check what is actually available before designing the endpoint.** The
+partition rectangles are in PDF page coordinates and the footprint may not
+retain its origin, in which case positions have to be normalised against the
+rect extents rather than placed absolutely. Verify this first and write what
+you find in the Log — do not assume a building origin exists.
+
+Suggested shape: a `GET /projects/{id}/massing` returning footprint extents,
+storey heights, partition rectangles in metres relative to the footprint, and
+a carbon figure per element class. Then a Three.js view that extrudes the
+footprint, slabs at each datum, stands the partitions, and colours surfaces by
+contribution. Click a surface → highlight its bill line, which is the existing
+trace gesture in a second dimension.
+
+Honest costs to weigh in the Log before committing to it: Three.js is roughly
+600 kB against a 260 kB bundle, and the result is a massing block with
+internal walls, not an architectural visualisation. If it reads as cheap when
+you screenshot it, say so in the Log and stop — a convincing "here is what we
+understood from your PDF" is the bar, and a grey box with no legible structure
+is below it.
+
+### 9. Anything after that
 
 - Dark mode, properly paired (the tokens are already in `:root`).
 - A compact "what changed" diff when a quantity is overridden.
