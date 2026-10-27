@@ -752,3 +752,30 @@ table.boq td { padding: 11px var(--s4); vertical-align: top; }
   transition: all 150ms var(--ease);
 }
 .trace-zoom:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
+/* The donut, the bars and the bill are three views of one thing, so they
+   share a hover and a filter. Dimming rather than removing matters: a bill
+   that silently drops rows would let a reader believe the total only covers
+   what is on screen. */
+table.boq tbody tr.is-dimmed { opacity: 0.26; }
+table.boq tbody tr.is-lit { background: var(--primary-soft); }
+table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var(--ease); }
+
+.bar-row { cursor: pointer; }
+.bar-row.is-filtered { background: var(--primary-soft); box-shadow: inset 2px 0 0 var(--primary); }
+
+.filter-clear {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid var(--primary);
+  border-radius: var(--r-sm);
+  padding: 3px 9px;
+  cursor: pointer;
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-clear:hover { background: var(--primary); color: #fff; }

@@ -290,8 +290,7 @@ const SERIES = [
 // Hand-drawn rather than pulled from a chart library: eight segments and a
 // bar list do not justify the bundle, and this way the palette is the same
 // one the confidence chips use.
-function Contribution({ carbon }) {
-  const [hover, setHover] = useState(null);
+function Contribution({ carbon, focus, onFocus, filter, onFilter }) {
   const rows = (carbon?.by_material_category || []).slice(0, 8);
   const total = rows.reduce((sum, r) => sum + (r.kg_co2e || 0), 0);
   if (!rows.length) return null;
@@ -306,12 +305,16 @@ function Contribution({ carbon }) {
     return seg;
   });
 
-  const active = hover == null ? null : rows[hover];
+  // Focus is the material key rather than an index, because the bill, the
+  // donut and the bars are three views of the same thing and an index means
+  // nothing outside this component.
+  const hover = focus == null ? null : rows.findIndex((r) => r.key === focus);
+  const active = hover >= 0 ? rows[hover] : null;
 
   return (
     <div className="charts">
       <div className="donut-wrap">
-        <div className={`donut${hover != null ? " has-hover" : ""}`}>
+        <div className={`donut${active ? " has-hover" : ""}`}>
           <svg
             width="190"
             height="190"
@@ -331,8 +334,9 @@ function Contribution({ carbon }) {
                 strokeWidth="24"
                 strokeDasharray={`${dash} ${C - dash}`}
                 strokeDashoffset={-offset}
-                onMouseEnter={() => setHover(i)}
-                onMouseLeave={() => setHover(null)}
+                onMouseEnter={() => onFocus(row.key)}
+                onMouseLeave={() => onFocus(null)}
+                onClick={() => onFilter(filter === row.key ? null : row.key)}
               />
             ))}
           </svg>
@@ -346,10 +350,16 @@ function Contribution({ carbon }) {
       <div className="bars">
         {rows.map((row, i) => (
           <div
-            className="bar-row"
+            className={`bar-row${filter === row.key ? " is-filtered" : ""}`}
             key={row.key}
-            onMouseEnter={() => setHover(i)}
-            onMouseLeave={() => setHover(null)}
+            onMouseEnter={() => onFocus(row.key)}
+            onMouseLeave={() => onFocus(null)}
+            onClick={() => onFilter(filter === row.key ? null : row.key)}
+            title={
+              filter === row.key
+                ? "Show every line again"
+                : "Show only the lines made of this"
+            }
           >
             <span className="bar-name" title={row.key}>{row.key}</span>
             <span className="bar-track">
@@ -433,7 +443,15 @@ function Notices({ gaps }) {
 
 /* ------------------------------------------------------------------ BoQ -- */
 
-function BillOfQuantities({ takeoff, carbon, onOverride, onTrace }) {
+function BillOfQuantities({
+  takeoff,
+  carbon,
+  onOverride,
+  onTrace,
+  focus,
+  onFocus,
+  filter,
+}) {
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState({});
@@ -467,8 +485,19 @@ function BillOfQuantities({ takeoff, carbon, onOverride, onTrace }) {
           {(takeoff?.lines || []).map((line) => {
             const result = byLine[line.id];
             const edited = line.user_override != null;
+            const material = result?.factor?.name || null;
+            // Dimmed rather than removed: a filtered bill that silently drops
+            // rows would let a reader think the total only covers what is on
+            // screen.
+            const dimmed = filter != null && material !== filter;
+            const lit = focus != null && material === focus;
             return (
-              <tr key={line.id}>
+              <tr
+                key={line.id}
+                className={`${dimmed ? "is-dimmed" : ""}${lit ? " is-lit" : ""}`}
+                onMouseEnter={() => material && onFocus(material)}
+                onMouseLeave={() => onFocus(null)}
+              >
                 <td>
                   <div className="el-name">
                     {titleCase(line.element_class)}
@@ -957,6 +986,11 @@ export default function App() {
   const [swaps, setSwaps] = useState([]);
   const [decisions, setDecisions] = useState([]);
   const [trace, setTrace] = useState(null);
+  // One hover and one filter shared by the donut, the bars and the bill, so
+  // the three read as views of the same thing rather than three tables that
+  // happen to sit on one page.
+  const [focus, setFocus] = useState(null);
+  const [filter, setFilter] = useState(null);
   const [status, setStatus] = useState("connecting");
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -1011,6 +1045,8 @@ export default function App() {
 
   useEffect(() => {
     if (projectId) load(projectId);
+    setFilter(null);
+    setFocus(null);
   }, [projectId, load]);
 
 
@@ -1164,7 +1200,13 @@ export default function App() {
                   <h2>Where the carbon is</h2>
                   <span className="card-note">by material category</span>
                 </div>
-                <Contribution carbon={carbon} />
+                <Contribution
+                  carbon={carbon}
+                  focus={focus}
+                  onFocus={setFocus}
+                  filter={filter}
+                  onFilter={setFilter}
+                />
               </section>
             ) : null}
 
@@ -1172,7 +1214,13 @@ export default function App() {
               <div className="card-head">
                 <h2>Bill of quantities</h2>
                 <span className="card-note">
-                  press a sheet tag to see where a number came from
+                  {filter ? (
+                    <button className="filter-clear" onClick={() => setFilter(null)}>
+                      showing {filter} · show everything
+                    </button>
+                  ) : (
+                    "press a sheet tag to see where a number came from"
+                  )}
                 </span>
               </div>
               <BillOfQuantities
@@ -1180,6 +1228,9 @@ export default function App() {
                 carbon={carbon}
                 onOverride={override}
                 onTrace={showTrace}
+                focus={focus}
+                onFocus={setFocus}
+                filter={filter}
               />
             </section>
 

@@ -283,3 +283,31 @@ the demo, and a drag handler competing with the scrim's click-to-close is a
 good way to make the panel feel broken. Noted for item 9 if time allows.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+### 3. The three views connected ✅
+
+The donut, the contribution bars and the bill now share one hover and one
+filter. Hovering a bill row lights its donut segment and its bar; hovering a
+segment lights every row made of that material; clicking a segment or a bar
+filters the bill to it, and the card header offers a way back.
+
+The join is exact rather than fuzzy: `factor.name` on a carbon line equals
+`key` on a material category for **19 of 19** counted lines, checked against
+the live response before any code was written. Focus is carried as the
+material key rather than a row index, because an index means nothing outside
+the component that produced it.
+
+Filtering **dims** rows instead of removing them. A bill that silently drops
+rows would let a reader believe the total covers only what is on screen,
+which is the class of quiet misdirection this whole project spends its effort
+avoiding. The filter also clears on project change, or it would hide most of
+a different building's bill.
+
+Verified by counting the rendered DOM rather than trusting the build: 20 bill
+rows, 8 donut segments, 8 bars, 0 dimmed with no filter active, and the page
+renders. Hover and click cannot be driven from headless Chrome, so the
+interactive behaviour itself is unverified by screenshot — the states are
+small and declarative, but that gap is worth naming rather than implying it
+was tested.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.
