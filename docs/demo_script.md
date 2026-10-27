@@ -1,8 +1,26 @@
 # Five-minute demo — running order
 
-Submission 1 asks for a video of the front end and the back end. Five minutes
-is enough for one complete pass and nothing else, so this shows the loop end to
-end rather than touring features.
+Submission 1 is judged on the build alone. The implementation and business
+plans are scored at Submission 2 on 26 November, so they are mentioned in
+passing or not at all.
+
+**What this round scores, in the organisers' order:** quantity extraction,
+carbon assessment and traceability, drawing intake, interactive configuration,
+general usability and automation. They said plainly to start with the most
+important, which for Embodied Carbon is quantity extraction — so this opens on
+the bill of quantities, not on the philosophy.
+
+Their other three asks, each answered by a beat below:
+
+- **Show your work** — quantities that trace to their source sheet and detail.
+- **Show what the tool doesn't know** — gaps and low confidence, flagged
+  rather than hallucinated over.
+- **Show range** — more than one plan set.
+- **Bring evidence** — the benchmark and the test suite.
+
+"Back end" here means the reviewer's side: how someone checks our work. For a
+takeoff tool that is the addressable data and the export, not a database
+screen.
 
 **Before recording:**
 
@@ -29,130 +47,151 @@ Deep links, so no take depends on finding a row:
 
 ---
 
-## 0:00 — The problem, in one breath
+## 0:00 — The problem, in fifteen seconds
 
-> "A builder wants to know the embodied carbon of a plan set. Today that means
-> a manual takeoff in Excel, handed to an LCA consultant, and a report weeks
-> later — too late to change anything. This takes the PDF."
+> "A builder wants the embodied carbon of a plan set. Today that means a
+> manual takeoff, handed to an LCA consultant, and a report weeks later. This
+> takes the PDF."
 
-Open https://ecarbon.fly.dev. Sign in on camera: it is credentialed because it
-reads licence-restricted drawings.
+Open https://ecarbon.fly.dev. Sign in on camera.
 
-## 0:30 — Lead with what we could not read
+Keep this short. The organisers asked for quantity extraction first, and it is
+the heaviest criterion on the sheet.
 
-Do **not** scroll to the total. Stay on *"What we could not read."*
+## 0:15 — Quantity extraction, which is what this round scores
 
-> "Nineteen notices, before any number. The drawings say 'cladding placeholder'
-> — CMHC deliberately leaves it unspecified, so we don't pick one. This design
-> numbers its two accessibility options A101 and A102; read both and you count
-> that floor twice. And four partition-measurement approaches that failed
-> before the fifth worked — published, because if you are deciding whether to
-> trust the least certain line, you should know it was hard to get."
+Go straight to the bill of quantities.
 
-This is the differentiator. Nobody else opens with their own limitations.
+> "Twenty lines off a forty-six page set. Slab, footings, exterior wall,
+> windows, doors, every assembly layer, interior partitions. Each one carries
+> what it is, how much, how we know, and the sheet it came from."
 
-## 1:15 — The number, given twice
+Point at the basis chips.
 
-> "48,613 kgCO₂e. And 37,536 without the interior partitions, because that one
-> run is measured off the linework rather than read from a schedule — the least
-> certain quantity here. A1–A3 only, product stage, and the scope sits inside
-> the number."
+> "Measured means we measured it off the linework. Inferred means we computed
+> it from something the drawing states. Assumed means the drawing was silent
+> and a standard stood in. Those are three different claims and we never blur
+> them."
 
-Point at the coverage bar: **100% of the building by element**.
+## 0:50 — Traceability: press a sheet tag
 
-> "On a design where we only reach 53%, the interface says so before you read
-> the total."
+Click `S201` on the slab line.
 
-## 1:50 — What we understood from the drawings
+> "Every quantity traces to its sheet and detail. It opens zoomed to what was
+> read, because a thirty-six by twenty-four inch sheet scaled into a window is
+> a grey haze."
 
-Scroll to the axonometric.
+Then click an **interior partition** line, and switch A101 / A102.
 
-> "This is not a render of a building. It is the takeoff, drawn. The box is
-> the footprint we measured off the linework — seven by twenty-two metres.
-> The floors sit at the datums we read from the sections. And these
-> seventy-three walls are the partitions we counted, standing where we
-> counted them.
+> "A different claim, labelled differently. These outlines *are* the
+> measurement — one rectangle per wall counted, on each storey. Seventy-three
+> walls, measured off the plan linework, and you can see every one of them."
+
+This is the strongest frame in the product. Do not rush it.
+
+## 1:40 — Accuracy, with the worst cases shown
+
+> "Against the 3D models that ship with the catalogue: door counts exact,
+> window areas within four percent, footprint within three. Partition run
+> length within six percent, worst case ninety-two — and that worst case is
+> published, not buried. The benchmark reports medians next to worst cases,
+> because a median alone hides the designs where this does badly, and those
+> are the ones a builder needs to know about."
+
+## 2:05 — What the tool does not know
+
+> "Nineteen notices, and they come before the number. The drawings say
+> 'cladding placeholder' — CMHC deliberately leaves it unspecified, so we do
+> not pick one. This design numbers its two accessibility options A101 and
+> A102; read both and you count that floor twice. And four partition-measuring
+> approaches that failed before the fifth worked, published, because if you
+> are deciding whether to trust the least certain line you should know it was
+> hard to get."
+
+Scroll to **Decisions still open**.
+
+> "Cladding and roofing carry no carbon at all. We price the range — 1,980 to
+> 3,774 — and hand the decision back rather than defaulting one and saying
+> nothing."
+
+## 2:35 — The carbon, and the scope discipline
+
+> "48,613 kgCO₂e. And 37,536 without the interior partitions, because that run
+> is measured off linework rather than read from a schedule — the least
+> certain quantity here, so you get both figures.
 >
-> Which means if we read it wrong, you can see that we read it wrong. On one
-> of the ADUs our partition detection over-counts by ninety-two percent, and
-> on that building you see walls with no room between them. We would rather
-> you could catch us."
+> A1 to A3, product stage only. CMHC publishes 162 tonnes for this building,
+> but that bundles construction, sixty years of replacement and demolition.
+> Summing across module scopes is the mistake this challenge tests for, so the
+> engine raises rather than adding them."
 
-Click **Storey 1** and **Storey 2** so the wall sets change.
+## 3:00 — What we understood from the drawings
 
-## 2:20 — Every sheet in the set
+> "The takeoff, drawn. The box is the footprint we measured. The floors sit at
+> the datums we read from the sections. These seventy-three walls are the
+> partitions we counted, where we counted them. So if we read it wrong you can
+> see that we read it wrong — on one of the ADUs our partitions over-count by
+> ninety-two percent, and you would see walls with no room between them."
 
-> "Forty-six sheets. We opened all of them and classified every page. Four
-> carry a quantity in the bill — and two of those four are the schedules,
-> which is where every build-up comes from. One sheet had no readable text,
-> and it is drawn hatched rather than left out, because a page we could not
-> read is a fact about the drawing set, not a gap in our chart."
+Toggle Storey 1 / Storey 2.
 
-## 2:40 — Click to trace
+## 3:20 — Every sheet, and an edit
 
-Click the `S201` tag on the slab line. The sheet opens framed on the region.
+> "Forty-six sheets, all opened and classified. Four carry a quantity. One had
+> no readable text and is drawn hatched rather than left out."
 
-> "Every quantity traces back to the sheet and the detail. It opens zoomed to
-> what was read, because a thirty-six by twenty-four inch sheet scaled to fit
-> a window is a grey haze."
-
-Then click an **interior partition** line and switch between A101 and A102.
-
-> "This one is a different claim, and we label it differently. These outlines
-> *are* the measurement — one rectangle per wall counted, on each storey.
-> 'We measured this' and 'we read this from a schedule' are not the same
-> thing, so the panel says which."
-
-## 3:05 — Edit a quantity
-
-Change a wall area. Total updates.
+Then edit a wall quantity.
 
 > "An estimator disagrees, types their figure, carbon recomputes in nine
-> milliseconds. The line is then marked as overridden — their number, our
-> arithmetic."
+> milliseconds — and we keep ours beside it, struck through, so the correction
+> is visible rather than silent."
 
-## 3:20 — Decisions still open, then substitutions
+## 3:45 — Interactive configuration
 
-> "Cladding and roofing carry no carbon at all, because the drawings don't
-> specify them. We price the range — 1,980 to 3,774 for cladding — and hand the
-> decision back rather than defaulting one and saying nothing."
+> "Substitutions ranked by what they actually save against these quantities.
+> Cellulose for mineral wool, 12.9 percent of the total. The fly-ash concrete
+> mix is 36.6 percent less carbon per cubic metre, which is 7.1 percent here —
+> we quote both, because quoted only the first way it reads five times larger
+> than it is."
 
-Scroll to substitutions.
+## 4:05 — The reviewer's side
 
-> "Ranked by what they actually save, computed against these quantities.
-> Cellulose for mineral wool is 12.9% of the total. The fly-ash concrete mix is
-> 36.6% less carbon per cubic metre, which is 7.1% here — we quote both,
-> because quoted only the first way it reads five times larger than it is."
+The judges asked to see the back end. For this product that is the surface a
+reviewer checks our work from, not a database screen.
 
-## 4:00 — The back end
+> "Everything a reviewer needs to audit this is addressable. The bill, the
+> carbon result, the trace with its bounding boxes, the overrides — same
+> credentials, same origin."
 
-Open https://ecarbon.fly.dev/docs on camera.
+Open `/docs` briefly, then show **Download takeoff**.
 
-> "Same credentials. Every endpoint the interface uses is here — the bill of
-> quantities, the carbon result, the trace with its bounding boxes, the
-> overrides. The interface is a client, not the product."
+> "The CSV carries every line with its sheet, detail, basis and confidence, so
+> a reviewer can check our work in their own spreadsheet. The interface is a
+> client. The record is the data."
 
-Show one `curl` with the quantity override or the trace JSON.
+## 4:25 — Show range: a second plan set
 
-## 4:30 — Upload something it has never seen
+Switch the selector to **QC Sixplex** or **BC Fourplex 01**.
 
-Press **Upload a plan set** and drag in the set that is **not** bundled.
+> "Different province, different firm, different drafting conventions. Quebec
+> reaches seventy-four percent of the building, British Columbia sixty-seven —
+> and where coverage is partial the interface says so before you read the
+> total."
 
-> "Nothing here is specialised to the designs we shipped. Same gap report, same
-> bill, same traceability — on a set this service has never opened."
+Then press **Upload a plan set** and drag in a set that is **not** bundled.
 
-Let it finish on camera if it fits (about 20 seconds); otherwise cut to the
-result.
-
-> "Which is the only test that counts, because the sets that matter are
-> Landmark's, and we have never seen those either."
+> "And nothing here is specialised to the designs we shipped. Same gap report,
+> same bill, same traceability, on a set this service has never opened — which
+> is the only test that counts, because Landmark's sets are ones we have never
+> seen either."
 
 ## 4:50 — Close
 
-> "Zero crashes across all 53 catalogue sets. Median element coverage 52%,
-> 100% on the region we developed against. Door counts exact against the
-> reference models. And the published benchmark includes the worst cases and
-> the regressions, because a benchmark that only reports its wins is not a
+> "Zero crashes across all fifty-three catalogue sets. Door counts exact
+> against the reference models, median element coverage fifty-two percent and
+> a hundred on the region we developed against. Seven hundred and nineteen
+> tests. And the published benchmark includes the worst cases and the
+> regressions, because a benchmark that only reports its wins is not a
 > benchmark."
 
 ---
@@ -174,6 +213,20 @@ result.
 - **The link dies partway through** → the Fly trial stops the machine after
   five minutes. There is no recovering from this mid-take; the card has to be
   on the account before recording.
+
+## Before you submit
+
+The organisers asked for these explicitly:
+
+- **Open the link in a private window** and sign in as the judge. The app
+  holds credentials per tab, and a private window is the check that nothing
+  depends on your own session.
+- **The judge login is dedicated** — `judge`, not a personal account.
+- **Keep it live.** Without a card on the Fly account the machine stops five
+  minutes after each deploy, which fails "keep your solution live and
+  accessible" on its own.
+- Re-run `deploy/warm.sh` after the final deploy so the first judge through
+  does not wait.
 
 ## What not to claim
 
