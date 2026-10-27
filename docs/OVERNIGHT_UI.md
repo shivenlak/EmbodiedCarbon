@@ -459,3 +459,18 @@ mid-count showing a false total; `is_counted` tested in the browser though it
 is never serialised, which read as "0 of 20 counted"; and a massing route
 registered behind a catch-all mount. None was visible from the API, which
 answered every request correctly throughout.
+
+### Deploying found one more, as deploying usually does
+
+The live massing call took **23.8 s** while every takeoff served in half a
+second. The prebuilt files store quantities, not geometry, so the massing
+endpoint was re-reading the drawings for footprint, datums and partition
+positions on every request.
+
+Cached per project (6.9 s → 0.00 s on the second call) and added to
+`deploy/warm.sh`, so the first viewer never pays it. A design with no
+footprint or datums caches its `None` too, or every page load would re-parse
+a set that can never produce a massing.
+
+Live after the fix: AB_Sixplex 0.50 s, QC_Sixplex 0.50 s (was 177 s),
+BC_Fourplex_01 0.36 s, ON_ADU_02 0.52 s.

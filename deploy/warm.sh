@@ -41,6 +41,10 @@ for project in json.loads(fetch(\"/projects\")):
     started = time.time()
     try:
         fetch(\"/projects/\" + pid + \"/takeoff\")
+        # The massing view re-reads the drawings for geometry the prebuilt
+        # takeoff does not carry, so it is warmed too or the first viewer
+        # waits 20 s for it.
+        fetch(\"/projects/\" + pid + \"/massing\")
         print(\"  %-42s %6.1fs\" % (pid.split(\"_Technical\")[0], time.time() - started))
     except Exception as exc:
         print(\"  %-42s failed: %s\" % (pid.split(\"_Technical\")[0], exc))

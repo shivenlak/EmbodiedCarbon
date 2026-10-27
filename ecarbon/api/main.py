@@ -113,6 +113,13 @@ _PROJECTS: dict[str, Project] = {}
 # serialised -- a visitor may wait, but the service stays up.
 _BUILD_LOCK = threading.Lock()
 
+# The massing view re-reads the drawings to recover footprint, datums and
+# partition positions -- about 20 s on a shared core, which the prebuilt
+# takeoff does nothing to avoid because it stores quantities rather than
+# geometry. Held per project so only the first viewer pays, the same bargain
+# the takeoff cache makes.
+_MASSING: dict[str, object] = {}
+
 # The catalogue is licence-restricted and cannot be committed, so the service
 # must be useful without it: a fixture-backed project is always present. It is
 # also what the API tests run against, so they need no 2.7 GB download.
@@ -855,6 +862,9 @@ def get_massing(project_id: str) -> Massing | None:
     Returned as None rather than guessed when the footprint or the storey
     heights are missing, which is most of the catalogue outside Alberta.
     """
+    if project_id in _MASSING:
+        return _MASSING[project_id]
+
     p = _get(project_id)
     design = getattr(p, "design", None) or _catalogue().get(project_id)
     if design is None:
@@ -870,11 +880,13 @@ def get_massing(project_id: str) -> Massing | None:
         )
         inputs, _sheets, _gaps = gather(design, expected)
     except Exception:
+        _MASSING[project_id] = None
         return None
 
     footprint = inputs.footprint
     heights = inputs.heights.storey_heights_m() if inputs.heights else []
     if footprint is None or not heights:
+        _MASSING[project_id] = None
         return None
 
     walls: list[MassingWall] = []
@@ -923,7 +935,7 @@ def get_massing(project_id: str) -> Massing | None:
         key = line.element_class.value
         by_class[key] = round(by_class.get(key, 0.0) + result.kg_co2e, 1)
 
-    return Massing(
+    result = Massing(
         width_m=round(footprint.width_m, 2),
         depth_m=round(footprint.depth_m, 2),
         storey_heights_m=[round(h, 3) for h in heights],
@@ -937,6 +949,8 @@ def get_massing(project_id: str) -> Massing | None:
             f"wrong shape rather than a number you would have to check."
         ),
     )
+    _MASSING[project_id] = result
+    return result
 
 
 def _mount_interface() -> None:
