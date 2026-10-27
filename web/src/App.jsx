@@ -1044,6 +1044,37 @@ function SignIn({ onDone }) {
 // the partitions counted in the bill. So a wrong reading shows up as a wrong
 // shape -- on AB_ADU_02, where partitions over-detect by 92%, you can see
 // walls standing where no walls are.
+
+// A sequential heat ramp. The legend carries the actual kgCO2e beside every
+// swatch, so colour is never the only channel a reader has -- which matters
+// here because the difference between 12,305 and 11,078 is not a difference
+// anybody should be asked to judge by hue.
+const HEAT = ["#dbeafe", "#93c5fd", "#fcd34d", "#fb923c", "#dc2626"];
+
+function heatColour(value, max) {
+  if (!max || value == null) return "#e2e8f0";
+  const t = Math.max(0, Math.min(1, value / max));
+  const span = (HEAT.length - 1) * t;
+  const i = Math.min(HEAT.length - 2, Math.floor(span));
+  const f = span - i;
+  const lerp = (a, b) => Math.round(a + (b - a) * f);
+  const hex = (c) => [1, 3, 5].map((k) => parseInt(c.slice(k, k + 2), 16));
+  const [r1, g1, b1] = hex(HEAT[i]);
+  const [r2, g2, b2] = hex(HEAT[i + 1]);
+  return `rgb(${lerp(r1, r2)} ${lerp(g1, g2)} ${lerp(b1, b2)})`;
+}
+
+const CLASS_LABEL = {
+  exterior_wall: "Exterior wall",
+  interior_partition: "Interior partitions",
+  slab_on_grade: "Slab on grade",
+  footing: "Footings",
+  roof_assembly: "Roof",
+  floor_assembly: "Floors",
+  door: "Doors",
+  window: "Windows",
+};
+
 const ISO_X = Math.cos(Math.PI / 6);
 const ISO_Y = Math.sin(Math.PI / 6);
 
@@ -1067,13 +1098,34 @@ function face(points, fill, stroke, key, opacity = 1) {
 
 function Massing({ massing }) {
   const [storey, setStorey] = useState(null); // null = every storey
+  const [mode, setMode] = useState(
+    // `?view=carbon` opens on the heat map, so the demo can link to it and so
+    // it can be reviewed in a screenshot at all.
+    () =>
+      new URLSearchParams(window.location.search).get("view") === "carbon"
+        ? "carbon"
+        : "structure",
+  );
 
   if (!massing) return null;
-  const { width_m: W, depth_m: D, storey_heights_m: heights, walls, note } = massing;
+  const {
+    width_m: W,
+    depth_m: D,
+    storey_heights_m: heights,
+    walls,
+    note,
+    carbon_by_class: carbon = {},
+  } = massing;
   if (!W || !D || !heights?.length) return null;
 
   const s = 15;
-  const WALL_H = 0.82; // of the storey, so the slab above stays readable
+  const WALL_H = 0.82;
+  const heat = mode === "carbon";
+  const maxCarbon = Math.max(1, ...Object.values(carbon));
+  // In carbon mode a surface takes the colour of the element class it is; in
+  // structure mode it takes the colour that makes the building readable.
+  const tone = (cls, fallback) =>
+    heat ? heatColour(carbon[cls], maxCarbon) : fallback;
 
   const shapes = [];
   let z = 0;
@@ -1083,20 +1135,41 @@ function Massing({ massing }) {
     datums.push(z);
   }
   const total = z;
+  const p3 = (X, Y, Z) => project(X, Y, Z, s);
 
   // Ground slab.
   shapes.push({
-    depth: -1,
+    depth: -2,
     el: face(
-      [
-        project(0, 0, 0, s),
-        project(W, 0, 0, s),
-        project(W, D, 0, s),
-        project(0, D, 0, s),
-      ],
-      "#e2e8f0",
+      [p3(0, 0, 0), p3(W, 0, 0), p3(W, D, 0), p3(0, D, 0)],
+      tone("slab_on_grade", "#e2e8f0"),
       "#94a3b8",
       "slab-0",
+    ),
+  });
+
+  // The two far walls only, so the building is cut away and the partitions
+  // inside stay visible. Drawing all four would make a closed box, which is
+  // a worse drawing and hides every quantity that matters.
+  shapes.push({
+    depth: -1.5,
+    el: (
+      <g key="envelope">
+        {face(
+          [p3(0, 0, 0), p3(W, 0, 0), p3(W, 0, total), p3(0, 0, total)],
+          tone("exterior_wall", "#f1f5f9"),
+          "#94a3b8",
+          "env-a",
+          heat ? 0.62 : 0.5,
+        )}
+        {face(
+          [p3(0, 0, 0), p3(0, D, 0), p3(0, D, total), p3(0, 0, total)],
+          tone("exterior_wall", "#e8edf4"),
+          "#94a3b8",
+          "env-b",
+          heat ? 0.62 : 0.5,
+        )}
+      </g>
     ),
   });
 
@@ -1106,29 +1179,29 @@ function Massing({ massing }) {
     const h = (heights[w.storey] ?? 3) * WALL_H;
     const { x, y, w: ww, d: dd } = w;
     const top = base + h;
-    // Two visible side faces and a cap; the hidden sides are never drawn, so
-    // a 73-wall plan stays legible rather than becoming a mesh.
-    const p = (X, Y, Z) => project(X, Y, Z, s);
+    const body = tone("interior_partition", "#93b4f5");
+    const side = tone("interior_partition", "#6f98ea");
+    const cap = tone("interior_partition", "#c3d6fb");
     shapes.push({
       depth: x + y + base,
       el: (
         <g key={`w${i}`}>
           {face(
-            [p(x, y + dd, base), p(x + ww, y + dd, base), p(x + ww, y + dd, top), p(x, y + dd, top)],
-            "#93b4f5",
-            "#1e40af",
+            [p3(x, y + dd, base), p3(x + ww, y + dd, base), p3(x + ww, y + dd, top), p3(x, y + dd, top)],
+            body,
+            heat ? "#7f1d1d" : "#1e40af",
             `w${i}a`,
           )}
           {face(
-            [p(x + ww, y, base), p(x + ww, y + dd, base), p(x + ww, y + dd, top), p(x + ww, y, top)],
-            "#6f98ea",
-            "#1e40af",
+            [p3(x + ww, y, base), p3(x + ww, y + dd, base), p3(x + ww, y + dd, top), p3(x + ww, y, top)],
+            side,
+            heat ? "#7f1d1d" : "#1e40af",
             `w${i}b`,
           )}
           {face(
-            [p(x, y, top), p(x + ww, y, top), p(x + ww, y + dd, top), p(x, y + dd, top)],
-            "#c3d6fb",
-            "#1e40af",
+            [p3(x, y, top), p3(x + ww, y, top), p3(x + ww, y + dd, top), p3(x, y + dd, top)],
+            cap,
+            heat ? "#7f1d1d" : "#1e40af",
             `w${i}c`,
           )}
         </g>
@@ -1136,15 +1209,23 @@ function Massing({ massing }) {
     });
   }
 
-  // Storey slabs above the ground, drawn after the walls beneath them.
+  // Storey slabs and the roof. Drawn last because they sit above everything,
+  // which means they are also the easiest surfaces to bury the building
+  // under -- so they stay faint. The roof is skipped while every storey is
+  // shown, or it simply lids the thing the panel exists to reveal.
   datums.slice(1).forEach((d, i) => {
+    const isRoof = i === datums.length - 2;
+    if (isRoof && storey == null) return;
     shapes.push({
       depth: W + D + d - 0.01,
       el: face(
-        [project(0, 0, d, s), project(W, 0, d, s), project(W, D, d, s), project(0, D, d, s)],
-        "rgba(148,163,184,0.30)",
+        [p3(0, 0, d), p3(W, 0, d), p3(W, D, d), p3(0, D, d)],
+        heat
+          ? heatColour(carbon[isRoof ? "roof_assembly" : "floor_assembly"], maxCarbon)
+          : "rgba(148,163,184,0.30)",
         "#64748b",
         `slab${i + 1}`,
+        heat ? 0.3 : 1,
       ),
     });
   });
@@ -1152,8 +1233,8 @@ function Massing({ massing }) {
   shapes.sort((a, b) => a.depth - b.depth);
 
   const corners = [
-    project(0, 0, 0, s), project(W, 0, 0, s), project(W, D, 0, s), project(0, D, 0, s),
-    project(0, 0, total, s), project(W, 0, total, s), project(W, D, total, s), project(0, D, total, s),
+    p3(0, 0, 0), p3(W, 0, 0), p3(W, D, 0), p3(0, D, 0),
+    p3(0, 0, total), p3(W, 0, total), p3(W, D, total), p3(0, D, total),
   ];
   const xs = corners.map((c) => c[0]);
   const ys = corners.map((c) => c[1]);
@@ -1164,6 +1245,8 @@ function Massing({ massing }) {
     Math.max(...xs) - Math.min(...xs) + pad * 2,
     Math.max(...ys) - Math.min(...ys) + pad * 2,
   ];
+
+  const ranked = Object.entries(carbon).sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="massing">
@@ -1176,8 +1259,44 @@ function Massing({ massing }) {
           {shapes.map((sh) => sh.el)}
         </svg>
       </div>
+
       <div className="massing-side">
-        <p className="massing-note">{note}</p>
+        <div className="massing-modes">
+          <button
+            className={mode === "structure" ? "is-on" : ""}
+            onClick={() => setMode("structure")}
+          >
+            Structure
+          </button>
+          <button
+            className={mode === "carbon" ? "is-on" : ""}
+            onClick={() => setMode("carbon")}
+          >
+            Carbon
+          </button>
+        </div>
+
+        {heat ? (
+          <>
+            <p className="massing-note">
+              Each surface takes the colour of what its element class carries.
+              The figures are beside the swatches, because the difference
+              between the top two is not one anybody should judge by hue.
+            </p>
+            <div className="heat-key">
+              {ranked.map(([cls, value]) => (
+                <div className="heat-row" key={cls}>
+                  <i style={{ background: heatColour(value, maxCarbon) }} />
+                  <span>{CLASS_LABEL[cls] || titleCase(cls)}</span>
+                  <b>{int(value)}</b>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="massing-note">{note}</p>
+        )}
+
         <div className="massing-storeys">
           <button
             className={storey == null ? "is-on" : ""}
@@ -1196,11 +1315,12 @@ function Massing({ massing }) {
             </button>
           ))}
         </div>
+
         <p className="massing-caveat">
-          A massing of what was read, not an architectural model. If the
+          A massing of what was read, not an architectural model. The near two
+          walls are cut away so the partitions inside stay visible. If the
           footprint were misread the box would be the wrong shape, and where
-          partitions over-detect you would see walls with no room between them
-          — which is the point of drawing it.
+          partitions over-detect you would see walls with no room between them.
         </p>
       </div>
     </div>

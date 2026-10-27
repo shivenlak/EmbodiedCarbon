@@ -50,7 +50,11 @@ for project in json.loads(fetch(\"/projects\")):
         # around, so the first press must not be the slow one.
         try:
             takeoff = json.loads(fetch(\"/projects/\" + pid + \"/takeoff\"))
-            for line in takeoff.get(\"lines\", [])[:12]:
+            # Every line, not a prefix. The partition lines sit at the end
+            # of the bill and are the only slow traces -- warming the first
+            # twelve warmed everything except the ones that matter, and the
+            # demo'\''s key press still took 97 s.
+            for line in takeoff.get(\"lines\", []):
                 try:
                     fetch(\"/projects/\" + pid + \"/trace/\" + line[\"id\"])
                 except Exception:

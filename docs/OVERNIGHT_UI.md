@@ -569,3 +569,31 @@ deploy/warm.sh
   Alberta set.
 - `docs/demo_script.md` is current as of this commit and includes both new
   views.
+
+### 10. The carbon heat map, and a cutaway ✅
+
+Shiven asked for more from the 3D. Two changes, and the second improved the
+structure view as much as the carbon one.
+
+**Carbon mode** colours every surface by what its element class carries, with
+the figure beside each swatch in the legend. That is not decoration of the
+legend: the top three classes are 12,305 / 11,078 / 10,909 kgCO₂e, and nobody
+should be asked to separate those by hue. Colour is the way in; the numbers
+are the evidence.
+
+**The building is now a cutaway.** It previously drew slabs and partitions
+floating in space with no envelope. The two *far* walls are drawn and the two
+near ones omitted — the standard axonometric cutaway — so the building has
+definition while all 73 partitions stay visible. The roof is skipped while
+every storey is shown, because it lidded the exact thing the panel exists to
+reveal.
+
+First attempt screenshotted muddy: the envelope at 0.9 opacity and the roof
+at 0.55 buried the partitions under a pink mass. Softened to 0.62 and 0.3,
+and the roof dropped entirely in the all-storeys view. The second capture
+reads cleanly, and structure mode gained the envelope it had been missing.
+
+`?view=carbon` deep-links the heat map, so the demo can jump to it and so it
+can be reviewed in a screenshot.
+
+Suite: 721 passed, ruff clean, Alberta gate unchanged.

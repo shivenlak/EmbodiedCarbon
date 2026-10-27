@@ -1032,3 +1032,41 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   transition: color 150ms var(--ease), background 150ms var(--ease);
 }
 .bill-more:hover { color: var(--primary); background: var(--primary-soft); }
+
+/* Structure / carbon toggle and the heat legend. The legend carries the
+   figure beside every swatch: colour alone cannot separate 12,305 from
+   11,078, and asking a reader to try would be the same sin as a chart with
+   no axis. */
+.massing-modes { display: flex; gap: 4px; }
+.massing-modes button {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+}
+.massing-modes button:hover { border-color: var(--primary); color: var(--primary); }
+.massing-modes button.is-on { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+.heat-key { display: grid; gap: 3px; }
+.heat-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  padding: 3px 0;
+}
+.heat-row i {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgb(15 23 42 / 0.12);
+}
+.heat-row span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heat-row b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11.5px; font-weight: 500; }
