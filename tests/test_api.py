@@ -196,3 +196,33 @@ class TestUploadingAPlanSet:
         if data_root:
             assert Path(data_root).resolve() not in home.resolve().parents
             assert home.resolve() != Path(data_root).resolve()
+
+
+class TestSidecarsAreNotPlanSets:
+    """The prebuilt-takeoff cache lives beside the packages under $EC_DATA.
+
+    Without a guard, `discover()` treated that directory as a design: it
+    appeared in the plan-set selector and returned 500 when opened. A judge
+    would have found it within ten seconds of arriving.
+    """
+
+    @pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+    def test_underscore_directories_are_not_discovered(self):
+        from ecarbon.config import discover
+
+        keys = [d.key for d in discover()]
+        assert keys, "the catalogue should still be found"
+        assert not [k for k in keys if k.startswith(("_", "."))]
+
+    def test_a_sidecar_beside_packages_is_skipped(self, tmp_path):
+        from ecarbon.config import discover
+
+        (tmp_path / "_prebuilt").mkdir()
+        (tmp_path / "_prebuilt" / "x.json").write_text("{}")
+        (tmp_path / ".cache").mkdir()
+        real = tmp_path / "AB_Thing_Technical_Design_Package"
+        real.mkdir()
+        (real / "AB_Thing_Drawings.pdf").write_bytes(b"%PDF-1.7\n")
+
+        keys = [d.key for d in discover(tmp_path)]
+        assert keys == ["AB_Thing_Technical_Design_Package"]

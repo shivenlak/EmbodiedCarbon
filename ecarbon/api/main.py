@@ -120,6 +120,15 @@ _BUILD_LOCK = threading.Lock()
 # the takeoff cache makes.
 _MASSING: dict[str, object] = {}
 
+# Tracing a partition line recomputes the partition geometry from the
+# drawings, about 16 s, because the prebuilt takeoff stores quantities rather
+# than the rectangles they were measured from. Held per line: this is the
+# moment a demo is built around and the first press should not be the slow
+# one. Rendered sheets are held too -- a 36x24 inch page at 150 dpi is 1.2 MB
+# and about 3 s to produce.
+_TRACE: dict[tuple[str, str], object] = {}
+_SHEET_PNG: dict[tuple[str, str, int, int, bool], bytes] = {}
+
 # The catalogue is licence-restricted and cannot be committed, so the service
 # must be useful without it: a fixture-backed project is always present. It is
 # also what the API tests run against, so they need no 2.7 GB download.
@@ -524,7 +533,11 @@ def get_trace(project_id: str, line_id: str) -> list[TraceRegionOut]:
     except KeyError:
         raise HTTPException(404, f"no line {line_id!r}") from None
 
-    regions = trace_line(_design_for(project_id), p.takeoff, line_id)
+    key = (project_id, line_id)
+    regions = _TRACE.get(key)
+    if regions is None:
+        regions = trace_line(_design_for(project_id), p.takeoff, line_id)
+        _TRACE[key] = regions
     return [
         TraceRegionOut(
             page=r.page,
@@ -560,7 +573,11 @@ def get_trace_image(
 
     p = _get(project_id)
     design = _design_for(project_id)
-    regions = [r for r in trace_line(design, p.takeoff, line_id) if r.page == page]
+    cached = _TRACE.get((project_id, line_id))
+    if cached is None:
+        cached = trace_line(design, p.takeoff, line_id)
+        _TRACE[(project_id, line_id)] = cached
+    regions = [r for r in cached if r.page == page]
     if not regions:
         raise HTTPException(404, f"line {line_id!r} does not trace to page {page}")
     # The interface overlays the regions itself as SVG, which stays crisp at
@@ -568,10 +585,19 @@ def get_trace_image(
     # double every outline, so a client that draws its own asks for a clean
     # sheet. Server-side drawing stays for anything fetching the URL directly.
     rects = [rect for r in regions for rect in r.rects] if highlight else []
-    try:
-        png = render_page(design, page, rects, dpi=max(40, min(dpi, 400)))
-    except IndexError as exc:
-        raise HTTPException(404, str(exc)) from None
+    dpi = max(40, min(dpi, 400))
+    png_key = (project_id, line_id, page, dpi, highlight)
+    png = _SHEET_PNG.get(png_key)
+    if png is None:
+        try:
+            png = render_page(design, page, rects, dpi=dpi)
+        except IndexError as exc:
+            raise HTTPException(404, str(exc)) from None
+        # Bounded, because each page is about a megabyte and a long session
+        # would otherwise hold every sheet anyone pressed.
+        if len(_SHEET_PNG) > 24:
+            _SHEET_PNG.clear()
+        _SHEET_PNG[png_key] = png
     return Response(content=png, media_type="image/png")
 
 

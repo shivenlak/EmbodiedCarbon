@@ -45,6 +45,18 @@ for project in json.loads(fetch(\"/projects\")):
         # takeoff does not carry, so it is warmed too or the first viewer
         # waits 20 s for it.
         fetch(\"/projects/\" + pid + \"/massing\")
+        # Warm the traces too. A partition trace recomputes the partition
+        # geometry -- about 16 s -- and it is the moment the demo is built
+        # around, so the first press must not be the slow one.
+        try:
+            takeoff = json.loads(fetch(\"/projects/\" + pid + \"/takeoff\"))
+            for line in takeoff.get(\"lines\", [])[:12]:
+                try:
+                    fetch(\"/projects/\" + pid + \"/trace/\" + line[\"id\"])
+                except Exception:
+                    pass
+        except Exception:
+            pass
         print(\"  %-42s %6.1fs\" % (pid.split(\"_Technical\")[0], time.time() - started))
     except Exception as exc:
         print(\"  %-42s failed: %s\" % (pid.split(\"_Technical\")[0], exc))
