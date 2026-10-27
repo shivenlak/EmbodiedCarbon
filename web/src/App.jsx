@@ -614,15 +614,28 @@ function BillOfQuantities({
                     <span className={`qty${edited ? " qty-edited" : ""}`}>
                       <button
                         className="qty-btn"
-                        title="Correct this quantity"
+                        title={
+                          edited
+                            ? `Your figure. We read ${dec(line.quantity, 2)} ${line.unit}.`
+                            : "Correct this quantity"
+                        }
                         onClick={() => {
                           setEditing(line.id);
-                          setDraft(String(line.quantity));
+                          setDraft(String(line.user_override ?? line.quantity));
                         }}
                       >
-                        {dec(line.quantity, 2)}
+                        {/* The effective quantity, not the original. Showing
+                            line.quantity after an override left the number we
+                            read on screen beside a total computed from the
+                            number the reader typed. */}
+                        {dec(edited ? line.user_override : line.quantity, 2)}
                       </button>
                       <span className="qty-unit">{line.unit}</span>
+                      {edited && (
+                        <span className="qty-was">
+                          we read {dec(line.quantity, 2)}
+                        </span>
+                      )}
                     </span>
                   )}
                 </td>

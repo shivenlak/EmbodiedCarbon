@@ -993,3 +993,18 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   border-color: var(--primary);
   color: #fff;
 }
+
+/* An overridden quantity shows the reader's figure, with ours kept beside it.
+   Replacing one with the other silently would lose the comparison that makes
+   the correction meaningful -- and showing ours alone, which is what this
+   used to do, left the old number next to a total computed from the new. */
+.qty-was {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+  margin-top: 2px;
+}
+.qty-edited .qty-btn { color: var(--primary); border-bottom-color: var(--primary); }

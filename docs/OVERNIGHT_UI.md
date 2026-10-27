@@ -474,3 +474,27 @@ a set that can never produce a massing.
 
 Live after the fix: AB_Sixplex 0.50 s, QC_Sixplex 0.50 s (was 177 s),
 BC_Fourplex_01 0.36 s, ON_ADU_02 0.52 s.
+
+### 9a. An override now shows the reader's figure ✅
+
+Found while building the "what changed" diff, and it was a bug rather than a
+missing feature. The bill rendered `line.quantity` — the figure *we* read —
+even after a user overrode it, while the carbon column reflected the new
+value. Editing a quantity left the old number on screen beside a total
+computed from the new one.
+
+It now shows the effective figure with ours struck through beneath:
+
+```
+25.00 m3
+we read 20.02
+```
+
+Verified by applying an override through the API, reading `qty-was` and
+`we read 20.02` back out of the rendered DOM, then resetting the line so the
+demo state is clean. The carbon column moved 5,526 → 6,900 as it should.
+
+This is criterion 2's "a human edit recomputes carbon" beat. It would have
+demoed as the number not changing.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.
