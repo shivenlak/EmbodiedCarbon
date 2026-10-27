@@ -4,11 +4,28 @@ Submission 1 asks for a video of the front end and the back end. Five minutes
 is enough for one complete pass and nothing else, so this shows the loop end to
 end rather than touring features.
 
-**Before recording:** redeploy and run `deploy/warm.sh`. The cache lives in the
-machine's memory, so a cold design takes 20–200 seconds and a warm one takes
-half a second. Have a plan set ready on the desktop that is **not** one of the
-five bundled — `AB_Rowhouse_01` is a good choice, because it exercises the
-floor-area correction live.
+**Before recording:**
+
+1. The Fly card must be on the account, or the machine stops five minutes
+   after each deploy and the link dies mid-take.
+2. `fly deploy --remote-only --ha=false`, then `deploy/warm.sh`.
+3. Have a plan set on the desktop that is **not** one of the five bundled.
+   `AB_Rowhouse_01` is the right choice: it exercises the floor-area
+   correction live, where the stated 74 m² is replaced by the 286 m² the
+   drawings depict.
+
+Takeoffs are prebuilt into the image, so a bundled design answers in about
+half a second. The massing view is built on first request and cached, which
+`deploy/warm.sh` now covers — skip the warm and the first viewer waits
+twenty seconds for it.
+
+Deep links, so no take depends on finding a row:
+
+```
+?plan=AB_Fourplex_01
+?plan=AB_Fourplex_01&trace=ln-interior-partition-p1-l0   # the money shot
+?plan=AB_Fourplex_01&upload=1
+```
 
 ---
 
@@ -46,20 +63,47 @@ Point at the coverage bar: **100% of the building by element**.
 > "On a design where we only reach 53%, the interface says so before you read
 > the total."
 
-## 2:00 — Click to trace
+## 1:50 — What we understood from the drawings
 
-Click the `S201` tag on the slab line.
+Scroll to the axonometric.
 
-> "Every quantity is traceable back to the sheet and the detail. This is the
-> schedule row the 130 mm came from."
+> "This is not a render of a building. It is the takeoff, drawn. The box is
+> the footprint we measured off the linework — seven by twenty-two metres.
+> The floors sit at the datums we read from the sections. And these
+> seventy-three walls are the partitions we counted, standing where we
+> counted them.
+>
+> Which means if we read it wrong, you can see that we read it wrong. On one
+> of the ADUs our partition detection over-counts by ninety-two percent, and
+> on that building you see walls with no room between them. We would rather
+> you could catch us."
 
-Then click an **interior partition** line and change the page.
+Click **Storey 1** and **Storey 2** so the wall sets change.
 
-> "This one is different — these outlines *are* the measurement. One rectangle
-> per wall counted, on each storey. We label how strong the trace is, because
-> 'we measured this' and 'we read this' are not the same claim."
+## 2:20 — Every sheet in the set
 
-## 2:45 — Edit a quantity
+> "Forty-six sheets. We opened all of them and classified every page. Four
+> carry a quantity in the bill — and two of those four are the schedules,
+> which is where every build-up comes from. One sheet had no readable text,
+> and it is drawn hatched rather than left out, because a page we could not
+> read is a fact about the drawing set, not a gap in our chart."
+
+## 2:40 — Click to trace
+
+Click the `S201` tag on the slab line. The sheet opens framed on the region.
+
+> "Every quantity traces back to the sheet and the detail. It opens zoomed to
+> what was read, because a thirty-six by twenty-four inch sheet scaled to fit
+> a window is a grey haze."
+
+Then click an **interior partition** line and switch between A101 and A102.
+
+> "This one is a different claim, and we label it differently. These outlines
+> *are* the measurement — one rectangle per wall counted, on each storey.
+> 'We measured this' and 'we read this from a schedule' are not the same
+> thing, so the panel says which."
+
+## 3:05 — Edit a quantity
 
 Change a wall area. Total updates.
 
@@ -67,7 +111,7 @@ Change a wall area. Total updates.
 > milliseconds. The line is then marked as overridden — their number, our
 > arithmetic."
 
-## 3:15 — Decisions still open, then substitutions
+## 3:20 — Decisions still open, then substitutions
 
 > "Cladding and roofing carry no carbon at all, because the drawings don't
 > specify them. We price the range — 1,980 to 3,774 for cladding — and hand the
@@ -92,7 +136,7 @@ Show one `curl` with the quantity override or the trace JSON.
 
 ## 4:30 — Upload something it has never seen
 
-Drag in the plan set that is **not** bundled.
+Press **Upload a plan set** and drag in the set that is **not** bundled.
 
 > "Nothing here is specialised to the designs we shipped. Same gap report, same
 > bill, same traceability — on a set this service has never opened."
@@ -117,10 +161,19 @@ result.
 
 - **"The reader is not running"** → the service is up but unauthenticated.
   Sign in again; sessionStorage was likely cleared.
-- **A design takes 20+ seconds** → the machine restarted and lost its cache.
-  Run `deploy/warm.sh` and re-record.
+- **A takeoff takes 20+ seconds** → the machine restarted, so the prebuilt
+  files are being read but the in-memory caches are empty. Run
+  `deploy/warm.sh`.
+- **The massing panel is missing** → it returns nothing when a design has no
+  footprint or storey datums, which is most of the catalogue outside Alberta.
+  That is deliberate; demo it on an Alberta set.
+- **The massing panel takes 20 seconds** → it is built on first request.
+  `deploy/warm.sh` covers it.
 - **502 on a big design** → Fly's proxy timed out a cold build. Warm first;
   warming runs inside the machine specifically to avoid this.
+- **The link dies partway through** → the Fly trial stops the machine after
+  five minutes. There is no recovering from this mid-take; the card has to be
+  on the account before recording.
 
 ## What not to claim
 
@@ -130,3 +183,6 @@ result.
   should not blur them either.
 - Do not say "every province works." Eight sets produce nothing, and the
   benchmark says so.
+- Do not call the massing a model of the building. It is a massing of what was
+  read: a measured box, measured datums and counted partitions. Saying "model"
+  invites a question about geometry we do not claim to have.
