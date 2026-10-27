@@ -81,6 +81,9 @@ def stage(keys: tuple[str, ...]) -> int:
 
     print(f"\n  {total / 1e6:.1f} MB staged in {STAGE}")
     print("  (gitignored; it is copied into the image at build time)")
+    print("\n  Next: EC_DATA=deploy/data python deploy/prebuild.py")
+    print("  That saves a takeoff per design so the first request is instant")
+    print("  rather than paying 23-177 s to parse the set.")
     return 0
 
 

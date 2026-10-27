@@ -34,9 +34,15 @@ RUN pip install --no-cache-dir \
 COPY ecarbon/ ./ecarbon/
 COPY --from=web /web/dist ./web/dist
 
-# Plan sets, staged by deploy/stage_data.py. Licence-restricted, which is why
-# they are baked in here rather than committed: this image is deployed behind
+# Plan sets, staged by deploy/stage_data.py, together with the takeoffs
+# prebuilt by deploy/prebuild.py. Licence-restricted, which is why they are
+# baked in here rather than committed: this image is deployed behind
 # credentials, the repository is public.
+#
+# The prebuilt takeoffs are what make the first request fast. Parsing a set
+# costs 23 s on a shared core, 177 s for the largest, and the only cache is in
+# memory -- so without these, the first visitor after every restart pays for
+# the parse. With them the same request is served in under half a second.
 COPY deploy/data/ /data/cmhc/
 
 EXPOSE 8080

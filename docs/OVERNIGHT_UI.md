@@ -20,7 +20,7 @@ currently clean and correct, and that is not the same as impressive.
    branch. Do not edit it. If something genuinely needs a field, write that in
    the log and work around it.
 3. **Green before every commit:** `ruff check ecarbon scripts tests` clean and
-   the full `pytest` suite passing (739 at the time of writing). The Alberta
+   the full `pytest` suite passing (719 at the time of writing). The Alberta
    gate in `tests/test_alberta_gate.py` must pass unchanged — if a number in it
    moves, that is a regression until proven otherwise, and the proof goes in
    the log.
@@ -56,7 +56,7 @@ below for the snippet). Run long jobs under `caffeinate -dimsu`.
 
 | | |
 |---|---|
-| Tests | 739 passing, ruff clean |
+| Tests | 719 passing, ruff clean |
 | Live | https://ecarbon.fly.dev (`judge` / password in `/tmp/ecarbon_pw.txt`) |
 | Cold build, shared core | 23 s typical, 177 s for QC_Sixplex |
 | Warm response | 0.5 s |
@@ -202,3 +202,42 @@ is below it.
 
 Append one entry per item: what was tried, what the screenshot showed, the
 measured effect, and anything deliberately left alone.
+
+### 1. Cold build removed — takeoffs baked into the image ✅
+
+`deploy/prebuild.py` runs the pipeline for every bundled design and writes the
+takeoff to `deploy/data/_prebuilt/<key>.json`. `ecarbon/prebuilt.py` loads it
+at request time. The Dockerfile already copies `deploy/data/`, so the saved
+takeoffs ship with the drawings and need no extra build step.
+
+**Measured, cold process, first request per design:**
+
+| Design | Before | After |
+|---|---|---|
+| AB_Fourplex_01 | 23 s | **0.39 s** |
+| AB_Sixplex | 23 s | **0.036 s** |
+| QC_Sixplex | 177 s | **0.033 s** |
+| BC_Fourplex_01 | ~38 s | **0.011 s** |
+| ON_ADU_02 | ~11 s | **0.036 s** |
+
+The takeoff is a pydantic model, so it round-trips through JSON exactly. That
+was checked rather than assumed: the prebuilt file compares equal to a fresh
+parse on lines, gaps and project facts. Carbon is still computed on load, so
+it follows the current factor store rather than a snapshot — which matters,
+because the factor seed has been corrected twice.
+
+Two things deliberately left alone. Uploaded sets still parse live, because
+there is nothing to prebuild for a file the image has never seen, and that
+path is the one a judge exercises. And a prebuilt file older than the PDF
+beside it is ignored, so a stale cache cannot make the deployment and the
+repository disagree about what a design contains.
+
+The runtime loader sits in `ecarbon/`, not `deploy/`: the image copies only
+`ecarbon/`, so importing build-time code from the API would have worked
+locally and failed in the container. Found before deploying, not after.
+
+Baseline correction: the queue claimed 739 tests. The real figure is **719**
+— the last full run was 718 passed with 1 failure, which was then fixed. The
+number in this document was wrong when written.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.

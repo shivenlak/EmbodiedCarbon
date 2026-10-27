@@ -128,6 +128,12 @@ def _seed_demo() -> None:
 _seed_demo()
 
 
+def _data_root():
+    from ecarbon.config import data_root
+
+    return data_root()
+
+
 def _catalogue() -> dict[str, object]:
     """Designs available on this machine, by key. Empty when $EC_DATA is unset."""
     try:
@@ -199,6 +205,23 @@ def _build(key: str, stated: CreateProject | None = None) -> Project:
     # Building Performance Report is a stated fact we audit against the
     # drawings. Only the latter is replaced.
     typed_area = bool(stated and stated.gfa_m2)
+
+    # A takeoff saved at image-build time, when there is one and the caller
+    # has not supplied facts of their own. Parsing a set costs about 23
+    # seconds on a shared core and 177 for the largest, and that cost used to
+    # fall on whoever opened the link first -- and again after every restart,
+    # because the only cache was in memory.
+    prebuilt = None
+    if stated is None:
+        try:
+            from ecarbon.prebuilt import load_prebuilt
+
+            prebuilt = load_prebuilt(
+                Path(_data_root()), key, getattr(design, "drawings_pdf", None)
+            )
+        except Exception:
+            prebuilt = None
+
     with _BUILD_LOCK:
         # Re-check inside the lock: several requests can queue on the same
         # design, and the first through should be the only one to build it.
@@ -206,7 +229,8 @@ def _build(key: str, stated: CreateProject | None = None) -> Project:
             return _PROJECTS[key]
         p = Project(
             id=key,
-            takeoff=build_takeoff(design, facts, trust_stated_gfa=typed_area),
+            takeoff=prebuilt
+            or build_takeoff(design, facts, trust_stated_gfa=typed_area),
             design=design,
         )
     _PROJECTS[key] = p
