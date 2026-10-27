@@ -396,3 +396,66 @@ a reader can see which pages carried the weight — the schedules are two ticks
 out of forty-six and they are where every build-up comes from.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+### 8. The massing view ✅ — SVG axonometric, not Three.js
+
+Built after 1–7 landed, as Shiven asked.
+
+**Verified the geometry before designing anything**, which the queue insisted
+on and which paid off. The footprint keeps no origin (`width_m`, `depth_m`
+only) and partition rectangles are in PDF page points, so there is no
+page-to-building transform. But the rect extent on AB_Fourplex_01 is
+398 × 1248 pt — ratio **0.319** — against a measured footprint of 7.0 × 22.0 m
+— ratio **0.318**. They agree to 0.3%, so the partitions span the building and
+their bounds are its bounds. Normalising against the rect extent is sound for
+a checkable reason rather than as an assumption.
+
+**Three.js was rejected on the measurement, not on taste.** ~600 kB against a
+260 kB bundle to draw a box with internal walls is not a trade worth making,
+and an axonometric is how a building is *drawn* rather than rendered — the
+right register for a tool whose subject is drawings. Hand-projected SVG,
+painter's-algorithm depth sort, two visible faces and a cap per wall so 73
+walls stay legible instead of becoming a mesh.
+
+`GET /projects/{id}/massing` returns the footprint, storey datums, walls in
+metres and carbon per element class, or **null** when the footprint or datums
+are missing — which is most of the catalogue outside Alberta. Drawing a guess
+is the one thing this view exists not to do.
+
+The screenshot reads as a building: the floor plan is legible in the wall
+layout, two storeys with slabs, per-storey controls showing 36 and 37 walls.
+It is not a grey box, so by the queue's own test it earns its place.
+
+**A bug worth recording:** the endpoint 404'd at first because it was appended
+*after* the static mount at `/`, which is a catch-all. The comment directly
+above that mount says "mounted last so every API route wins its path" — the
+rule was written and then broken by appending to the end of the file.
+
+Left alone: colouring surfaces by carbon contribution. The data is in the
+response (`carbon_by_class`) and unused. Walls read better in one colour at
+this density, and a per-element heat map on a 73-wall plan was noise rather
+than information. Shiven's call whether to push further.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+---
+
+## Night summary
+
+All eight items landed. Tests 719 throughout, ruff clean, Alberta gate
+unchanged at every commit.
+
+| | |
+|---|---|
+| Cold first request | 23–177 s → **0.01–0.4 s** |
+| Bundle | 260 kB → ~270 kB (no charting or 3D dependency added) |
+| New views | massing axonometric, sheet-coverage strip, upload dialog |
+| Bugs caught by screenshotting | 6, of which 2 would have shipped broken |
+
+The six: outlines drawn as 8 px slabs over the walls they marked; a trace
+deep-link that fired for one line and not the next; a temporal-dead-zone
+`ReferenceError` that blanked the entire app; a headline that could stick
+mid-count showing a false total; `is_counted` tested in the browser though it
+is never serialised, which read as "0 of 20 counted"; and a massing route
+registered behind a catch-all mount. None was visible from the API, which
+answered every request correctly throughout.
