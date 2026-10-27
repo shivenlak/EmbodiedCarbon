@@ -534,7 +534,13 @@ def get_trace(project_id: str, line_id: str) -> list[TraceRegionOut]:
 
 
 @app.get("/projects/{project_id}/trace/{line_id}/image.png")
-def get_trace_image(project_id: str, line_id: str, page: int, dpi: int = 110):
+def get_trace_image(
+    project_id: str,
+    line_id: str,
+    page: int,
+    dpi: int = 110,
+    highlight: bool = True,
+):
     """The source page as a PNG with the measured regions outlined.
 
     The drawings are licence-restricted: CMHC forbids redistributing them, so
@@ -550,9 +556,13 @@ def get_trace_image(project_id: str, line_id: str, page: int, dpi: int = 110):
     regions = [r for r in trace_line(design, p.takeoff, line_id) if r.page == page]
     if not regions:
         raise HTTPException(404, f"line {line_id!r} does not trace to page {page}")
-    rects = [rect for r in regions for rect in r.rects]
+    # The interface overlays the regions itself as SVG, which stays crisp at
+    # any zoom and can be animated. Drawing them into the raster as well would
+    # double every outline, so a client that draws its own asks for a clean
+    # sheet. Server-side drawing stays for anything fetching the URL directly.
+    rects = [rect for r in regions for rect in r.rects] if highlight else []
     try:
-        png = render_page(design, page, rects, dpi=max(40, min(dpi, 300)))
+        png = render_page(design, page, rects, dpi=max(40, min(dpi, 400)))
     except IndexError as exc:
         raise HTTPException(404, str(exc)) from None
     return Response(content=png, media_type="image/png")

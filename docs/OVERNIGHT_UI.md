@@ -241,3 +241,45 @@ Baseline correction: the queue claimed 739 tests. The real figure is **719**
 number in this document was wrong when written.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+### 2. Trace view — vector overlay, opens zoomed ✅
+
+The sheet is now fetched clean (`?highlight=0`) and the measured regions are
+drawn over it as SVG. The outline stays sharp at any zoom, draws itself on
+with `stroke-dashoffset` over ~520 ms, and the view opens framed on the
+measurement with a "show the whole sheet" toggle. `?trace=<line id>` opens a
+line's trace on load — added so the panel could be screenshotted at all, and
+kept because the demo wants to link straight to it.
+
+**What the screenshots showed, in order, and the three bugs they caught:**
+
+1. First capture: outlines rendered as 8 px slabs covering the very walls they
+   pointed at. `strokeWidth` was computed in page units, but
+   `vector-effect: non-scaling-stroke` makes it screen pixels. Now a constant
+   2.4 px with a drop-shadow halo, so a small schedule cell is still findable
+   on a dense drawing without the stroke swallowing it.
+2. Second capture: the panel did not open at all for `ln-slab-on-grade`, while
+   it had opened for the partition line. The auto-open effect keyed on
+   `status`, so whether it fired depended on whether `takeoff` happened to be
+   set in that render — it worked for one line by luck. Now keyed on the
+   takeoff itself with a ref to keep it to once per project.
+3. Third capture: **a completely blank page**. Moving the effect left its
+   dependency array referencing `showTrace` above the `useCallback` that
+   declares it — a temporal dead zone `ReferenceError` that blanked the whole
+   app. The DOM dump showed 1,207 bytes and no rows. Fixed by moving the
+   effect below its dependency.
+
+None of the three was visible from the API, which answered every request
+correctly throughout. The third would have shipped a blank app.
+
+Final state verified on two lines: `ln-interior-partition-p1-l0` outlines 36
+measured walls on A101 with the storey pager offering A102, and
+`ln-slab-on-grade` frames the five schedule cells on S201. The three `kind`
+labels are unchanged — measured geometry, schedule row and sheet only remain
+different claims.
+
+Left alone: pan and drag. The zoom-to-region plus whole-sheet toggle covers
+the demo, and a drag handler competing with the scrim's click-to-close is a
+good way to make the panel feel broken. Noted for item 9 if time allows.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.

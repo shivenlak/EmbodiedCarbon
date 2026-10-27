@@ -9,7 +9,14 @@
  * meanings can be held in one place.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 // Same origin in a build, because the service serves this bundle itself.
 // Hardcoding the dev address once shipped an interface that called the
@@ -649,19 +656,72 @@ const TRACE_KIND = {
   },
 };
 
+// The sheet is fetched clean and the regions are drawn over it as SVG, so
+// the outline stays sharp at any zoom and can be animated. Opening zoomed to
+// the measured region is the point: a 36x24 inch sheet scaled to fit a
+// dialog shows a grey haze, and the whole claim of this panel is that you can
+// see the thing that was measured.
 function TracePanel({ trace, onClose }) {
   const [page, setPage] = useState(0);
-  useEffect(() => setPage(0), [trace?.lineId]);
+  const [whole, setWhole] = useState(false);
+  const [drawn, setDrawn] = useState(false);
+
+  useEffect(() => {
+    setPage(0);
+    setWhole(false);
+  }, [trace?.lineId]);
+
+  useEffect(() => {
+    setDrawn(false);
+    const id = setTimeout(() => setDrawn(true), 120);
+    return () => clearTimeout(id);
+  }, [page, whole, trace?.lineId]);
+
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
   if (!trace) return null;
 
   const { lineId, label, regions, loading, error } = trace;
   const region = regions?.[page];
   const kind = TRACE_KIND[region?.kind] || TRACE_KIND.sheet_only;
+
+  // The viewBox is the measured region with a margin, or the whole sheet.
+  // Everything else -- image placement, stroke widths -- follows from it, so
+  // zooming is one number rather than a transform stack.
+  const view = (() => {
+    const W = region?.page_width || 0;
+    const H = region?.page_height || 0;
+    if (!W || !H) return null;
+    const rects = region.rects || [];
+    if (whole || !rects.length) return { x: 0, y: 0, w: W, h: H, full: true };
+    const x0 = Math.min(...rects.map((r) => r[0]));
+    const y0 = Math.min(...rects.map((r) => r[1]));
+    const x1 = Math.max(...rects.map((r) => r[2]));
+    const y1 = Math.max(...rects.map((r) => r[3]));
+    // Breathing room so the region is legible in context rather than cropped
+    // to its own edges, and a floor so a single thin wall is not magnified
+    // into abstraction.
+    const pad = Math.max((x1 - x0) * 0.6, (y1 - y0) * 0.6, 90);
+    const x = Math.max(0, x0 - pad);
+    const y = Math.max(0, y0 - pad);
+    return {
+      x,
+      y,
+      w: Math.min(W - x, x1 - x0 + pad * 2),
+      h: Math.min(H - y, y1 - y0 + pad * 2),
+      full: false,
+    };
+  })();
+
+  // The outline uses vector-effect: non-scaling-stroke, so this width is in
+  // screen pixels and stays constant however far the view zooms. Computing it
+  // from the viewBox -- as page units -- drew an 8 px slab over the very wall
+  // it was pointing at.
+  const stroke = 2.4;
 
   return (
     <div className="scrim" onClick={onClose}>
@@ -683,7 +743,7 @@ function TracePanel({ trace, onClose }) {
 
         {loading && (
           <div className="trace-body">
-            <div className="skeleton" style={{ height: 320 }} />
+            <div className="skeleton" style={{ height: 340 }} />
           </div>
         )}
         {error && <div className="trace-body muted">{error}</div>}
@@ -695,6 +755,14 @@ function TracePanel({ trace, onClose }) {
               <span className="trace-sheet">
                 {region.sheet_no || "—"} · page {region.page + 1}
               </span>
+              {region.rects?.length > 0 && (
+                <button
+                  className="trace-zoom"
+                  onClick={() => setWhole((w) => !w)}
+                >
+                  {whole ? "Zoom to the measurement" : "Show the whole sheet"}
+                </button>
+              )}
               {regions.length > 1 && (
                 <span className="trace-pager">
                   {regions.map((r, i) => (
@@ -710,13 +778,50 @@ function TracePanel({ trace, onClose }) {
               )}
             </div>
             <p className="trace-note">{region.note || kind.blurb}</p>
+
             <div className="trace-body">
-              {region.rects?.length ? (
-                <img
-                  className="trace-img"
-                  src={authedUrl(region.image_url)}
-                  alt={`Sheet ${region.sheet_no} with the measured region outlined`}
-                />
+              {view ? (
+                <svg
+                  className="trace-sheetview"
+                  viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  role="img"
+                  aria-label={`Sheet ${region.sheet_no}${
+                    region.rects?.length
+                      ? ` with ${region.rects.length} measured region(s) outlined`
+                      : ""
+                  }`}
+                >
+                  <image
+                    href={authedUrl(
+                      `/projects/${trace.projectId}/trace/${lineId}/image.png` +
+                        `?page=${region.page}&dpi=150&highlight=0`,
+                    )}
+                    x="0"
+                    y="0"
+                    width={region.page_width}
+                    height={region.page_height}
+                  />
+                  {(region.rects || []).map((r, i) => {
+                    const w = r[2] - r[0];
+                    const h = r[3] - r[1];
+                    const perimeter = 2 * (w + h);
+                    return (
+                      <rect
+                        key={i}
+                        className="trace-rect"
+                        x={r[0]}
+                        y={r[1]}
+                        width={w}
+                        height={h}
+                        strokeWidth={stroke}
+                        strokeDasharray={perimeter}
+                        strokeDashoffset={drawn ? 0 : perimeter}
+                        style={{ transitionDelay: `${Math.min(i * 22, 500)}ms` }}
+                      />
+                    );
+                  })}
+                </svg>
               ) : (
                 <div className="muted">
                   Nothing is highlighted on this sheet, by design.
@@ -908,6 +1013,7 @@ export default function App() {
     if (projectId) load(projectId);
   }, [projectId, load]);
 
+
   const override = useCallback(
     async (lineId, quantity) => {
       const next = await postJSON(`/projects/${projectId}/lines/${lineId}`, {
@@ -925,14 +1031,15 @@ export default function App() {
       const label =
         provenance?.detail ||
         (provenance?.sheet_no ? `Sheet ${provenance.sheet_no}` : lineId);
-      setTrace({ lineId, label, regions: [], loading: true, error: null });
+      setTrace({ lineId, label, projectId, regions: [], loading: true, error: null });
       try {
         const regions = await getJSON(`/projects/${projectId}/trace/${lineId}`);
-        setTrace({ lineId, label, regions, loading: false, error: null });
+        setTrace({ lineId, label, projectId, regions, loading: false, error: null });
       } catch (e) {
         setTrace({
           lineId,
           label,
+          projectId,
           regions: [],
           loading: false,
           error: `Could not trace this line: ${e.message}`,
@@ -941,6 +1048,30 @@ export default function App() {
     },
     [projectId],
   );
+
+  // `?trace=<line id>` opens that line's trace on load. It exists so a demo
+  // or a bug report can link straight to the moment that matters instead of
+  // describing which row to press, and it is how this panel is reviewed --
+  // a dialog that only opens on click cannot otherwise be screenshotted.
+  //
+  // Keyed on the takeoff rather than on `status`: an earlier version watched
+  // status alone, so whether it fired depended on whether `takeoff` happened
+  // to be set in the same render. It worked for one line and silently did
+  // nothing for the next. The ref keeps it to once per project, so closing
+  // the panel does not reopen it.
+  const autoTraced = useRef(null);
+  useEffect(() => {
+    if (!takeoff || !projectId) return;
+    if (autoTraced.current === projectId) return;
+    const wanted = new URLSearchParams(window.location.search).get("trace");
+    if (!wanted) return;
+    const line =
+      takeoff.lines.find((l) => l.id === wanted) ||
+      takeoff.lines.find((l) => l.id.includes(wanted));
+    if (!line) return;
+    autoTraced.current = projectId;
+    showTrace(line.id, line.provenance);
+  }, [takeoff, projectId, showTrace]);
 
   // The coverage the takeoff reports about itself, not a recomputation.
   const coverage = useMemo(() => {

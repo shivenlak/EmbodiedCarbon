@@ -714,3 +714,41 @@ table.boq td { padding: 11px var(--s4); vertical-align: top; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The sheet is drawn clean and the measured regions are laid over it as
+   vectors, so the outline stays sharp at any zoom and can draw itself on.
+   Opening zoomed to the region is the whole point: a 36x24 inch sheet scaled
+   into a dialog is a grey haze, and this panel exists to let you see the
+   thing that was measured. */
+.trace-sheetview {
+  width: 100%;
+  max-height: 68dvh;
+  display: block;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: #fff;
+}
+
+.trace-rect {
+  fill: rgb(220 38 38 / 0.10);
+  stroke: #dc2626;
+  vector-effect: non-scaling-stroke;
+  /* A halo, so an outline around a small schedule cell is still findable on a
+     dense drawing without the stroke itself growing thick enough to cover the
+     thing it points at. */
+  filter: drop-shadow(0 0 3px rgb(220 38 38 / 0.55));
+  transition: stroke-dashoffset 520ms var(--ease);
+}
+
+.trace-zoom {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+}
+.trace-zoom:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
