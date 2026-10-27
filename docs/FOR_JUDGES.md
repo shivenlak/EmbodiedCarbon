@@ -1,7 +1,7 @@
 # For judges
 
-**Live:** https://ecarbon.fly.dev · **User:** `judge` · **Password:** supplied
-with the submission form
+**Live:** https://ecarbon.fly.dev — **no sign-in, nothing to enter.** Open the
+link and it works.
 
 A vector PDF plan set goes in. A traceable bill of quantities and an A1–A3
 embodied carbon figure come out, with every quantity linked back to the sheet
@@ -42,14 +42,19 @@ this is a choice nobody has made yet.
 **5. Upload your own plan set.** Any vector PDF from the public CMHC catalogue,
 or a builder's own. Nothing about the pipeline is specialised to the designs
 bundled here — the gap report, bill of quantities, click-to-trace and
-substitutions all work identically on a set the service has never seen. A
-46-page set takes about 20 seconds.
+substitutions all work identically on a set the service has never seen.
+
+Expect **one to two minutes** for a 6–11 MB set. The parse is the slow part,
+not the transfer: this runs on a shared CPU, where the same set that takes
+15 seconds on a laptop takes about a minute. The bundled designs are
+precomputed, which is why they open instantly.
 
 ---
 
-## Accessing the back end
+## The reviewer's side
 
-The same credentials open the API:
+Everything the interface uses is addressable, so you can check our work
+without taking our word for any of it. No credentials:
 
 | | |
 |---|---|
@@ -64,9 +69,13 @@ The same credentials open the API:
 | Upload a plan set | `POST /projects/upload` (multipart) |
 
 ```bash
-curl -u judge:PASSWORD https://ecarbon.fly.dev/projects
-curl -u judge:PASSWORD -F "file=@plans.pdf" https://ecarbon.fly.dev/projects/upload
+curl https://ecarbon.fly.dev/projects
+curl -F "file=@plans.pdf" https://ecarbon.fly.dev/projects/upload
 ```
+
+The **Download takeoff** button gives the same bill as CSV, every line with
+its sheet, detail, basis and confidence — so a reviewer can check the figures
+in their own spreadsheet rather than through our interface.
 
 ---
 
@@ -112,6 +121,13 @@ Our figure is **A1–A3 only** — product stage. CMHC publishes 162 tonnes for
 demolition. Summing across module scopes is the mistake this challenge tests
 for, so the engine **raises** rather than totalling them. Where no factor
 exists — the steel screw piles — the line appears, uncounted, with the reason.
+
+---
+
+**6. The massing, in carbon.** Press **Carbon** on "What we understood from
+the drawings" to colour every surface by what its element class carries. The
+figures sit beside the swatches, because the top three classes are 12,305,
+11,078 and 10,909 kgCO₂e and no one should be asked to separate those by hue.
 
 ---
 

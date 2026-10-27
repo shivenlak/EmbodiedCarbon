@@ -26,7 +26,9 @@ screen.
 
 1. The Fly card must be on the account, or the machine stops five minutes
    after each deploy and the link dies mid-take.
-2. `fly deploy --remote-only --ha=false`, then `deploy/warm.sh`.
+2. `fly deploy --remote-only --ha=false`, then `deploy/warm.sh`. **The warm
+   is not optional** — it builds the massing and every trace, and without it
+   the demo's key press takes 16 seconds instead of 0.2.
 3. Have a plan set on the desktop that is **not** one of the five bundled.
    `AB_Rowhouse_01` is the right choice: it exercises the floor-area
    correction live, where the stated 74 m² is replaced by the 286 m² the
@@ -53,7 +55,7 @@ Deep links, so no take depends on finding a row:
 > manual takeoff, handed to an LCA consultant, and a report weeks later. This
 > takes the PDF."
 
-Open https://ecarbon.fly.dev. Sign in on camera.
+Open https://ecarbon.fly.dev. No sign-in — the link just works.
 
 Keep this short. The organisers asked for quantity extraction first, and it is
 the heaviest criterion on the sheet.
@@ -185,6 +187,10 @@ Then press **Upload a plan set** and drag in a set that is **not** bundled.
 > is the only test that counts, because Landmark's sets are ones we have never
 > seen either."
 
+**Cut here.** A 6–11 MB set takes one to two minutes to parse on a shared CPU.
+Start the upload, cut to the finished result, and say the figure out loud —
+do not hold a static screen for ninety seconds of a five-minute video.
+
 ## 4:50 — Close
 
 > "Zero crashes across all fifty-three catalogue sets. Door counts exact
@@ -198,8 +204,8 @@ Then press **Upload a plan set** and drag in a set that is **not** bundled.
 
 ## If something goes wrong on camera
 
-- **"The reader is not running"** → the service is up but unauthenticated.
-  Sign in again; sessionStorage was likely cleared.
+- **"The reader is not running"** → the service is down or still starting.
+  There is no sign-in any more, so this is not a credentials problem.
 - **A takeoff takes 20+ seconds** → the machine restarted, so the prebuilt
   files are being read but the in-memory caches are empty. Run
   `deploy/warm.sh`.
