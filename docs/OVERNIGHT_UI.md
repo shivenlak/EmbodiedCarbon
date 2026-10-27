@@ -498,3 +498,31 @@ This is criterion 2's "a human edit recomputes carbon" beat. It would have
 demoed as the number not changing.
 
 Suite: 719 passed, ruff clean, Alberta gate unchanged.
+
+### 9b. The bill opens at eight lines ✅
+
+Twenty lines, each two rows tall with its derivation control, put the open
+decisions and the material substitutions **below 4,000 px** — a long scroll on
+camera to reach two of the stronger panels. The bill now opens at eight with
+`Show all 20 lines · 12 more`, which brings those panels up to ~3,100 px.
+
+Eight is enough to show the shape of a bill: measured, inferred and assumed
+all appear, and so does a line with no factor at all. The rest is one press
+away, and the CSV export carries everything regardless.
+
+Measured by counting rendered rows rather than trusting the build: 20 before,
+8 after, with the control present once.
+
+**Deliberately not done: keyboard navigation through the bill.** It was on
+this list. The cite and quantity controls are already real buttons so Tab
+reaches them, the demo is mouse-driven, and building arrow-key navigation
+nothing will exercise is effort better spent on what Shiven actually called
+out. Left for him to ask for.
+
+**A recurring artifact, named so nobody chases it:** the sticky table header
+overlaps the first row in *every* full-page screenshot. That is Chrome
+compositing sticky elements at their stuck position in a tall capture; it
+behaves correctly when scrolling a real viewport. If it looks wrong on
+screen, the fix is to drop `position: sticky` from `table.boq th`.
+
+Suite: 719 passed, ruff clean, Alberta gate unchanged.

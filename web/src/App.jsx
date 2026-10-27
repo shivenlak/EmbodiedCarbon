@@ -506,6 +506,12 @@ function Notices({ gaps }) {
 
 /* ------------------------------------------------------------------ BoQ -- */
 
+// Twenty lines, each two rows tall with its derivation control, put the
+// substitutions and the open decisions four thousand pixels down the page.
+// Eight is enough to show the shape of a bill -- measured, inferred and
+// assumed, with and without a factor -- and the rest is one press away.
+const BILL_PREVIEW = 8;
+
 function BillOfQuantities({
   takeoff,
   carbon,
@@ -518,6 +524,7 @@ function BillOfQuantities({
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState({});
+  const [showAll, setShowAll] = useState(false);
 
   const byLine = useMemo(() => {
     const map = {};
@@ -545,7 +552,10 @@ function BillOfQuantities({
           </tr>
         </thead>
         <tbody>
-          {(takeoff?.lines || []).map((line) => {
+          {(showAll
+            ? takeoff?.lines || []
+            : (takeoff?.lines || []).slice(0, BILL_PREVIEW)
+          ).map((line) => {
             const result = byLine[line.id];
             const edited = line.user_override != null;
             const material = result?.factor?.name || null;
@@ -667,6 +677,16 @@ function BillOfQuantities({
           })}
         </tbody>
       </table>
+
+      {(takeoff?.lines?.length || 0) > BILL_PREVIEW && (
+        <button className="bill-more" onClick={() => setShowAll((v) => !v)}>
+          {showAll
+            ? `Show the first ${BILL_PREVIEW} lines`
+            : `Show all ${takeoff.lines.length} lines · ${
+                takeoff.lines.length - BILL_PREVIEW
+              } more`}
+        </button>
+      )}
     </div>
   );
 }

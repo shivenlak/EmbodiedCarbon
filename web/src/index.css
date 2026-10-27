@@ -1008,3 +1008,21 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   margin-top: 2px;
 }
 .qty-edited .qty-btn { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* The bill opens at eight lines. Twenty, each two rows tall, pushed the
+   substitutions four thousand pixels down the page -- and the whole bill is
+   one press, or one CSV export, away. */
+.bill-more {
+  display: block;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  background: #fbfcfe;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  padding: 11px var(--s4);
+  cursor: pointer;
+  transition: color 150ms var(--ease), background 150ms var(--ease);
+}
+.bill-more:hover { color: var(--primary); background: var(--primary-soft); }
