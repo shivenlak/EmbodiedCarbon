@@ -2,7 +2,9 @@
 # than a cold start. auto_stop_machines is off for the same reason: this is a
 # demo that must respond on the first request, not a service optimising cost.
 app = "ecarbon"
-primary_region = "sea"
+# sea is deprecated and refuses new machines; sjc is the nearest
+# west-coast region to Edmonton that still provisions.
+primary_region = "sjc"
 
 [build]
   dockerfile = "Dockerfile"
@@ -20,14 +22,20 @@ primary_region = "sea"
 [[vm]]
   # A 46-page plan set peaks around 540 MB; 1 GB leaves room for the render
   # of a sheet at trace time without the machine being OOM-killed mid-demo.
-  memory = "1gb"
+  # Measured, not guessed: parsing one large set peaks near 900 MB and the
+  # resident total climbs past 1 GB once several are cached. 2 GB was killed
+  # by QC_Sixplex, taking every previously cached design with it.
+  memory = "4gb"
   cpu_kind = "shared"
-  cpus = 1
+  cpus = 2
 
 [checks.health]
   type = "http"
   port = 8080
   path = "/health"
   interval = "30s"
-  timeout = "5s"
-  grace_period = "20s"
+  # A generous timeout: /health itself is trivial, but it shares a core with
+  # whatever request is parsing a drawing set, and a flapping check restarts
+  # the machine.
+  timeout = "15s"
+  grace_period = "30s"

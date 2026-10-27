@@ -13,7 +13,11 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
-const API = "http://127.0.0.1:8000";
+// Same origin in a build, because the service serves this bundle itself.
+// Hardcoding the dev address shipped an interface that called the *viewer's*
+// localhost: every request failed for anyone but the developer, while curl
+// against the deployment worked perfectly and hid it.
+const API = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 
 const CONFIDENCE_NOTE = {
   measured: "Read from the drawing geometry and confirmed by a second source.",
@@ -55,10 +59,49 @@ const moduleLabel = (mods) => {
     : mods.join(", ");
 };
 
+// Credentials are held for the tab and sent explicitly on every request.
+//
+// Relying on the browser's own basic-auth cache is not safe enough here: the
+// page itself loads fine while every fetch comes back 401, which renders as
+// "the reader is not running" and looks exactly like a broken deployment.
+// Sending the header ourselves removes the browser from the question.
+let AUTH = sessionStorage.getItem("ecarbon-auth") || "";
+
+export function setAuth(user, password) {
+  AUTH = "Basic " + btoa(`${user}:${password}`);
+  try {
+    sessionStorage.setItem("ecarbon-auth", AUTH);
+  } catch {
+    // A private window can refuse storage; the value still works for this tab.
+  }
+}
+
+export function clearAuth() {
+  AUTH = "";
+  try {
+    sessionStorage.removeItem("ecarbon-auth");
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+class Unauthorized extends Error {}
+
 async function getJSON(path) {
-  const res = await fetch(`${API}${path}`);
+  const res = await fetch(`${API}${path}`, {
+    headers: AUTH ? { Authorization: AUTH } : {},
+  });
+  if (res.status === 401) throw new Unauthorized("Credentials required");
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} on ${path}`);
   return res.json();
+}
+
+// Sheet renders are <img src>, which cannot carry a header, so the credential
+// rides the query string instead. Same origin, already behind the same gate.
+export function authedUrl(path) {
+  if (!AUTH) return `${API}${path}`;
+  const joiner = path.includes("?") ? "&" : "?";
+  return `${API}${path}${joiner}auth=${encodeURIComponent(AUTH.slice(6))}`;
 }
 
 /* --------------------------------------------------------------- pieces -- */
@@ -662,6 +705,65 @@ const TRACE_KIND = {
   },
 };
 
+function SignIn({ onDone }) {
+  const [user, setUser] = useState("judge");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setFailed(false);
+    setAuth(user, password);
+    try {
+      const res = await fetch(`${API}/projects`, {
+        headers: { Authorization: "Basic " + btoa(`${user}:${password}`) },
+      });
+      if (!res.ok) throw new Error("rejected");
+      onDone();
+    } catch {
+      clearAuth();
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="signin">
+      <h2 className="sheet-title">Sign in</h2>
+      <p className="muted">
+        This service reads licence-restricted drawings, so it is not open to
+        the web. Use the credentials supplied with the submission.
+      </p>
+      <form onSubmit={submit} className="signin-form">
+        <label>
+          <span className="eyebrow">User</span>
+          <input value={user} onChange={(e) => setUser(e.target.value)} />
+        </label>
+        <label>
+          <span className="eyebrow">Password</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoFocus
+          />
+        </label>
+        <button type="submit" disabled={busy || !password}>
+          {busy ? "Checking…" : "Open"}
+        </button>
+      </form>
+      {failed && (
+        <p className="signin-failed">
+          Those credentials were refused. Check them and try again.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function TracePanel({ trace, onClose }) {
   const [page, setPage] = useState(0);
   useEffect(() => setPage(0), [trace?.lineId]);
@@ -720,7 +822,7 @@ function TracePanel({ trace, onClose }) {
               {region.rects?.length ? (
                 <img
                   className="trace-img"
-                  src={`${API}${region.image_url}`}
+                  src={authedUrl(region.image_url)}
                   alt={`Sheet ${region.sheet_no} with the measured region outlined`}
                 />
               ) : (
@@ -783,6 +885,8 @@ export default function App() {
   const [swaps, setSwaps] = useState([]);
   const [decisions, setDecisions] = useState([]);
   const [trace, setTrace] = useState(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [status, setStatus] = useState("connecting");
   const [error, setError] = useState(null);
 
@@ -818,10 +922,17 @@ export default function App() {
         if (list.length) setProjectId(pickInitial(list));
       })
       .catch((e) => {
+        // A 401 is not an outage: the service is up and declining to answer
+        // without credentials, which is a different thing to tell the reader.
+        if (/credentials/i.test(e.message)) {
+          setNeedsAuth(true);
+          setStatus("locked");
+          return;
+        }
         setError(e.message);
         setStatus("offline");
       });
-  }, []);
+  }, [reloadToken]);
 
   const load = useCallback(async (id) => {
     if (!id) return;
@@ -884,6 +995,27 @@ export default function App() {
     if (!g) return takeoff ? 1 : null;
     return parseInt(g.message.match(/covers roughly (\d+)%/)[1], 10) / 100;
   }, [takeoff]);
+
+  if (status === "locked" || needsAuth) {
+    return (
+      <div className="field">
+        <div className="masthead">
+          <div className="wordmark">
+            e<span>carbon</span>
+          </div>
+        </div>
+        <main className="sheet">
+          <SignIn
+            onDone={() => {
+              setNeedsAuth(false);
+              setStatus("connecting");
+              setReloadToken((n) => n + 1);
+            }}
+          />
+        </main>
+      </div>
+    );
+  }
 
   if (status === "offline") {
     return (

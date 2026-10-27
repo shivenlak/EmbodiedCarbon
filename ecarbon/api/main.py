@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 import tempfile
+import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -104,6 +105,14 @@ class Project:
 
 _PROJECTS: dict[str, Project] = {}
 
+# Parsing one drawing set peaks near 900 MB, and FastAPI runs sync endpoints
+# on a 40-thread pool, so two simultaneous builds are enough to exhaust any
+# machine this would sensibly run on. Measured on the deployment: a second
+# build arriving during QC_Sixplex killed the machine outright, which also
+# throws away every design cached before it. Heavy work is therefore
+# serialised -- a visitor may wait, but the service stays up.
+_BUILD_LOCK = threading.Lock()
+
 # The catalogue is licence-restricted and cannot be committed, so the service
 # must be useful without it: a fixture-backed project is always present. It is
 # also what the API tests run against, so they need no 2.7 GB download.
@@ -190,11 +199,16 @@ def _build(key: str, stated: CreateProject | None = None) -> Project:
     # Building Performance Report is a stated fact we audit against the
     # drawings. Only the latter is replaced.
     typed_area = bool(stated and stated.gfa_m2)
-    p = Project(
-        id=key,
-        takeoff=build_takeoff(design, facts, trust_stated_gfa=typed_area),
-        design=design,
-    )
+    with _BUILD_LOCK:
+        # Re-check inside the lock: several requests can queue on the same
+        # design, and the first through should be the only one to build it.
+        if key in _PROJECTS:
+            return _PROJECTS[key]
+        p = Project(
+            id=key,
+            takeoff=build_takeoff(design, facts, trust_stated_gfa=typed_area),
+            design=design,
+        )
     _PROJECTS[key] = p
     return p
 
@@ -248,7 +262,15 @@ class Substitution(BaseModel):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
+    """Deliberately async, so it is answered on the event loop itself.
+
+    A sync endpoint is run on a worker thread, and those threads are a finite
+    pool that long builds can exhaust -- at which point the health check
+    cannot get a thread, Fly concludes the app is dead and restarts it,
+    throwing away every design cached so far. The liveness probe must not
+    queue behind the work it is reporting on.
+    """
     return {"status": "ok", "version": app.version}
 
 
@@ -682,7 +704,10 @@ async def upload_project(
         units=units,
     )
     try:
-        takeoff = build_takeoff(design, facts, trust_stated_gfa=gfa_m2 is not None)
+        with _BUILD_LOCK:
+            takeoff = build_takeoff(
+                design, facts, trust_stated_gfa=gfa_m2 is not None
+            )
     except Exception as exc:
         raise HTTPException(
             422,
@@ -729,11 +754,18 @@ async def _require_credentials(request, call_next):
     if request.url.path in _OPEN_PATHS:
         return await call_next(request)
 
-    header = request.headers.get("authorization", "")
     expected = base64.b64encode(
         f"{_AUTH_USER}:{_AUTH_PASSWORD}".encode()
     ).decode()
-    supplied = header[6:] if header.lower().startswith("basic ") else ""
+
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("basic "):
+        supplied = header[6:]
+    else:
+        # A rendered sheet is an <img src>, which cannot carry a header, so
+        # the same credential may ride the query string instead. Same origin,
+        # same gate, and it never leaves the page that already has it.
+        supplied = request.query_params.get("auth", "")
     # Compared in constant time so the comparison itself leaks nothing.
     if not secrets.compare_digest(supplied, expected):
         return Response(
@@ -759,3 +791,42 @@ def _mount_interface() -> None:
 
 
 _mount_interface()
+
+
+def _warm_catalogue() -> None:
+    """Build the bundled designs in the background once the service is up.
+
+    The first request for a design runs the whole pipeline -- about 23 s on a
+    shared core -- and only then is the result cached. Leaving that to the
+    first visitor means whoever opens the link does the waiting, which on a
+    demo is the one thing worth spending idle CPU to avoid.
+
+    It runs on a thread so the health check passes immediately instead of
+    waiting on several builds, and failures are swallowed: a design that
+    cannot be pre-built is simply built on request, exactly as before.
+    """
+    import threading
+
+    def run() -> None:
+        for key in _catalogue():
+            try:
+                _build(key)
+            except Exception:
+                continue
+
+    threading.Thread(target=run, name="warm-catalogue", daemon=True).start()
+
+
+@app.on_event("startup")
+def _on_startup() -> None:
+    """Pre-building is opt-in, and off by default, because it was measured.
+
+    Enabled on a single shared core it made everything worse: the build is
+    CPU-bound Python holding the GIL, so the event loop was starved and even
+    /health intermittently timed out. Fly restarts machines whose health check
+    fails, so an optimisation meant to save a visitor twenty seconds was
+    instead putting the service into a restart loop. Turn it on with
+    ECARBON_WARM=1 only where there is a core to spare for it.
+    """
+    if os.environ.get("ECARBON_WARM", "0") == "1":
+        _warm_catalogue()

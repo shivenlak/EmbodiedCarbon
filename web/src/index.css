@@ -837,3 +837,33 @@ tr.c-assumed td.lead {
   color: var(--warn, #b45309);
   max-width: 30ch;
 }
+
+/* Sign-in, shown when the service answers 401. A locked service is not a
+   broken one, and the page should not claim otherwise. */
+.signin { max-width: 46ch; padding-top: 28px; }
+.signin .muted { margin: 8px 0 18px; line-height: 1.5; font-size: 13px; }
+.signin-form { display: grid; gap: 12px; }
+.signin-form label { display: grid; gap: 4px; }
+.signin-form input {
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  color: var(--ink);
+}
+.signin-form input:focus { outline: 2px solid var(--accent, #1d4ed8); outline-offset: 1px; }
+.signin-form button {
+  justify-self: start;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 9px 18px;
+  border: 1px solid var(--rule-strong);
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+.signin-form button:disabled { opacity: 0.45; cursor: not-allowed; }
+.signin-failed { color: var(--warn, #b45309); font-size: 13px; margin-top: 12px; }
