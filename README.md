@@ -7,6 +7,7 @@ Built for the Edmonton Unlimited **Built World Tech — Venture Pilots 2026**
 challenge *"Automated Embodied Carbon Accounting for Residential Builders"*
 (sponsor: Landmark Homes).
 
+- **[docs/HANDOFF.md](docs/HANDOFF.md)** — picking this up? Start here. The constraints, the state, and what is deliberately unfinished.
 - **[docs/FOR_JUDGES.md](docs/FOR_JUDGES.md)** — the live service, credentials, what to click, and where the numbers are weak. Start here if you are reviewing this.
 - **[docs/benchmark.md](docs/benchmark.md)** — every accuracy figure, with the worst cases and the regressions.
 - **[RESEARCH.md](RESEARCH.md)** — what the data actually contains. Read this first; every number in it was measured.
