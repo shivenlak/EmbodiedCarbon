@@ -222,8 +222,10 @@ class TestAlbertaQuantities:
         # Excluding partitions: the figure every earlier published number used,
         # unchanged, which is how we know nothing else moved.
         assert carbon.total_kg_co2e - partitions == pytest.approx(37536, rel=0.02)
-        assert carbon.total_kg_co2e == pytest.approx(48613, rel=0.02)
-        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(158.9, rel=0.02)
+        # 48,613 until partitions stopped being counted once per storey: the run
+        # is summed over both plans, so it stands one storey tall, not two.
+        assert carbon.total_kg_co2e == pytest.approx(43075, rel=0.02)
+        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(140.8, rel=0.02)
 
     def test_interior_partitions_are_measured_and_say_how_certain(self, takeoff):
         from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX

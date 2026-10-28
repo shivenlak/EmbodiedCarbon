@@ -4,7 +4,7 @@ Written for whoever picks this up next, including an AI session starting
 cold. It carries the context that is **not** recoverable from the code, and
 names the things that will bite you if you don't know them.
 
-State at handoff: **721 tests passing, ruff clean, deployed and live.**
+State at handoff: **722 tests passing, ruff clean, deployed and live.**
 
 ---
 
@@ -104,7 +104,7 @@ traceability, drawing intake, interactive configuration, usability.
 | Doors / windows vs IFC | median **0.0%** / **4.0%** |
 | Footprint vs IFC | median **3.3%** |
 | Partitions vs IFC | median **5.7%**, worst **+92%** |
-| Reference design | AB_Fourplex_01 · 48,613 kgCO₂e · 37,536 excl. partitions · 158.9 kg/m² |
+| Reference design | AB_Fourplex_01 · 43,075 kgCO₂e · 37,536 excl. partitions · 140.8 kg/m² |
 
 Every figure is printed by a script named beside it in
 [benchmark.md](benchmark.md). Worst cases are published next to medians.

@@ -52,8 +52,8 @@ Intensity tracks coverage almost exactly, which is the expected signature and
 also the reason every total in this system is reported with the share of the
 building it reaches.
 
-So: where a figure below is quoted for AB_Fourplex_01 — 100% coverage, 48,613
-kgCO₂e, 158.9 kgCO₂e/m² — read it as **the best case on the development
+So: where a figure below is quoted for AB_Fourplex_01 — 100% coverage, 43,075
+kgCO₂e, 140.8 kgCO₂e/m² — read it as **the best case on the development
 region**, not as typical. The median design gets **52%**, and only **7 of 45**
 reach 80%.
 
@@ -447,7 +447,7 @@ is discipline.
 | Summing across scopes | **raises**, never silently totals |
 | Unmatched materials | visible rows with a stated reason, excluded from the total |
 
-AB_Fourplex_01 end to end: **48,613 kg CO₂e A1–A3 at 158.9 kg/m²**, from 20
+AB_Fourplex_01 end to end: **43,075 kg CO₂e A1–A3 at 140.8 kg/m²**, from 20
 bill-of-quantities lines covering **100%** of the building's embodied carbon by
 element. Excluding the inferred interior partitions it is **37,536 kg CO₂e**,
 and both are reported because the partition run is measured off the linework

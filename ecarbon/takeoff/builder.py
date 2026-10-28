@@ -780,9 +780,15 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
     """
     from ecarbon.geometry.partitions import FAILED_APPROACHES, partitions_for
 
-    height = inputs.heights.net_wall_height_m or inputs.heights.total_wall_height_m
-    if height is None:
+    # The run is summed over every storey's plan, so each metre of it stands one
+    # storey tall, not the whole building. Multiplying by the summed height
+    # counted the partitions once per storey: AB_Rowhouse_02 read 1,203 m2
+    # against the IFC's 576, AB_Sixplex 2,029 against 738.
+    building_height = inputs.heights.net_wall_height_m or inputs.heights.total_wall_height_m
+    n_storeys = len(inputs.heights.storey_heights_m())
+    if building_height is None or n_storeys == 0:
         return [], []
+    height = building_height / n_storeys
     try:
         measured = partitions_for(design)
     except Exception:
@@ -823,7 +829,8 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
         confidence=Confidence.INFERRED,
         area_note=(
             f"Area is {measured.total_length_m:.1f} m of measured partition run x "
-            f"{height:.2f} m wall height."
+            f"{height:.2f} m mean storey wall height ({building_height:.2f} m over "
+            f"{n_storeys} storeys), since each storey's run stands one storey tall."
         ),
         extra_assumptions=shared,
     )

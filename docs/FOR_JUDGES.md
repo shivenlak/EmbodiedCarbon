@@ -18,7 +18,7 @@ options would double-count if both were read, four partition-measurement
 approaches that failed before the fifth worked. A low total that does not
 announce itself as partial is indistinguishable from a good one.
 
-**2. The total is given twice.** 48,613 kgCO₂e, and 37,536 without the inferred
+**2. The total is given twice.** 43,075 kgCO₂e, and 37,536 without the inferred
 interior partitions. That one run is measured off the plan linework rather than
 read from a schedule — it is the least certain quantity in the bill, so the
 figure without it sits beside the figure with it.
