@@ -168,6 +168,28 @@ class TestInTheTakeoff:
             assert line.assembly_tag
             assert line.provenance.sheet_no
 
+    def test_partitions_stand_one_storey_tall(self):
+        """The run is summed over both storeys' plans, so it is multiplied by
+        one storey's height. Multiplying by the building's height counted every
+        partition twice: 905 m2 of face on a 306 m2 fourplex."""
+        from ecarbon.geometry.partitions import partitions_for
+        from ecarbon.models import ProjectFacts
+        from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX, build_takeoff
+
+        design = get_design("AB_Fourplex_01")
+        takeoff = build_takeoff(
+            design,
+            ProjectFacts(
+                name="AB_Fourplex_01", gfa_m2=306.0, gfa_basis="gross", storeys=2
+            ),
+        )
+        run = partitions_for(design).total_length_m
+        board = next(
+            ln for ln in takeoff.lines if ln.id.startswith(PARTITION_LINE_PREFIX)
+        )
+        # 16 mm board over one face: volume / thickness is the area it covers.
+        assert board.quantity / 0.016 == pytest.approx(run * 5.334 / 2, rel=0.02)
+
     def test_a_single_storey_design_gets_no_partitions(self):
         """No second floor datum means no wall height, so no partition area
         can be formed. Reported rather than guessed."""

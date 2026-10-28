@@ -118,7 +118,7 @@ Scroll to **Decisions still open**.
 
 ## 2:35 — The carbon, and the scope discipline
 
-> "48,613 kgCO₂e. And 37,536 without the interior partitions, because that run
+> "43,075 kgCO₂e. And 37,536 without the interior partitions, because that run
 > is measured off linework rather than read from a schedule — the least
 > certain quantity here, so you get both figures.
 >
@@ -151,8 +151,9 @@ Then edit a wall quantity.
 ## 3:45 — Interactive configuration
 
 > "Substitutions ranked by what they actually save against these quantities.
-> Cellulose for mineral wool, 12.9 percent of the total. The fly-ash concrete
-> mix is 36.6 percent less carbon per cubic metre, which is 7.1 percent here —
+> Cellulose for mineral wool, across the wall, roof and floor together, 14.6
+> percent of the total. The fly-ash concrete mix is 36.6 percent less carbon per
+> cubic metre, which is 8.0 percent here, slab and footing together —
 > we quote both, because quoted only the first way it reads five times larger
 > than it is."
 
@@ -195,7 +196,7 @@ do not hold a static screen for ninety seconds of a five-minute video.
 
 > "Zero crashes across all fifty-three catalogue sets. Door counts exact
 > against the reference models, median element coverage fifty-two percent and
-> a hundred on the region we developed against. Seven hundred and nineteen
+> a hundred on the region we developed against. Seven hundred and twenty-two
 > tests. And the published benchmark includes the worst cases and the
 > regressions, because a benchmark that only reports its wins is not a
 > benchmark."

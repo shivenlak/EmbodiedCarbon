@@ -165,7 +165,7 @@ class TestUploadingAPlanSet:
         assert pid.startswith("upload-")
         # The same drawings through a different door must give the same answer.
         assert body["n_lines"] == 20
-        assert body["total_kg_co2e"] == pytest.approx(48613, rel=0.02)
+        assert body["total_kg_co2e"] == pytest.approx(43075, rel=0.02)
 
         for endpoint in ("takeoff", "carbon", "intake", "substitutions", "unspecified"):
             assert client.get(f"/projects/{pid}/{endpoint}").status_code == 200
