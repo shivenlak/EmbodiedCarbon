@@ -168,7 +168,7 @@ def compute_variant_delta(
     var_intens = variant_carbon.intensity_kg_co2e_per_m2
     delta_intens = round(var_intens - base_intens, 2) if (var_intens is not None and base_intens is not None) else None
 
-    direction = "increase" if net_c_delta > 0 else "reduction"
+    direction = "increase" if net_c_delta > 0 else "reduction" if net_c_delta < 0 else "change"
     summary = (
         f"Variant {variant_takeoff.project.name} vs Base {base_takeoff.project.name}: "
         f"{abs(net_c_delta):,.1f} kg CO2e ({abs(pct_change):.1f}%) {direction} "

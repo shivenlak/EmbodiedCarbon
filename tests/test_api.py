@@ -87,6 +87,13 @@ def test_substitutions_are_ranked_by_computed_impact(client):
     assert subs[0]["delta_kg_co2e"] < 0
 
 
+def test_a_project_compared_with_itself_moves_nothing(client):
+    delta = client.get("/projects/demo/compare/demo").json()
+    assert delta["net_carbon_delta_kg_co2e"] == 0.0
+    assert delta["modified_lines_count"] == 0
+    assert client.get("/projects/demo/compare/nope").status_code == 404
+
+
 def test_bad_requests(client):
     assert client.get("/projects/nope/carbon").status_code == 404
     assert client.post("/projects/demo/lines/nope", json={"quantity": 1}).status_code == 404
