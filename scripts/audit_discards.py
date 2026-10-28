@@ -49,6 +49,7 @@ def _reason_class(message: str) -> str:
     lowered = message.lower()
     for needle, label in (
         ("is a material rather than an assembly", "name looks like a material"),
+        ("gives its thickness as var", "drawing says VAR"),
         ("no layer states a thickness", "no thickness stated"),
         ("beyond the", "implausibly deep"),
         ("more layers than", "too many layers (blocks merged)"),

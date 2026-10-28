@@ -267,6 +267,9 @@ class Layer:
     is_placeholder: bool = False
     # Index of the layer this one shares a cavity with, if any.
     shares_cavity_with: int | None = None
+    # Set when the thickness cell is there and says VAR, VARIES, N/A or "-":
+    # the drawing declining to give a depth, not a depth we failed to read.
+    stated_no_thickness: bool = False
 
     @property
     def coverage(self) -> tuple[float, str | None]:
@@ -391,6 +394,16 @@ class Assembly:
             # anyway, and in practice it means the block was split in the wrong
             # place -- BC's FW1.1 came through this way, four layers deep and
             # named "RIGID INSULATION (R-20.0)".
+            # Most of these are the drawing's own answer rather than a misread:
+            # 41 of the 46 across the catalogue sit on rows whose thickness
+            # cell says VAR. Saying "could not be read" there blames the parser
+            # for what the drawing chose not to state.
+            if any(layer.stated_no_thickness for layer in self.layers):
+                return (
+                    "the drawing gives its thickness as VAR (varies) rather than a "
+                    "depth, so no volume can be computed from the schedule; supply "
+                    "the built depth to count it"
+                )
             return (
                 "no layer states a thickness, so this is either a note block or a "
                 "mis-split one rather than an assembly"
@@ -792,6 +805,10 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                         note=note,
                         deferred_to=defer.group(1).title() if defer else None,
                         is_placeholder=bool(_PLACEHOLDER_RE.search(text)),
+                        stated_no_thickness=(
+                            paired is not None
+                            and paired.strip().upper() in _NO_THICKNESS
+                        ),
                     )
                 )
 
@@ -851,9 +868,16 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                     continue
                 reason = asm.implausible()
                 if reason:
+                    # Read correctly, depth withheld by the drawing: a different
+                    # claim from a parse we do not trust, so it is worded as one.
+                    verdict = (
+                        "was read, but"
+                        if reason.startswith("the drawing gives")
+                        else "could not be read reliably:"
+                    )
                     rejected.append(
-                        f"Assembly {asm.tag} on sheet {asm.sheet} could not be read "
-                        f"reliably: {reason}. Its materials are not counted."
+                        f"Assembly {asm.tag} on sheet {asm.sheet} {verdict} {reason}. "
+                        f"Its materials are not counted."
                     )
                     continue
                 found[asm.tag] = asm
