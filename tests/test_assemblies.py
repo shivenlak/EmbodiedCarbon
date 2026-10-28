@@ -415,6 +415,18 @@ class TestZeroDepthRefusal:
         reason = asm.implausible()
         assert reason and "no layer states a thickness" in reason
 
+    def test_a_thickness_given_as_var_is_the_drawings_answer_not_a_misread(self):
+        """ATL's N2 UNINSULATED FOUNDATION states its concrete as VAR. That was
+        read correctly; the drawing declines to give a depth, and the refusal
+        must say so rather than blame the parse."""
+        asm = Assembly(tag="N2", name="UNINSULATED FOUNDATION")
+        concrete = layer("CAST-IN-PLACE CONCRETE", None, 0)
+        concrete.stated_no_thickness = True
+        asm.layers = [concrete]
+        reason = asm.implausible()
+        assert reason and "VAR" in reason
+        assert "mis-split" not in reason
+
     def test_one_stated_layer_is_enough_to_keep_it(self):
         asm = Assembly(tag="W1", name="EXTERIOR ENVELOPE WALL")
         asm.layers = [layer("AIR BARRIER", None, 0), layer("GYPSUM BOARD", 16.0, 1)]

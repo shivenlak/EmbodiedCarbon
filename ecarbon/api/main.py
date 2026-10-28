@@ -459,6 +459,21 @@ def get_substitutions(project_id: str) -> list[Substitution]:
     return out
 
 
+@app.get("/projects/{project_id}/compare/{other_id}")
+def compare_projects(project_id: str, other_id: str) -> dict:
+    """Line-by-line carbon delta from one project to another.
+
+    Meant for a revision against the set it revises -- upload the new issue,
+    compare it with the old -- where line ids line up because the same
+    assemblies produce them. Both sides use their effective quantities, so an
+    estimator's overrides carry into the comparison rather than being undone.
+    """
+    from ecarbon.takeoff.variants import compute_variant_delta
+
+    base, other = _get(project_id), _get(other_id)
+    return compute_variant_delta(base.takeoff, other.takeoff, _FACTORS).to_dict()
+
+
 @app.get("/projects/{project_id}/export.csv", response_class=PlainTextResponse)
 def export_csv(project_id: str) -> PlainTextResponse:
     """The bill of quantities as CSV, with provenance on every row.
