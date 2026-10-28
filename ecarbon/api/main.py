@@ -1,34 +1,39 @@
 """FastAPI surface.
 
-Serves the fixture until the real pipeline lands, so the UI can be built in
-parallel. Every endpoint shape here is final; only the data behind it changes.
+Serves the real pipeline: every design found under `$EC_DATA` is listed, and
+the first request for one runs the extraction stages and the carbon engine.
+
+Takeoffs are built lazily and cached, because building one opens the PDF and
+measures the geometry -- a few seconds per design, which is fine on demand and
+unacceptable for 53 designs at startup.
 
     uvicorn ecarbon.api.main:app --reload
 """
 
 from __future__ import annotations
 
-import csv
-import io
-import shutil
+import base64
+import os
+import re
+import secrets
 import tempfile
+import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
-import pandas as pd
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from ecarbon.carbon.calculate import calculate_carbon
 from ecarbon.carbon.store import LocalSnapshotProvider
-from ecarbon.carbon.uncertainty import analyze_uncertainty
-from ecarbon.fixtures import example_takeoff
-from ecarbon.models import CarbonResult, Gap, SheetInfo, TakeoffResult
-from ecarbon.takeoff.builder import generate_takeoff
-from ecarbon.takeoff.variants import compute_variant_delta
+from ecarbon.models import CarbonResult, Gap, GapCode, SheetInfo, TakeoffResult
+
+# One provider for the process: it owns a SQLite connection and the factor
+# snapshot, neither of which is per-request state.
+_FACTORS = LocalSnapshotProvider()
 
 app = FastAPI(
     title="ecarbon",
@@ -50,47 +55,216 @@ app.add_middleware(
 class Project:
     id: str
     takeoff: TakeoffResult
-    pdf_path: Path | None = None
+    # The design this was built from, when there is one. An uploaded set is
+    # not in the catalogue, so without this click-to-trace would work for
+    # catalogue designs and quietly fail for the customer's own drawings --
+    # which are the only ones a pilot actually cares about.
+    design: object | None = None
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
         self.recompute()
 
     def recompute(self) -> None:
-        self.carbon = calculate_carbon(self.takeoff)
+        # Carbon is derived from the takeoff and never mutates it, so a
+        # recompute after an override cannot corrupt the extraction output.
+        self.carbon = calculate_carbon(self.takeoff, _FACTORS)
+        self._check_intensity()
+
+    def _check_intensity(self) -> None:
+        """Surface an impossible intensity beside the other gaps.
+
+        Intensity is the one figure that can be wrong while every quantity
+        behind it is right, because it depends on a floor area the drawings
+        may not state. The check lives with the gaps rather than inside
+        CarbonResult so it reaches the panel the UI shows before any number,
+        and so the carbon document stays a pure function of the takeoff.
+        """
+        from ecarbon.carbon.plausibility import intensity_warning
+
+        code = GapCode.GEOMETRY_AMBIGUOUS
+        marker = "kgCO2e/m2 is"
+        self.takeoff.gaps = [
+            g
+            for g in self.takeoff.gaps
+            if not (g.code == code and marker in g.message)
+        ]
+        # The coverage the takeoff itself reports, not a recomputation: the
+        # two can differ, and the figure the user is shown is the one that
+        # should gate the check.
+        coverage = 1.0
+        for gap in self.takeoff.gaps:
+            found = re.search(r"roughly (\d+)%", gap.message)
+            if found:
+                coverage = int(found.group(1)) / 100.0
+                break
+        warning = intensity_warning(self.carbon, self.takeoff.project, coverage)
+        if warning is not None:
+            self.takeoff.gaps.insert(0, warning)
 
 
 _PROJECTS: dict[str, Project] = {}
 
+# Parsing one drawing set peaks near 900 MB, and FastAPI runs sync endpoints
+# on a 40-thread pool, so two simultaneous builds are enough to exhaust any
+# machine this would sensibly run on. Measured on the deployment: a second
+# build arriving during QC_Sixplex killed the machine outright, which also
+# throws away every design cached before it. Heavy work is therefore
+# serialised -- a visitor may wait, but the service stays up.
+_BUILD_LOCK = threading.Lock()
 
-def _find_pdf_for_project(p: Project) -> Path | None:
-    if p.pdf_path and p.pdf_path.is_file():
-        return p.pdf_path
-    from ecarbon.config import discover
-    name_clean = p.takeoff.project.name.lower().replace("_drawings", "")
-    for d in discover():
-        if name_clean in d.key.lower() and d.drawings_pdf:
-            return d.drawings_pdf
-    for d in discover():
-        if d.drawings_pdf:
-            return d.drawings_pdf
+# The massing view re-reads the drawings to recover footprint, datums and
+# partition positions -- about 20 s on a shared core, which the prebuilt
+# takeoff does nothing to avoid because it stores quantities rather than
+# geometry. Held per project so only the first viewer pays, the same bargain
+# the takeoff cache makes.
+_MASSING: dict[str, object] = {}
+
+# Tracing a partition line recomputes the partition geometry from the
+# drawings, about 16 s, because the prebuilt takeoff stores quantities rather
+# than the rectangles they were measured from. Held per line: this is the
+# moment a demo is built around and the first press should not be the slow
+# one. Rendered sheets are held too -- a 36x24 inch page at 150 dpi is 1.2 MB
+# and about 3 s to produce.
+_TRACE: dict[tuple[str, str], object] = {}
+_SHEET_PNG: dict[tuple[str, str, int, int, bool], bytes] = {}
+
+# The open decisions re-read the assemblies schedule to find the layers the
+# drawings decline to specify -- about 5 s, every call, because unlike the
+# massing and the traces this had no cache at all. Warming it did nothing for
+# exactly that reason.
+_UNSPECIFIED: dict[str, object] = {}
+
+# The catalogue is licence-restricted and cannot be committed, so the service
+# must be useful without it: a fixture-backed project is always present. It is
+# also what the API tests run against, so they need no 2.7 GB download.
+DEMO_ID = "demo"
+
+
+def _seed_demo() -> None:
+    from ecarbon.fixtures import example_takeoff
+
+    _PROJECTS[DEMO_ID] = Project(id=DEMO_ID, takeoff=example_takeoff())
+
+
+_seed_demo()
+
+
+def _data_root():
+    from ecarbon.config import data_root
+
+    return data_root()
+
+
+def _catalogue() -> dict[str, object]:
+    """Designs available on this machine, by key. Empty when $EC_DATA is unset."""
+    try:
+        from ecarbon.config import discover
+
+        return {d.key: d for d in discover()}
+    except Exception:
+        return {}
+
+
+def _resolve(name: str) -> str | None:
+    """Match a plan-set name against the catalogue.
+
+    Catalogue keys carry a packaging suffix (`AB_Sixplex_Technical_Design_
+    Package`), so a caller naming the design itself must still find it.
+    """
+    cat = _catalogue()
+    if name in cat:
+        return name
+    lowered = name.lower()
+    matches = [k for k in cat if k.lower().startswith(lowered)]
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
-def _seed() -> Project:
-    """One demo project so GET works on a cold start."""
-    p = Project(id="demo", takeoff=example_takeoff())
-    _PROJECTS[p.id] = p
+def _build(key: str, stated: CreateProject | None = None) -> Project:
+    """Run the pipeline for one design and cache the result.
+
+    `stated` carries the project facts the caller gave. They take precedence
+    over anything read from the package, because a floor area the builder
+    states is a fact and one we read off a report is a convenience -- and the
+    two use different conventions often enough that silently preferring ours
+    would make the intensity wrong in a way nobody could see.
+    """
+    from ecarbon.models import ProjectFacts
+    from ecarbon.takeoff.builder import build_takeoff
+
+    design = _catalogue().get(key)
+    if design is None:
+        raise HTTPException(404, f"no plan set {key!r} under $EC_DATA")
+
+    facts = ProjectFacts(name=(stated.name if stated else None) or key)
+
+    # The Building Performance Report states floor area, storeys and units --
+    # project facts a builder would otherwise type in. Never its carbon total,
+    # which is A1-A5+B+C and not comparable with our A1-A3 figure.
+    try:
+        from ecarbon.bench.bpr import parse_bpr
+
+        if design.bpr:
+            bp = parse_bpr(str(design.bpr[0]))
+            facts.jurisdiction = bp.location
+            facts.gfa_m2 = bp.best_gfa_m2
+            facts.gfa_basis = "gross"
+            facts.storeys = bp.storeys
+            facts.units = bp.units
+    except Exception:
+        pass
+
+    if stated is not None:
+        if stated.jurisdiction:
+            facts.jurisdiction = stated.jurisdiction
+        if stated.gfa_m2:
+            facts.gfa_m2 = stated.gfa_m2
+            facts.gfa_basis = stated.gfa_basis  # type: ignore[assignment]
+
+    # A floor area in the request is the caller's own figure; one from the
+    # Building Performance Report is a stated fact we audit against the
+    # drawings. Only the latter is replaced.
+    typed_area = bool(stated and stated.gfa_m2)
+
+    # A takeoff saved at image-build time, when there is one and the caller
+    # has not supplied facts of their own. Parsing a set costs about 23
+    # seconds on a shared core and 177 for the largest, and that cost used to
+    # fall on whoever opened the link first -- and again after every restart,
+    # because the only cache was in memory.
+    prebuilt = None
+    if stated is None:
+        try:
+            from ecarbon.prebuilt import load_prebuilt
+
+            prebuilt = load_prebuilt(
+                Path(_data_root()), key, getattr(design, "drawings_pdf", None)
+            )
+        except Exception:
+            prebuilt = None
+
+    with _BUILD_LOCK:
+        # Re-check inside the lock: several requests can queue on the same
+        # design, and the first through should be the only one to build it.
+        if key in _PROJECTS:
+            return _PROJECTS[key]
+        p = Project(
+            id=key,
+            takeoff=prebuilt
+            or build_takeoff(design, facts, trust_stated_gfa=typed_area),
+            design=design,
+        )
+    _PROJECTS[key] = p
     return p
 
 
-_seed()
-
-
 def _get(project_id: str) -> Project:
-    if project_id not in _PROJECTS:
-        raise HTTPException(404, f"no project {project_id!r}")
-    return _PROJECTS[project_id]
+    if project_id in _PROJECTS:
+        return _PROJECTS[project_id]
+    if project_id in _catalogue():
+        return _build(project_id)
+    raise HTTPException(404, f"no project {project_id!r}")
 
 
 # -- requests / responses --------------------------------------------------
@@ -134,109 +308,67 @@ class Substitution(BaseModel):
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
+    """Deliberately async, so it is answered on the event loop itself.
+
+    A sync endpoint is run on a worker thread, and those threads are a finite
+    pool that long builds can exhaust -- at which point the health check
+    cannot get a thread, Fly concludes the app is dead and restarts it,
+    throwing away every design cached so far. The liveness probe must not
+    queue behind the work it is reporting on.
+    """
     return {"status": "ok", "version": app.version}
 
 
 @app.get("/projects")
 def list_projects() -> list[dict[str, object]]:
-    return [
-        {
-            "id": p.id,
-            "name": p.takeoff.project.name,
-            "total_kg_co2e": p.carbon.total_kg_co2e,
-            "n_lines": len(p.takeoff.lines),
-        }
-        for p in _PROJECTS.values()
-    ]
+    """Every plan set on this machine.
 
-
-@app.get("/presets")
-def list_presets() -> list[dict[str, str]]:
-    """Demo presets for zero-friction live demonstrations and evaluator testing."""
-    return [
-        {"id": "demo", "name": "AB_Fourplex_01 (Standard Demo)", "region": "AB", "typology": "4-Unit Multiplex"},
-        {"id": "ab_sixplex", "name": "AB_Sixplex (Revit Tagged)", "region": "AB", "typology": "6-Unit Multiplex"},
-        {"id": "ab_rowhouse_02", "name": "AB_Rowhouse_02 (AIA Layered)", "region": "AB", "typology": "3-Unit Rowhouse"},
-        {"id": "atl_fourplex_01_opt1", "name": "ATL_Fourplex_01 Opt 1 (Base Multiplex)", "region": "ATL", "typology": "4-Unit Multiplex"},
-    ]
-
-
-@app.post("/presets/{preset_id}/load")
-def load_preset(preset_id: str) -> dict[str, str]:
-    """Load a catalogue preset into active project state."""
-    if preset_id == "demo":
-        return {"id": "demo"}
-
-    if preset_id in _PROJECTS:
-        return {"id": preset_id}
-
-    from ecarbon.config import discover
-
-    key_map = {
-        "ab_sixplex": "AB_Sixplex",
-        "ab_rowhouse_02": "AB_Rowhouse_02",
-        "atl_fourplex_01_opt1": "ATL_Fourplex_01_Technical_Design_Package_Option1",
-    }
-    target_key = key_map.get(preset_id)
-    if not target_key:
-        raise HTTPException(404, f"Unknown preset {preset_id!r}")
-
-    matched = None
-    for d in discover():
-        if target_key.lower() in d.key.lower() and d.drawings_pdf:
-            matched = d
-            break
-
-    if not matched or not matched.drawings_pdf:
-        raise HTTPException(404, f"Design package for {preset_id} not found on disk")
-
-    to = generate_takeoff(
-        matched.drawings_pdf,
-        project_name=matched.key.replace("_Technical_Design_Package", ""),
-    )
-    p = Project(id=preset_id, takeoff=to, pdf_path=matched.drawings_pdf)
-    _PROJECTS[preset_id] = p
-    return {"id": preset_id}
+    Carbon is reported only for sets already built, since computing it for the
+    whole catalogue would mean opening 53 PDFs to answer a list request.
+    """
+    out: list[dict[str, object]] = []
+    for key in sorted(_catalogue()):
+        p = _PROJECTS.get(key)
+        out.append(
+            {
+                "id": key,
+                "name": key.replace("_", " "),
+                "built": p is not None,
+                "total_kg_co2e": p.carbon.total_kg_co2e if p else None,
+                "n_lines": len(p.takeoff.lines) if p else None,
+            }
+        )
+    for pid, p in _PROJECTS.items():
+        if pid not in _catalogue():
+            out.append(
+                {
+                    "id": pid,
+                    "name": p.takeoff.project.name,
+                    "built": True,
+                    "total_kg_co2e": p.carbon.total_kg_co2e,
+                    "n_lines": len(p.takeoff.lines),
+                }
+            )
+    return out
 
 
 @app.post("/projects", status_code=201)
 def create_project(body: CreateProject) -> dict[str, str]:
-    """Create project from body or clone fixture."""
-    t = example_takeoff()
-    t.project.name = body.name
-    if body.jurisdiction:
-        t.project.jurisdiction = body.jurisdiction
-    if body.gfa_m2:
-        t.project.gfa_m2 = body.gfa_m2
-        t.project.gfa_basis = body.gfa_basis  # type: ignore[assignment]
-    pid = uuid.uuid4().hex[:8]
-    _PROJECTS[pid] = Project(id=pid, takeoff=t)
-    return {"id": pid}
+    """Build a plan set found under $EC_DATA.
 
-
-@app.post("/projects/upload", status_code=201)
-async def upload_project(file: UploadFile = File(...)) -> dict[str, str]:
-    """Upload a vector PDF blueprint and run automated takeoff pipeline."""
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Only PDF files are supported.")
-
-    uploads_dir = Path("/tmp/ecarbon_uploads")
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    pid = uuid.uuid4().hex[:8]
-    dest_path = uploads_dir / f"{pid}_{file.filename}"
-
-    with open(dest_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-    try:
-        takeoff = generate_takeoff(dest_path, project_name=file.filename.replace(".pdf", ""))
-        _PROJECTS[pid] = Project(id=pid, takeoff=takeoff, pdf_path=dest_path)
-        return {"id": pid}
-    except Exception as exc:
-        if dest_path.exists():
-            dest_path.unlink()
-        raise HTTPException(500, f"Extraction failed: {exc}") from exc
+    `name` is the design key. Uploading an arbitrary PDF is Step 13; the
+    pipeline itself takes any vector set, so this endpoint is the only thing
+    standing between it and an upload.
+    """
+    key = _resolve(body.name)
+    if key is not None:
+        return {"id": _build(key, stated=body).id}
+    raise HTTPException(
+        404,
+        f"no plan set {body.name!r} under $EC_DATA. "
+        f"GET /projects lists what is available.",
+    )
 
 
 @app.get("/projects/{project_id}/intake", response_model=IntakeSummary)
@@ -286,517 +418,630 @@ def override_line(project_id: str, line_id: str, body: OverrideQuantity) -> Carb
 
 @app.get("/projects/{project_id}/substitutions", response_model=list[Substitution])
 def get_substitutions(project_id: str) -> list[Substitution]:
-    """Stage 4: ranked by computed impact, never listed arbitrarily."""
+    """Stage 4: ranked by computed impact, never listed arbitrarily.
+
+    Every option comes from the factor store, so a swap can only be offered
+    when both the current and the replacement factor are real records with a
+    source and a module scope. A swap whose replacement is not in the store is
+    not shown rather than estimated.
+    """
     p = _get(project_id)
-    prov = LocalSnapshotProvider()
-    subs_defs = prov.list_substitutions()
     out: list[Substitution] = []
 
-    for s in subs_defs:
-        from_f = prov.get_factor(s["from_factor_id"])
-        to_f = prov.get_factor(s["to_factor_id"])
-        if not from_f or not to_f:
+    for swap in _FACTORS.list_substitutions():
+        src = _FACTORS.get_factor(swap["from_factor_id"])
+        dst = _FACTORS.get_factor(swap["to_factor_id"])
+        if src is None or dst is None:
             continue
-
+        # Only like-for-like module scopes can be compared, for the same reason
+        # they cannot be summed.
+        if src.modules != dst.modules:
+            continue
         for cl in p.carbon.lines:
-            if cl.factor and cl.factor.factor_id == from_f.factor_id:
-                delta = cl.quantity * (to_f.gwp_value - from_f.gwp_value)
-                out.append(
-                    Substitution(
-                        line_id=cl.line_id,
-                        from_material=from_f.name,
-                        to_material=to_f.name,
-                        delta_kg_co2e=round(delta, 1),
-                        pct_of_total=round(100 * delta / p.carbon.total_kg_co2e, 1)
-                        if p.carbon.total_kg_co2e
-                        else 0.0,
-                    )
+            if not cl.is_counted or not cl.factor:
+                continue
+            if cl.factor.factor_id != src.factor_id:
+                continue
+            delta = cl.quantity * (dst.gwp_value - src.gwp_value)
+            out.append(
+                Substitution(
+                    line_id=cl.line_id,
+                    from_material=src.name,
+                    to_material=dst.name,
+                    delta_kg_co2e=round(delta, 1),
+                    pct_of_total=round(100 * delta / p.carbon.total_kg_co2e, 1)
+                    if p.carbon.total_kg_co2e
+                    else 0.0,
                 )
+            )
 
-    out.sort(key=lambda item: item.delta_kg_co2e)  # biggest saving first
+    out.sort(key=lambda s: s.delta_kg_co2e)  # biggest saving first
     return out
 
 
-@app.get("/projects/{project_id}/export/csv")
-def export_csv(project_id: str) -> Response:
-    """Export traceable Bill of Quantities with carbon factors to CSV."""
+@app.get("/projects/{project_id}/export.csv", response_class=PlainTextResponse)
+def export_csv(project_id: str) -> PlainTextResponse:
+    """The bill of quantities as CSV, with provenance on every row.
+
+    Criterion 5: a spreadsheet row that cannot be traced back to a sheet is
+    what this product exists to replace, so sheet, detail, confidence, basis
+    and assumptions all travel as columns.
+    """
+    from ecarbon.report import takeoff_csv
+
     p = _get(project_id)
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "line_id", "element_class", "assembly_tag", "material",
-        "extracted_quantity", "effective_quantity", "unit", "confidence",
-        "page", "sheet_no", "detail", "assumptions",
-        "factor_id", "factor_name", "declared_unit", "gwp_value",
-        "kg_co2e", "conversion_note", "missing_reason"
-    ])
-
-    cline_map = {cl.line_id: cl for cl in p.carbon.lines}
-
-    for ln in p.takeoff.lines:
-        cl = cline_map.get(ln.id)
-        f = cl.factor if cl else None
-        writer.writerow([
-            ln.id,
-            ln.element_class.value,
-            ln.assembly_tag or "",
-            ln.material or "",
-            ln.quantity,
-            ln.effective_quantity,
-            ln.unit.value,
-            ln.confidence.value,
-            ln.provenance.page,
-            ln.provenance.sheet_no or "",
-            ln.provenance.detail or "",
-            "; ".join(ln.assumptions),
-            f.factor_id if f else "",
-            f.name if f else "",
-            f.declared_unit if f else "",
-            f.gwp_value if f else "",
-            cl.kg_co2e if cl and cl.kg_co2e is not None else "",
-            cl.conversion_note if cl else "",
-            cl.missing_reason if cl and cl.missing_reason else "",
-        ])
-
-    return Response(
-        content=output.getvalue(),
+    return PlainTextResponse(
+        takeoff_csv(p.takeoff, p.carbon),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={project_id}_boq.csv"},
-    )
-
-
-@app.get("/projects/{project_id}/export/xlsx")
-def export_xlsx(project_id: str) -> Response:
-    """Export traceable Bill of Quantities with carbon factors to Excel (.xlsx)."""
-    p = _get(project_id)
-    cline_map = {cl.line_id: cl for cl in p.carbon.lines}
-
-    rows = []
-    for ln in p.takeoff.lines:
-        cl = cline_map.get(ln.id)
-        f = cl.factor if cl else None
-        rows.append({
-            "Line ID": ln.id,
-            "Element Class": ln.element_class.value,
-            "Assembly Tag": ln.assembly_tag or "",
-            "Material": ln.material or "",
-            "Extracted Qty": ln.quantity,
-            "Effective Qty": ln.effective_quantity,
-            "Unit": ln.unit.value,
-            "Confidence": ln.confidence.value,
-            "Sheet Number": ln.provenance.sheet_no or "",
-            "Page": ln.provenance.page,
-            "Detail": ln.provenance.detail or "",
-            "Assumptions": "; ".join(ln.assumptions),
-            "Carbon Factor": f.name if f else "",
-            "Declared Unit": f.declared_unit if f else "",
-            "GWP Value": f.gwp_value if f else None,
-            "Embodied Carbon (kgCO2e)": cl.kg_co2e if cl else None,
-            "Conversion Note": cl.conversion_note if cl else "",
-            "Missing Reason": cl.missing_reason if cl else "",
-        })
-
-    df = pd.DataFrame(rows)
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="Bill of Quantities", index=False)
-        summary_rows = [
-            {"Metric": "Project Name", "Value": p.takeoff.project.name},
-            {"Metric": "Total Embodied Carbon (kgCO2e)", "Value": p.carbon.total_kg_co2e},
-            {"Metric": "Embodied Carbon Intensity (kgCO2e/m2)", "Value": p.carbon.intensity_kg_co2e_per_m2},
-            {"Metric": "Intensity Basis", "Value": p.carbon.intensity_basis},
-            {"Metric": "Gross Floor Area (m2)", "Value": p.takeoff.project.gfa_m2},
-            {"Metric": "Module Scope", "Value": "-".join(p.carbon.modules)},
-            {"Metric": "Coverage (%)", "Value": round(p.carbon.coverage_pct, 1)},
-        ]
-        pd.DataFrame(summary_rows).to_excel(writer, sheet_name="Summary", index=False)
-
-    return Response(
-        content=buf.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={project_id}_boq.xlsx"},
-    )
-
-
-@app.get("/projects/{project_id}/trace/{line_id}")
-def trace_line(project_id: str, line_id: str) -> Response:
-    """Step 20 Click-to-trace: Render blueprint sheet and highlight element bounding box."""
-    import pymupdf
-
-    p = _get(project_id)
-    try:
-        line = p.takeoff.line(line_id)
-    except KeyError:
-        raise HTTPException(404, f"no line {line_id!r}")
-
-    pdf_path = _find_pdf_for_project(p)
-    if not pdf_path or not pdf_path.is_file():
-        raise HTTPException(404, "PDF blueprint not available for tracing.")
-
-    doc = pymupdf.open(pdf_path)
-    try:
-        p_idx = line.provenance.page
-        if p_idx >= len(doc):
-            p_idx = 0
-        page = doc[p_idx]
-
-        # Draw glowing highlight rect
-        if line.provenance.bbox:
-            rect = pymupdf.Rect(line.provenance.bbox)
-            # Expand slightly if point or tiny
-            if rect.width < 10 or rect.height < 10:
-                rect = pymupdf.Rect(rect.x0 - 20, rect.y0 - 20, rect.x1 + 20, rect.y1 + 20)
-        else:
-            # Highlight center viewport
-            w, h = page.rect.width, page.rect.height
-            rect = pymupdf.Rect(w * 0.2, h * 0.2, w * 0.8, h * 0.8)
-
-        # Highlight rect in cyan-blue
-        page.draw_rect(rect, color=(0.12, 0.53, 0.90), fill=(0.12, 0.53, 0.90), fill_opacity=0.25, width=3)
-        pix = page.get_pixmap(dpi=85)
-        return Response(content=pix.tobytes("png"), media_type="image/png")
-    finally:
-        doc.close()
-
-
-@app.get("/projects/{project_id}/reconciliation")
-def get_reconciliation(project_id: str) -> dict:
-    """Step 22 Module-scope reconciliation: Compare A1-A3 against published whole-life BPR."""
-    from ecarbon.bench.bpr_truth import parse_bpr
-    from ecarbon.config import discover
-
-    p = _get(project_id)
-
-    bpr = None
-    name_clean = p.takeoff.project.name.lower().replace("_drawings", "")
-    for d in discover():
-        if name_clean in d.key.lower() and d.bpr:
-            try:
-                bpr = parse_bpr(d.bpr[0])
-                break
-            except Exception:
-                pass
-
-    if not bpr:
-        for d in discover():
-            if d.bpr:
-                try:
-                    bpr = parse_bpr(d.bpr[0])
-                    break
-                except Exception:
-                    pass
-
-    return {
-        "project_name": p.takeoff.project.name,
-        "our_a1_a3_kg_co2e": round(p.carbon.total_kg_co2e, 1),
-        "our_intensity_kg_co2e_per_m2": round(p.carbon.intensity_kg_co2e_per_m2, 1),
-        "our_modules": ["A1", "A2", "A3"],
-        "our_range_low_kg_co2e": round(p.carbon.range_low_kg_co2e, 1),
-        "our_range_high_kg_co2e": round(p.carbon.range_high_kg_co2e, 1),
-        "bpr_total_kg_co2e": round(bpr.total_ec_kg_co2e, 1) if bpr and bpr.total_ec_kg_co2e else 213073.0,
-        "bpr_intensity_kg_co2e_per_m2": round(bpr.ec_intensity_kg_co2e_per_m2, 1)
-        if bpr and bpr.ec_intensity_kg_co2e_per_m2
-        else 433.0,
-        "bpr_modules": ["A1", "A2", "A3", "A4", "A5", "B4", "B5", "C2", "C3", "C4"],
-        "a1_a5_t_co2e": bpr.a1_a5_ec_t_co2e if bpr else 135.0,
-        "b4_b5_t_co2e": bpr.b4_b5_ec_t_co2e if bpr else 62.0,
-        "c2_c4_t_co2e": bpr.c2_c4_ec_t_co2e if bpr else 16.0,
-        "scope_guard_active": True,
-        "guard_statement": (
-            "EN 15978 / ISO 21930 Scope Guard: Upfront cradle-to-gate embodied carbon (A1-A3) "
-            "cannot be summed or compared with operational (B) or end-of-life (C) stages. "
-            "Our pipeline isolates verifiable upfront product emissions."
-        ),
-        "variance_breakdown": [
-            {
-                "module": "A1-A3 (Product Raw Materials & Manufacturing)",
-                "our_share_pct": 100.0,
-                "status": "Directly Calculated & Traceable",
-            },
-            {
-                "module": "A4 (Transportation to Construction Site)",
-                "our_share_pct": 0.0,
-                "status": "Excluded from A1-A3 Boundary",
-            },
-            {
-                "module": "A5 (Installation & Site Construction Waste)",
-                "our_share_pct": 0.0,
-                "status": "Estimated at 3-7% in wbLCA template",
-            },
-            {
-                "module": "B4-B5 (Refurbishment & Material Replacement)",
-                "our_share_pct": 0.0,
-                "status": "Excluded (Future Operational Lifecycle)",
-            },
-            {
-                "module": "C2-C4 (Deconstruction, Transport & End of Life)",
-                "our_share_pct": 0.0,
-                "status": "Excluded (End of Life Cycle)",
-            },
-        ],
-    }
-
-
-@app.get("/projects/{project_id}/report/html")
-def export_html_report(project_id: str) -> Response:
-    """Step 25: Executive builder-facing printable HTML compliance report."""
-    p = _get(project_id)
-    proj = p.takeoff.project
-
-    lines_html = ""
-    for ln in p.takeoff.lines:
-        cl = next((c for c in p.carbon.lines if c.line_id == ln.id), None)
-        kg = f"{cl.kg_co2e:,.0f}" if cl and cl.kg_co2e else "-"
-        lines_html += f"""
-        <tr>
-          <td><code>{ln.id}</code></td>
-          <td><b>{ln.element_class.value}</b></td>
-          <td>{ln.material or '-'}</td>
-          <td>{ln.effective_quantity:,.2f} {ln.unit.value}</td>
-          <td><span class="badge {ln.confidence.value}">{ln.confidence.value}</span></td>
-          <td>Sheet {ln.provenance.sheet_no or '-'} (p.{ln.provenance.page})</td>
-          <td style="text-align: right; font-weight: bold;">{kg}</td>
-        </tr>
-        """
-
-    asm_html = ""
-    for a in p.carbon.by_assembly:
-        asm_html += f"<li><b>{a.key}</b>: {a.kg_co2e:,.0f} kg CO₂e ({a.pct_of_total:.1f}%)</li>"
-
-    mat_html = ""
-    for m in p.carbon.by_material_category:
-        mat_html += f"<li><b>{m.key}</b>: {m.kg_co2e:,.0f} kg CO₂e ({m.pct_of_total:.1f}%)</li>"
-
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Embodied Carbon Audit Report - {proj.name}</title>
-  <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1E293B; line-height: 1.5; padding: 40px; max-width: 1000px; margin: auto; }}
-    h1 {{ font-size: 26px; margin-bottom: 4px; }}
-    .header {{ border-bottom: 2px solid #E2E8F0; padding-bottom: 20px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end; }}
-    .kpi-row {{ display: flex; gap: 16px; margin-bottom: 28px; }}
-    .kpi-card {{ flex: 1; border: 1px solid #E2E8F0; border-radius: 8px; padding: 16px; background: #F8FAFC; }}
-    .kpi-val {{ font-size: 28px; font-weight: 800; color: #0F172A; }}
-    .kpi-lbl {{ font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: 600; }}
-    table {{ width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }}
-    th, td {{ border: 1px solid #E2E8F0; padding: 8px 12px; text-align: left; }}
-    th {{ background: #F1F5F9; font-weight: 600; color: #475569; }}
-    .badge {{ font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }}
-    .badge.measured {{ background: #DCFCE7; color: #166534; }}
-    .badge.inferred {{ background: #DBEAFE; color: #1E40AF; }}
-    .badge.assumed {{ background: #FEF9C3; color: #854D0E; }}
-    .guard-banner {{ background: #EFF6FF; border-left: 4px solid #3B82F6; padding: 12px 16px; margin: 24px 0; border-radius: 0 6px 6px 0; font-size: 13px; color: #1E3A8A; }}
-    @media print {{ body {{ padding: 0; }} button {{ display: none; }} }}
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <h1>Whole-Building Embodied Carbon Audit (A1–A3)</h1>
-      <p style="color: #64748B; margin: 0;">Project: <b>{proj.name}</b> | Jurisdiction: {proj.jurisdiction or 'Alberta, Canada'} | Standard: EN 15978 / ISO 21930</p>
-    </div>
-    <div>
-      <button onclick="window.print()" style="background: #2563EB; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">Print Report</button>
-    </div>
-  </div>
-
-  <div class="kpi-row">
-    <div class="kpi-card">
-      <div class="kpi-lbl">Upfront Embodied Carbon (A1–A3)</div>
-      <div class="kpi-val">{p.carbon.total_kg_co2e:,.0f} <span style="font-size: 16px; font-weight: 500;">kg CO₂e</span></div>
-      <div style="font-size: 12px; color: #64748B; margin-top: 4px;">Band: {p.carbon.range_low_kg_co2e:,.0f} – {p.carbon.range_high_kg_co2e:,.0f} kg</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-lbl">Carbon Intensity</div>
-      <div class="kpi-val">{p.carbon.intensity_kg_co2e_per_m2:.1f} <span style="font-size: 16px; font-weight: 500;">kg/m²</span></div>
-      <div style="font-size: 12px; color: #64748B; margin-top: 4px;">Based on GFA: {proj.gfa_m2 or '-'} m²</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-lbl">Module Scope & Coverage</div>
-      <div class="kpi-val">A1–A3</div>
-      <div style="font-size: 12px; color: #166534; margin-top: 4px;">{p.carbon.coverage_pct:.1f}% Verified EPD Coverage</div>
-    </div>
-  </div>
-
-  <div class="guard-banner">
-    <b>Scope Guard:</b> Upfront cradle-to-gate embodied carbon (A1–A3) isolates material extraction and manufacturing emissions. In accordance with EN 15978 rules, it is not summed with future operational (B) or end-of-life (C) stages.
-  </div>
-
-  <div style="display: flex; gap: 32px; margin-bottom: 24px;">
-    <div style="flex: 1;">
-      <h3>Contribution by Assembly</h3>
-      <ul>{asm_html}</ul>
-    </div>
-    <div style="flex: 1;">
-      <h3>Contribution by Material</h3>
-      <ul>{mat_html}</ul>
-    </div>
-  </div>
-
-  <h3>Traceable Bill of Quantities (BoQ)</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>Line ID</th>
-        <th>Class</th>
-        <th>Material</th>
-        <th>Quantity</th>
-        <th>Confidence</th>
-        <th>Provenance</th>
-        <th style="text-align: right;">kg CO₂e</th>
-      </tr>
-    </thead>
-    <tbody>
-      {lines_html}
-    </tbody>
-  </table>
-</body>
-</html>
-"""
-    return Response(content=html_content, media_type="text/html")
-
-
-@app.get("/projects/{project_id}/uncertainty")
-def get_project_uncertainty(project_id: str) -> dict:
-    """Step 21: Statistical uncertainty propagation and sensitivity ranking."""
-    p = _get(project_id)
-    return analyze_uncertainty(p.takeoff, p.carbon).to_dict()
-
-
-@app.post("/projects/{project_id}/variants/compare")
-async def compare_variant(
-    project_id: str,
-    file: UploadFile = File(...),
-) -> dict:
-    """Step 23: Variants as deltas - compare an uploaded variant plan against base project."""
-    p = _get(project_id)
-    suffix = Path(file.filename or "variant.pdf").suffix or ".pdf"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = Path(tmp.name)
-
-    try:
-        var_to = generate_takeoff(
-            pdf_path=tmp_path,
-            project_name=Path(file.filename or "Variant").stem,
-            jurisdiction=p.takeoff.project.jurisdiction,
-        )
-        delta_res = compute_variant_delta(p.takeoff, var_to)
-        return delta_res.to_dict()
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
-
-
-@app.get("/benchmark")
-def get_benchmark_dashboard() -> dict:
-    """Step 26: Published per-category accuracy benchmark across toolchains."""
-    return {
-        "status": "verified",
-        "benchmark_date": "2026-10-24",
-        "target_pass_rate_pct": 80.0,
-        "actual_pass_rate_pct": 100.0,
-        "headline_metrics": {
-            "exterior_wall_area": {
-                "metric": "Exterior Wall Area (m²)",
-                "median_error_pct": 4.1,
-                "worst_case_error_pct": 4.5,
-                "target_error_pct": 10.0,
-                "status": "PASS",
-            },
-            "slab_on_grade_area": {
-                "metric": "Slab on Grade Area (m²)",
-                "median_error_pct": 0.5,
-                "worst_case_error_pct": 8.2,
-                "target_error_pct": 10.0,
-                "status": "PASS",
-            },
-            "window_count": {
-                "metric": "Window Unit Count",
-                "median_error_pct": 2.0,
-                "worst_case_error_pct": 4.0,
-                "target_error_pct": 10.0,
-                "status": "PASS",
-            },
+        headers={
+            "Content-Disposition": f'attachment; filename="{project_id}-takeoff.csv"'
         },
-        "toolchain_breakdown": [
-            {
-                "toolchain": "Revit Tagged (AB / National)",
-                "samples": 8,
-                "wall_median_err": 3.6,
-                "slab_median_err": 0.5,
-                "window_median_err": 2.0,
-                "speed_s": 8.4,
-            },
-            {
-                "toolchain": "AIA Layered / AutoCAD (ATL / BC)",
-                "samples": 12,
-                "wall_median_err": 4.2,
-                "slab_median_err": 0.4,
-                "window_median_err": 3.5,
-                "speed_s": 11.2,
-            },
-            {
-                "toolchain": "Flattened Vector (QC)",
-                "samples": 5,
-                "wall_median_err": 4.5,
-                "slab_median_err": 8.2,
-                "window_median_err": 0.0,
-                "speed_s": 9.1,
-            },
-        ],
-        "eval_designs": [
-            {
-                "design": "AB_Sixplex",
-                "typology": "6-unit Multiplex",
-                "toolchain": "revit_tagged",
-                "wall_to_m2": 363.9,
-                "wall_ifc_m2": 377.6,
-                "wall_err_pct": 3.6,
-                "slab_to_m2": 189.5,
-                "slab_ifc_m2": 188.6,
-                "slab_err_pct": 0.5,
-                "carbon_kg": 70333,
-            },
-            {
-                "design": "AB_Rowhouse_02",
-                "typology": "3-unit Rowhouse",
-                "toolchain": "revit_tagged",
-                "wall_to_m2": 409.9,
-                "wall_ifc_m2": 392.1,
-                "wall_err_pct": 4.5,
-                "slab_to_m2": 238.2,
-                "slab_ifc_m2": 220.1,
-                "slab_err_pct": 8.2,
-                "carbon_kg": 66955,
-            },
-            {
-                "design": "ATL_Fourplex_01_Option1",
-                "typology": "4-unit Stacked Multiplex",
-                "toolchain": "aia_layered",
-                "wall_to_m2": 322.7,
-                "wall_ifc_m2": 309.7,
-                "wall_err_pct": 4.2,
-                "slab_to_m2": 141.8,
-                "slab_ifc_m2": 142.3,
-                "slab_err_pct": 0.4,
-                "carbon_kg": 55074,
-            },
-            {
-                "design": "ATL_Fourplex_01_Option2",
-                "typology": "4-unit Stacked Multiplex (Var)",
-                "toolchain": "aia_layered",
-                "wall_to_m2": 310.2,
-                "wall_ifc_m2": 305.5,
-                "wall_err_pct": 1.5,
-                "slab_to_m2": 141.8,
-                "slab_ifc_m2": 142.3,
-                "slab_err_pct": 0.4,
-                "carbon_kg": 58043,
-            },
-        ],
-        "stance": "We tell you what we can and cannot read: every takeoff line carries explicit confidence ('measured', 'inferred', 'assumed') and page/detail provenance.",
+    )
+
+
+@app.get("/projects/{project_id}/report.html", response_class=HTMLResponse)
+def export_report(project_id: str) -> HTMLResponse:
+    """A printable report a builder could hand to a municipality."""
+    from ecarbon.report import report_html
+
+    p = _get(project_id)
+    return HTMLResponse(report_html(p.takeoff, p.carbon))
+
+
+# -- click-to-trace --------------------------------------------------------
+
+
+class TraceRegionOut(BaseModel):
+    """Where one line's quantity came from, on one page.
+
+    `kind` is a claim about strength of evidence and the UI must not flatten
+    it: `measured_geometry` means the rectangles are the linework that was
+    measured, `schedule_row` means they are the text the figure was read from,
+    and `sheet_only` means the region could not be located and nothing is
+    highlighted.
+    """
+
+    page: int
+    sheet_no: str | None = None
+    kind: str
+    note: str
+    rects: list[tuple[float, float, float, float]] = Field(default_factory=list)
+    page_width: float = 0.0
+    page_height: float = 0.0
+    image_url: str | None = None
+
+
+def _design_for(project_id: str):
+    held = _PROJECTS.get(project_id)
+    design = getattr(held, "design", None) or _catalogue().get(project_id)
+    if design is None:
+        raise HTTPException(
+            404,
+            f"project {project_id!r} has no drawings on this machine, so there is "
+            "nothing to trace to. The demo project is fixture-backed; set $EC_DATA "
+            "and use a catalogue design to trace a line to its sheet.",
+        )
+    return design
+
+
+@app.get("/projects/{project_id}/trace/{line_id}", response_model=list[TraceRegionOut])
+def get_trace(project_id: str, line_id: str) -> list[TraceRegionOut]:
+    """Criterion 2's strong form: the region of the sheet a quantity came from.
+
+    Returns one entry per page, because a quantity measured on every storey --
+    interior partitions -- genuinely comes from more than one sheet.
+    """
+    from ecarbon.trace import trace_line
+
+    p = _get(project_id)
+    try:
+        p.takeoff.line(line_id)
+    except KeyError:
+        raise HTTPException(404, f"no line {line_id!r}") from None
+
+    key = (project_id, line_id)
+    regions = _TRACE.get(key)
+    if regions is None:
+        regions = trace_line(_design_for(project_id), p.takeoff, line_id)
+        _TRACE[key] = regions
+    return [
+        TraceRegionOut(
+            page=r.page,
+            sheet_no=r.sheet_no,
+            kind=r.kind,
+            note=r.note,
+            rects=r.rects,
+            page_width=r.page_width,
+            page_height=r.page_height,
+            image_url=f"/projects/{project_id}/trace/{line_id}/image.png?page={r.page}",
+        )
+        for r in regions
+    ]
+
+
+@app.get("/projects/{project_id}/trace/{line_id}/image.png")
+def get_trace_image(
+    project_id: str,
+    line_id: str,
+    page: int,
+    dpi: int = 110,
+    highlight: bool = True,
+):
+    """The source page as a PNG with the measured regions outlined.
+
+    The drawings are licence-restricted: CMHC forbids redistributing them, so
+    this renders for the person running the tool and the service must not be
+    exposed publicly with a catalogue attached.
+    """
+    from fastapi.responses import Response
+
+    from ecarbon.trace import render_page, trace_line
+
+    p = _get(project_id)
+    design = _design_for(project_id)
+    cached = _TRACE.get((project_id, line_id))
+    if cached is None:
+        cached = trace_line(design, p.takeoff, line_id)
+        _TRACE[(project_id, line_id)] = cached
+    regions = [r for r in cached if r.page == page]
+    if not regions:
+        raise HTTPException(404, f"line {line_id!r} does not trace to page {page}")
+    # The interface overlays the regions itself as SVG, which stays crisp at
+    # any zoom and can be animated. Drawing them into the raster as well would
+    # double every outline, so a client that draws its own asks for a clean
+    # sheet. Server-side drawing stays for anything fetching the URL directly.
+    rects = [rect for r in regions for rect in r.rects] if highlight else []
+    dpi = max(40, min(dpi, 400))
+    png_key = (project_id, line_id, page, dpi, highlight)
+    png = _SHEET_PNG.get(png_key)
+    if png is None:
+        try:
+            png = render_page(design, page, rects, dpi=dpi)
+        except IndexError as exc:
+            raise HTTPException(404, str(exc)) from None
+        # Bounded, because each page is about a megabyte and a long session
+        # would otherwise hold every sheet anyone pressed.
+        if len(_SHEET_PNG) > 24:
+            _SHEET_PNG.clear()
+        _SHEET_PNG[png_key] = png
+    return Response(content=png, media_type="image/png")
+
+
+# -- decisions the drawings leave open -------------------------------------
+
+
+class ChoiceOption(BaseModel):
+    factor_id: str
+    name: str
+    source: str
+    kg_co2e: float
+
+
+class UnspecifiedChoiceOut(BaseModel):
+    """A layer the drawings decline to specify, priced as a range.
+
+    Distinct from a substitution: a substitution replaces a material the
+    drawings chose, while this is a choice nobody has made yet. Presenting the
+    two the same way would imply a decision exists where none does.
+    """
+
+    assembly_tag: str
+    category: str
+    drawing_says: str
+    area_m2: float
+    sheet_no: str | None = None
+    page: int | None = None
+    low_kg_co2e: float
+    high_kg_co2e: float
+    spread_kg_co2e: float
+    note: str
+    options: list[ChoiceOption]
+
+
+@app.get(
+    "/projects/{project_id}/unspecified",
+    response_model=list[UnspecifiedChoiceOut],
+)
+def get_unspecified(project_id: str) -> list[UnspecifiedChoiceOut]:
+    """Criterion 3's discipline, made actionable.
+
+    These layers carry no carbon in the total because no material has been
+    chosen. Rather than defaulting one and saying nothing, each is reported
+    with what every available option would cost, ordered by how much the
+    decision moves.
+    """
+    from ecarbon.carbon.unspecified import unspecified_choices
+    from ecarbon.extract.assemblies import assemblies_for
+
+    if project_id in _UNSPECIFIED:
+        return _UNSPECIFIED[project_id]
+
+    p = _get(project_id)
+    design = getattr(p, "design", None) or _catalogue().get(project_id)
+    if design is None:
+        _UNSPECIFIED[project_id] = []
+        return []
+    assemblies, _refused = assemblies_for(design)
+    out = [
+        UnspecifiedChoiceOut(
+            assembly_tag=c.assembly_tag,
+            category=c.category,
+            drawing_says=c.drawing_says,
+            area_m2=c.area_m2,
+            sheet_no=c.sheet_no,
+            page=c.page,
+            low_kg_co2e=c.low_kg_co2e,
+            high_kg_co2e=c.high_kg_co2e,
+            spread_kg_co2e=c.spread_kg_co2e,
+            note=c.note,
+            options=[
+                ChoiceOption(
+                    factor_id=o.factor.factor_id,
+                    name=o.name,
+                    source=o.factor.source,
+                    kg_co2e=o.kg_co2e,
+                )
+                for o in c.options
+            ],
+        )
+        for c in unspecified_choices(p.takeoff, assemblies, _FACTORS)
+    ]
+    _UNSPECIFIED[project_id] = out
+    return out
+
+
+# -- uploading a plan set --------------------------------------------------
+
+# A drawing set is a few hundred vector pages; 120 MB is comfortably above the
+# largest in the CMHC catalogue and well below anything that would exhaust
+# memory here.
+MAX_UPLOAD_BYTES = 120 * 1024 * 1024
+_UPLOAD_ROOT: Path | None = None
+
+
+def _upload_dir() -> Path:
+    """A private directory for uploaded sets, outside the repo and $EC_DATA.
+
+    Uploads are untrusted input and are not part of the catalogue: keeping
+    them in their own tree means an upload can never be mistaken for a
+    licensed CMHC design, and nothing we ship can be overwritten by one.
+    """
+    global _UPLOAD_ROOT
+    if _UPLOAD_ROOT is None:
+        _UPLOAD_ROOT = Path(tempfile.mkdtemp(prefix="ecarbon-uploads-"))
+    return _UPLOAD_ROOT
+
+
+@app.post("/projects/upload", status_code=201)
+async def upload_project(
+    # B008 is suppressed per-argument: calling File()/Form() in the default is
+    # how FastAPI declares multipart fields, not an accidental shared default.
+    file: UploadFile = File(...),  # noqa: B008
+    name: str | None = Form(None),  # noqa: B008
+    gfa_m2: float | None = Form(None),  # noqa: B008
+    gfa_basis: str | None = Form(None),  # noqa: B008
+    storeys: int | None = Form(None),  # noqa: B008
+    units: int | None = Form(None),  # noqa: B008
+    jurisdiction: str | None = Form(None),  # noqa: B008
+) -> dict[str, object]:
+    """Run the pipeline on a plan set the caller supplies.
+
+    This is what makes the tool usable on drawings we have never seen, which
+    is the only test that counts: the catalogue is a development set, and a
+    builder's own sets are the product. Everything downstream -- gap report,
+    bill of quantities, click-to-trace, substitutions -- works identically,
+    because none of it is specialised to the catalogue.
+
+    The figures a drawing cannot state are asked for rather than guessed.
+    Gross floor area in particular decides the intensity per square metre, and
+    inferring it from a plan whose extents cover a whole block gave one
+    catalogue design an intensity six times its neighbours'.
+    """
+    from ecarbon.config import Design
+    from ecarbon.models import ProjectFacts
+    from ecarbon.takeoff.builder import build_takeoff
+
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413, f"plan set larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+        )
+    if not raw.startswith(b"%PDF-"):
+        raise HTTPException(
+            415,
+            "not a PDF. This pipeline reads vector PDF drawing sets; a scan "
+            "or an image export carries no geometry to measure.",
+        )
+
+    stem = Path(file.filename or "plan-set").stem or "plan-set"
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", stem)[:80].strip("-") or "plan-set"
+    project_id = f"upload-{uuid.uuid4().hex[:8]}-{safe}"
+
+    # Its own empty directory, so nothing in the set can land beside another
+    # upload or anything we ship.
+    home = _upload_dir() / project_id
+    home.mkdir(parents=True, exist_ok=False)
+    pdf = home / f"{safe}.pdf"
+    pdf.write_bytes(raw)
+
+    design = Design(
+        key=project_id,
+        region="UPLOAD",
+        package_dir=home,
+        drawings_pdf=pdf,
+        ifc=None,
+        h2k=[],
+        bpr=[],
+        list_of_drawings=None,
+    )
+    facts = ProjectFacts(
+        name=name or safe,
+        jurisdiction=jurisdiction,
+        gfa_m2=gfa_m2,
+        gfa_basis=gfa_basis or "gross",
+        storeys=storeys,
+        units=units,
+    )
+    try:
+        with _BUILD_LOCK:
+            takeoff = build_takeoff(
+                design, facts, trust_stated_gfa=gfa_m2 is not None
+            )
+    except Exception as exc:
+        raise HTTPException(
+            422,
+            f"could not read this plan set: {exc}. Nothing partial is stored.",
+        ) from exc
+
+    project = Project(id=project_id, takeoff=takeoff, design=design)
+    _PROJECTS[project_id] = project
+    return {
+        "id": project_id,
+        "n_lines": len(takeoff.lines),
+        "n_sheets": len(takeoff.sheets),
+        "n_gaps": len(takeoff.gaps),
+        "total_kg_co2e": project.carbon.total_kg_co2e,
     }
 
+
+# -- serving the app itself -------------------------------------------------
+
+# One service serves the API and the built interface from the same origin.
+# Two services would mean a CORS surface, two deploys and two things to break
+# during a demo, for no benefit when the frontend is 260 kB of static files.
+_WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
+
+# Credentials are read from the environment so none is ever committed. With
+# neither set the service is open, which is what local development wants; set
+# both and every route except the health check requires them.
+_AUTH_USER = os.environ.get("ECARBON_USER")
+_AUTH_PASSWORD = os.environ.get("ECARBON_PASSWORD")
+_OPEN_PATHS = {"/health"}
+
+
+@app.middleware("http")
+async def _require_credentials(request, call_next):
+    """HTTP basic auth over the whole service when credentials are configured.
+
+    The drawings this serves are licence-restricted, so an open deployment
+    would publish them to anyone who found the URL. Gating the whole origin --
+    interface, API and rendered sheets alike -- is the only version of this
+    that actually holds, since the trace endpoint returns page images.
+    """
+    if not (_AUTH_USER and _AUTH_PASSWORD):
+        return await call_next(request)
+    if request.url.path in _OPEN_PATHS:
+        return await call_next(request)
+
+    expected = base64.b64encode(
+        f"{_AUTH_USER}:{_AUTH_PASSWORD}".encode()
+    ).decode()
+
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("basic "):
+        supplied = header[6:]
+    else:
+        # A rendered sheet is an <img src>, which cannot carry a header, so
+        # the same credential may ride the query string instead. Same origin,
+        # same gate, and it never leaves the page that already has it.
+        supplied = request.query_params.get("auth", "")
+    # Compared in constant time so the comparison itself leaks nothing.
+    if not secrets.compare_digest(supplied, expected):
+        return Response(
+            status_code=401,
+            content="Credentials required.",
+            headers={"WWW-Authenticate": 'Basic realm="ecarbon"'},
+        )
+    return await call_next(request)
+
+
+# -- the takeoff, in three dimensions ---------------------------------------
+
+
+class MassingWall(BaseModel):
+    """One measured partition, in metres relative to the footprint."""
+
+    x: float
+    y: float
+    w: float
+    d: float
+    storey: int
+
+
+class Massing(BaseModel):
+    """What the drawings were understood to describe, as geometry.
+
+    Not a render of a building: every figure here is one this pipeline
+    measured, so a wrong footprint is a visibly wrong shape and partitions
+    that over-detect are walls standing where no walls are. That is the point
+    of showing it -- the uncertainty becomes something you can see rather than
+    something the gap report asserts.
+    """
+
+    width_m: float
+    depth_m: float
+    storey_heights_m: list[float]
+    walls: list[MassingWall] = Field(default_factory=list)
+    carbon_by_class: dict[str, float] = Field(default_factory=dict)
+    note: str
+
+
+@app.get("/projects/{project_id}/massing", response_model=Massing | None)
+def get_massing(project_id: str) -> Massing | None:
+    """Footprint, storey datums and measured partitions, in metres.
+
+    Partition rectangles are stored in PDF page coordinates and the footprint
+    keeps no origin, so there is no page-to-building transform to apply. They
+    are normalised against their own extent instead, which is sound here for a
+    checkable reason: on AB_Fourplex_01 the rect extent is 398 x 1248 pt, a
+    ratio of 0.319, against a measured footprint of 7.0 x 22.0 m, a ratio of
+    0.318. The partitions span the building, so their bounds are its bounds.
+
+    Returned as None rather than guessed when the footprint or the storey
+    heights are missing, which is most of the catalogue outside Alberta.
+    """
+    if project_id in _MASSING:
+        return _MASSING[project_id]
+
+    p = _get(project_id)
+    design = getattr(p, "design", None) or _catalogue().get(project_id)
+    if design is None:
+        return None
+
+    from ecarbon.geometry.partitions import partitions_for
+    from ecarbon.takeoff.builder import gather
+
+    try:
+        facts = p.takeoff.project
+        expected = (
+            facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
+        )
+        inputs, _sheets, _gaps = gather(design, expected)
+    except Exception:
+        _MASSING[project_id] = None
+        return None
+
+    footprint = inputs.footprint
+    heights = inputs.heights.storey_heights_m() if inputs.heights else []
+    if footprint is None or not heights:
+        _MASSING[project_id] = None
+        return None
+
+    walls: list[MassingWall] = []
+    try:
+        measured = partitions_for(design)
+    except Exception:
+        measured = None
+
+    if measured and measured.runs:
+        for storey, run in enumerate(measured.runs):
+            if not run.rects:
+                continue
+            xs = [v for r in run.rects for v in (r[0], r[2])]
+            ys = [v for r in run.rects for v in (r[1], r[3])]
+            x0, x1 = min(xs), max(xs)
+            y0, y1 = min(ys), max(ys)
+            span_x = (x1 - x0) or 1.0
+            span_y = (y1 - y0) or 1.0
+            # The page's long axis is the building's long axis; orientation
+            # follows from which span is larger rather than from an assumed
+            # sheet rotation.
+            flip = (span_x > span_y) != (footprint.width_m > footprint.depth_m)
+            for r in run.rects:
+                ax = (r[0] - x0) / span_x
+                ay = (r[1] - y0) / span_y
+                aw = (r[2] - r[0]) / span_x
+                ad = (r[3] - r[1]) / span_y
+                if flip:
+                    ax, ay, aw, ad = ay, ax, ad, aw
+                walls.append(
+                    MassingWall(
+                        x=round(ax * footprint.width_m, 3),
+                        y=round(ay * footprint.depth_m, 3),
+                        w=round(max(aw * footprint.width_m, 0.05), 3),
+                        d=round(max(ad * footprint.depth_m, 0.05), 3),
+                        storey=storey,
+                    )
+                )
+
+    by_class: dict[str, float] = {}
+    results = {c.line_id: c for c in p.carbon.lines}
+    for line in p.takeoff.lines:
+        result = results.get(line.id)
+        if result is None or result.kg_co2e is None:
+            continue
+        key = line.element_class.value
+        by_class[key] = round(by_class.get(key, 0.0) + result.kg_co2e, 1)
+
+    result = Massing(
+        width_m=round(footprint.width_m, 2),
+        depth_m=round(footprint.depth_m, 2),
+        storey_heights_m=[round(h, 3) for h in heights],
+        walls=walls,
+        carbon_by_class=by_class,
+        note=(
+            f"{footprint.width_m:.1f} x {footprint.depth_m:.1f} m measured from "
+            f"the linework, {len(heights)} storeys from the section datums, and "
+            f"{len(walls)} partition walls measured on the plans. Every surface "
+            f"here is a quantity in the bill, so a wrong reading is a visibly "
+            f"wrong shape rather than a number you would have to check."
+        ),
+    )
+    _MASSING[project_id] = result
+    return result
+
+
+def _mount_interface() -> None:
+    """Serve the built interface, if it has been built.
+
+    Mounted last so every API route above wins its path, and with html=True so
+    a deep link falls back to index.html rather than 404ing -- the interface is
+    a single page and does its own routing.
+    """
+    if not _WEB_DIST.is_dir():
+        return
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(_WEB_DIST), html=True), name="web")
+
+
+_mount_interface()
+
+
+def _warm_catalogue() -> None:
+    """Build the bundled designs in the background once the service is up.
+
+    The first request for a design runs the whole pipeline -- about 23 s on a
+    shared core -- and only then is the result cached. Leaving that to the
+    first visitor means whoever opens the link does the waiting, which on a
+    demo is the one thing worth spending idle CPU to avoid.
+
+    It runs on a thread so the health check passes immediately instead of
+    waiting on several builds, and failures are swallowed: a design that
+    cannot be pre-built is simply built on request, exactly as before.
+    """
+    import threading
+
+    def run() -> None:
+        for key in _catalogue():
+            try:
+                _build(key)
+            except Exception:
+                continue
+
+    threading.Thread(target=run, name="warm-catalogue", daemon=True).start()
+
+
+@app.on_event("startup")
+def _on_startup() -> None:
+    """Pre-building is opt-in, and off by default, because it was measured.
+
+    Enabled on a single shared core it made everything worse: the build is
+    CPU-bound Python holding the GIL, so the event loop was starved and even
+    /health intermittently timed out. Fly restarts machines whose health check
+    fails, so an optimisation meant to save a visitor twenty seconds was
+    instead putting the service into a restart loop. Turn it on with
+    ECARBON_WARM=1 only where there is a core to spare for it.
+    """
+    if os.environ.get("ECARBON_WARM", "0") == "1":
+        _warm_catalogue()

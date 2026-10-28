@@ -12,9 +12,10 @@
 Landmark Homes is a pioneer in industrialized, sustainable low-rise residential construction in Alberta. However, estimating upfront embodied carbon (A1–A3) currently requires either weeks of manual quantity takeoff or expensive external lifecycle assessment (LCA) consultants.
 
 **The Pilot Goal:** Deliver a streamlined 6-week beta implementation with Landmark Homes to prove automated blueprint extraction and carbon estimation directly on Landmark's production drawing sets, achieving:
-1. **Median takeoff accuracy $\le 10\%$** against Landmark's internal reference estimates.
-2. **End-to-end processing time $< 2$ minutes** per plan set.
-3. **Immediate payback** by establishing a repeatable, reusable carbon baseline for each standardized model.
+1. **Median takeoff accuracy within 10%** on the headline quantities, against Landmark's internal reference estimates, with at least 75% of all quantities inside ±25% — the band the best published system reaches (see section 5).
+2. **End-to-end processing time under 2 minutes** per plan set, with no code changes for an unseen set.
+3. **Every number traceable**: each quantity carries its sheet, detail and confidence, and nothing the drawings leave unspecified is silently defaulted.
+4. **Immediate payback** by establishing a repeatable, reusable carbon baseline for each standardized model — the cost is per plan, not per home, so it amortises across every unit built from it.
 
 ---
 
@@ -50,11 +51,11 @@ Week 6: Commercial Rollout & Expansion Roadmap
 ### Phase 2: Pilot Validation & Shadowing (Weeks 3–4)
 - **Side-by-Side Comparison:** Run our automated takeoff pipeline concurrently with Landmark's estimating team on 3 live production projects.
 - **Accuracy Benchmarking:** Compare quantities across the 8 primary element classes:
-  - Slab on grade & footings ($m^3$)
-  - Foundation walls ($m^3$)
-  - Exterior wall assembly areas ($m^2$)
-  - Roof assemblies ($m^2$)
-  - Floor assemblies ($m^2$)
+  - Slab on grade & footings (m³)
+  - Foundation walls (m³)
+  - Exterior wall assembly areas (m²)
+  - Roof assemblies (m²)
+  - Floor assemblies (m²)
   - Window & door schedules (counts and areas)
 - **Interactive Substitution Review:** Engage Landmark sustainability and procurement leads to test material substitutions (e.g., Portland GU vs GUL 40% fly ash concrete, cellulose vs mineral wool insulation).
 
@@ -83,7 +84,7 @@ Our pipeline connects non-intrusively into Landmark's existing workflow:
   - Gap & Unreadability Report   - ERP / Cost Estimating Import
 ```
 
-1. **Input Stage:** Landmark drops drawing set PDFs into the web interface or API endpoint (`POST /projects/upload`). No CAD plugins or custom model tagging required.
+1. **Input Stage:** Landmark drops drawing set PDFs into the web interface or API endpoint (`POST /projects/upload`, multipart, vector PDF). No CAD plugins or custom model tagging required.
 2. **Review Stage:** Estimators inspect the **Gap Report** first, verifying sheet readability and flagged assumptions before reviewing quantities.
 3. **Traceability Stage:** Estimators use **Click-to-Trace** to jump directly to the sheet, detail, and bounding box for any quantity in question.
 4. **Output Stage:** One-click export to CSV/XLSX for incorporation into Landmark's cost estimating and procurement systems, plus an exportable report formatted for municipal permit submission.
@@ -105,9 +106,54 @@ To achieve full beta validation with minimum burden on Landmark's team, we defin
 
 ## 5. Success Criteria & KPIs
 
-The pilot will be deemed successful and ready for full enterprise adoption upon meeting these measurable gates:
+These are the gates we would sign, set against what we measure today and
+against what the field achieves — not against what sounds best in a proposal.
 
-1. **Extraction Accuracy:** $\ge 85\%$ of all element quantities within $\pm 10\%$ of Landmark's reference takeoff, with median error $\le 6\%$.
-2. **Speed:** End-to-end takeoff and carbon estimation completed in $< 120$ seconds per plan set.
-3. **Auditability:** $100\%$ of generated quantities carry sheet number and detail provenance.
-4. **Traceable Zero-Jargon Output:** Estimator and sustainability lead can explain every line in the final embodied carbon total without consulting external LCA manuals.
+| # | Gate | Where the number comes from |
+|---|---|---|
+| 1 | **Median error within 10%** on the headline quantities (slab and footing volume, exterior wall area, roof area, window and door counts) | We measure footprint at 3.3% median, doors at 0.0%, windows at 4.0% against the catalogue's own IFC models |
+| 2 | **At least 75% of all quantities within ±25%** of Landmark's reference takeoff | Handoff-H1, a funded purpose-built system, reports 78.8% at this band; professional human estimators reach 87.9%, and *disagree with each other* |
+| 3 | **Every quantity carries its sheet, detail and confidence label**, and 90%+ resolve to a highlighted region | 100% carry provenance today; 19 of 20 resolve to a region on the reference design |
+| 4 | **Under 120 seconds** per plan set, end to end, no code changes | Catalogue median is 13.2 s, worst 25.4 s |
+| 5 | **Zero silent substitutions.** Every material we could not read appears as a gap or a priced open decision, never as a default | Enforced by test; the placeholder-cladding default is specifically guarded against |
+
+**Why gate 2 is not "85% within ±10%".** An earlier draft of this plan
+promised that. It is not a target we could meet or that anyone has met: the
+best published system reports 78.8% within the much wider ±25% band, and the
+human estimators it was benchmarked against hit 87.9% precision while still
+disagreeing with one another on the same drawings. A reference takeoff is not
+a single right answer. Promising a builder a tighter band than the industry's
+best, against a benchmark that is itself uncertain, would make the pilot fail
+on arrival — and gates we cannot meet are worse than gates set honestly.
+
+---
+
+## 6. Risks We Already Know About
+
+From building against 53 public sets. These are the things most likely to
+cost pilot time, so they are named before the pilot rather than discovered in
+week three.
+
+| Risk | What we saw | Mitigation |
+|---|---|---|
+| **Per-unit vs whole-block floor area** | One catalogue design reports area for a single unit while its drawings depict the whole block, giving an intensity six times its neighbours'. Quantities were right; the denominator was wrong | The upload asks for gross floor area and its basis rather than inferring it. Week 1 confirms the basis against Landmark's own convention |
+| **Deferred specifications** | CMHC's drawings say "cladding placeholder" and "roofing placeholder", worth ~12% of a home's embodied carbon | Reported as open decisions priced as a range, never defaulted. Landmark's actual spec closes them in week 1 |
+| **Drawing conventions shift inside one PDF** | Architectural pages are Revit exports, structural pages AutoCAD, in the same file. Per-file assumptions break | Detection is per page, not per file |
+| **Structural members deferred to another discipline** | Schedules say "see structural", so framing is absent from the architectural set | Reported as a gap. If Landmark's structural sets are available, they are ingested too |
+| **A region can regress when another improves** | Every extraction module is shared; a change made for one province moves another. Ontario fell 42% to 29% while Alberta rose to 100% | A pinned regression gate on the development region, run on every change. Landmark's sets get the same treatment from week 2 |
+
+---
+
+## 7. What We Need Before Week 1
+
+Nothing in section 4 is unusual, but two items gate the rest and are worth
+confirming early:
+
+1. **The floor-area convention Landmark estimates against** — gross, net, or
+   per unit — because it sets every intensity figure the pilot reports.
+2. **Whether reference takeoffs exist for the chosen models.** If they do not,
+   gate 2 cannot be scored and we would agree a different gate in week 1
+   rather than discover it at sign-off. We hit this ourselves: CMHC publishes
+   quantity take-offs for these designs and they are not in the public data
+   package, so every accuracy figure we report is measured against geometry
+   derived from the IFC models instead of against a quantity surveyor's bill.

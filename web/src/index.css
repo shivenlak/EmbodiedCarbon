@@ -1,63 +1,1102 @@
+/* ecarbon — a reading instrument for drawing sets.
+ *
+ * The subject is construction documents, so the surface borrows from them:
+ * ruled panels, tabular figures, sheet tags that look like the stamps on a
+ * drawing. What it does not borrow is a drawing's flatness. An estimator
+ * scanning this needs to find the big number, the uncertain lines and the
+ * gaps in that order, and that ordering has to be visible before anything is
+ * read.
+ *
+ * Colour is load-bearing and never decorative:
+ *   emerald  measured     — geometry, from the linework
+ *   blue     inferred     — computed from something the drawing states
+ *   amber    assumed      — a standard stood in where the drawing was silent
+ *   red      blocking     — do not trust the total until this is resolved
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600;700&display=swap");
+
 :root {
-  --bg-main: #0B0F17;
-  --bg-card: #131A26;
-  --bg-card-hover: #1A2332;
-  --bg-subtle: #172030;
-  --border: #233045;
-  --border-light: #31425F;
-  --text-main: #F1F5F9;
-  --text-muted: #94A3B8;
-  --text-dim: #64748B;
-  --accent-green: #10B981;
-  --accent-green-bg: rgba(16, 185, 129, 0.12);
-  --accent-blue: #3B82F6;
-  --accent-blue-bg: rgba(59, 130, 246, 0.12);
-  --accent-amber: #F59E0B;
-  --accent-amber-bg: rgba(245, 158, 11, 0.12);
-  --accent-rose: #F43F5E;
-  --accent-rose-bg: rgba(244, 63, 94, 0.12);
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --page: #eef1f6;
+  --card: #ffffff;
+  --ink: #0b1220;
+  --ink-2: #334155;
+  --muted: #64748b;
+  --faint: #94a3b8;
+
+  --rule: #e2e8f0;
+  --rule-strong: #cbd5e1;
+
+  --primary: #1e40af;
+  --primary-soft: #eff4ff;
+  --accent: #b45309;
+  --accent-soft: #fff7ed;
+
+  --measured: #047857;
+  --measured-soft: #ecfdf5;
+  --inferred: #1d4ed8;
+  --inferred-soft: #eff6ff;
+  --assumed: #b45309;
+  --assumed-soft: #fffbeb;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.04);
+  --shadow-2: 0 2px 4px rgb(15 23 42 / 0.05), 0 8px 20px rgb(15 23 42 / 0.07);
+  --shadow-3: 0 18px 50px rgb(15 23 42 / 0.22);
+
+  --r-sm: 4px;
+  --r: 7px;
+  --r-lg: 11px;
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
 
 body {
-  background-color: var(--bg-main);
-  color: var(--text-main);
-  font-family: var(--font-sans);
-  line-height: 1.5;
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
-button {
-  font-family: inherit;
+/* Figures line up in columns and never jitter as they change. */
+.num, .mono, td .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.012em; }
+
+button { font: inherit; color: inherit; }
+
+::selection { background: #c7d7fb; }
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ------------------------------------------------------------ shell -- */
+
+.app { min-height: 100dvh; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: 0 var(--s5);
+  height: 56px;
+  background: rgb(255 255 255 / 0.86);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.wordmark {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+.wordmark span { color: var(--primary); }
+
+.topbar-spacer { flex: 1; }
+
+.selector {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.selector label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+.selector select {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
   cursor: pointer;
-  border: none;
-  background: none;
+  transition: border-color 160ms var(--ease);
+}
+.selector select:hover { border-color: var(--primary); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 7px 13px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--ink-2);
+  transition: background 160ms var(--ease), border-color 160ms var(--ease),
+    color 160ms var(--ease);
+}
+.btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.btn-primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+.btn-primary:hover { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.page {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: var(--s5) var(--s5) var(--s7);
+  display: grid;
+  gap: var(--s4);
 }
 
-input {
-  font-family: inherit;
+.card {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
 }
 
-/* Scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--rule);
 }
-::-webkit-scrollbar-track {
-  background: var(--bg-main);
+.card-head h2 { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+.card-note { font-size: 11.5px; color: var(--faint); }
+
+/* ------------------------------------------------------------- hero -- */
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--s4);
+  /* Each card takes its own height; without this the shorter one is stretched
+     to match the taller and shows a column of empty white. */
+  align-items: start;
 }
-::-webkit-scrollbar-thumb {
-  background: var(--border-light);
+@media (max-width: 1240px) {
+  .hero-grid { grid-template-columns: minmax(0, 1fr) 260px; }
+}
+@media (max-width: 1080px) { .hero-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.hero { padding: var(--s5); display: grid; gap: var(--s4); align-content: start; }
+
+.hero-top { display: flex; align-items: flex-start; gap: var(--s5); flex-wrap: wrap; }
+
+.figure {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(42px, 6vw, 64px);
+  font-weight: 600;
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+}
+.figure-unit {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 8px;
+  letter-spacing: 0;
+}
+
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s2); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.chip-measured { color: var(--measured); background: var(--measured-soft); }
+.chip-inferred { color: var(--inferred); background: var(--inferred-soft); }
+.chip-assumed  { color: var(--assumed);  background: var(--assumed-soft); }
+.chip-scope    { color: var(--primary);  background: var(--primary-soft); }
+.chip-danger   { color: var(--danger);   background: var(--danger-soft); }
+
+/* The same total without its least certain line. Deliberately adjacent to
+   the headline rather than in a footnote. */
+.alt-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  background: var(--page);
+  border-radius: var(--r);
+  border: 1px dashed var(--rule-strong);
+}
+.alt-total-figure { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 19px; font-weight: 600; }
+.alt-total-note { font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+.kpis {
+  display: grid;
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  gap: var(--s3);
+}
+.kpi {
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: linear-gradient(180deg, #fff, #fbfcfe);
+}
+.kpi-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+.kpi-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 21px;
+  font-weight: 600;
+  margin-top: 3px;
+  letter-spacing: -0.02em;
+}
+.kpi-sub { font-size: 11px; color: var(--muted); }
+
+/* ------------------------------------------------- project title block -- */
+
+.titleblock { padding: var(--s4) var(--s5); display: grid; gap: 0; align-content: start; }
+.tb-row {
+  display: grid;
+  gap: 1px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.tb-row:last-child { border-bottom: 0; }
+.tb-label {
+  font-size: 9.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+.tb-value { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+.tb-flag {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--accent);
+}
+
+.meter { height: 5px; border-radius: 999px; background: var(--rule); overflow: hidden; margin-top: 6px; }
+.meter > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), #3b82f6);
+  transition: width 700ms var(--ease);
+}
+
+/* ----------------------------------------------------------- charts -- */
+
+.charts { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0; }
+@media (max-width: 900px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+
+.donut-wrap {
+  padding: var(--s5);
+  display: grid;
+  place-items: center;
+  gap: var(--s3);
+  border-right: 1px solid var(--rule);
+}
+@media (max-width: 900px) { .donut-wrap { border-right: 0; border-bottom: 1px solid var(--rule); } }
+
+.donut { position: relative; width: 190px; height: 190px; }
+.donut svg { transform: rotate(-90deg); display: block; }
+.donut-seg {
+  transition: stroke-width 180ms var(--ease), opacity 180ms var(--ease);
+  cursor: pointer;
+}
+.donut-seg:hover { stroke-width: 30; }
+.donut.has-hover .donut-seg:not(.is-hover) { opacity: 0.32; }
+.donut-centre {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+.donut-centre b {
+  display: block;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.donut-centre span { font-size: 10.5px; color: var(--muted); max-width: 120px; line-height: 1.3; }
+
+.bars { padding: var(--s4) var(--s5); display: grid; gap: 9px; align-content: start; }
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px 46px;
+  min-width: 0;
+  align-items: center;
+  gap: var(--s3);
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border-radius: var(--r-sm);
+  cursor: default;
+  transition: background 140ms var(--ease);
+}
+.bar-row:hover { background: var(--page); }
+.bar-name { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 7px; border-radius: 999px; background: var(--rule); overflow: hidden; }
+.bar-track > i { display: block; height: 100%; border-radius: inherit; transition: width 600ms var(--ease); }
+.bar-value { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--muted); text-align: right; }
+
+/* ----------------------------------------------------------- notices -- */
+
+.notices { padding: var(--s3) var(--s5) var(--s4); display: grid; gap: var(--s2); }
+
+.notice {
+  display: grid;
+  gap: 3px;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r);
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  background: #fcfdff;
+  transition: box-shadow 160ms var(--ease);
+}
+.notice:hover { box-shadow: var(--shadow-1); }
+.notice-blocking { border-left-color: var(--danger); background: var(--danger-soft); }
+.notice-warning  { border-left-color: var(--accent); background: var(--accent-soft); }
+.notice-info     { border-left-color: var(--rule-strong); }
+.notice-head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+}
+.notice-blocking .notice-head { color: var(--danger); }
+.notice-warning .notice-head { color: var(--accent); }
+.notice-body { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+.notice-more {
+  justify-self: start;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--r-sm);
+  padding: 6px 11px;
+  cursor: pointer;
+  transition: color 150ms var(--ease), border-color 150ms var(--ease);
+}
+.notice-more:hover { color: var(--primary); border-color: var(--primary); }
+
+/* --------------------------------------------------------------- BoQ -- */
+
+.table-scroll { overflow-x: auto; }
+
+/* separate, not collapse: a sticky <th> inside a collapsed table does not
+   composite correctly -- the header clipped the first row, which read as the
+   row being cut off. With separate borders the header carries its rule as a
+   box-shadow instead, which travels with it. */
+table.boq { width: 100%; border-collapse: separate; border-spacing: 0; }
+/* Not sticky. It was, parked below the topbar, and it covered the first row
+   of the bill -- the row read as cut off, which is exactly how Shiven found
+   it. A sticky header earns its keep on a long independently-scrolling table;
+   this one opens at eight rows inside a card the page scrolls past, so it was
+   paying a real cost for nothing. */
+table.boq th {
+  background: #fbfcfe;
+  text-align: left;
+  font-size: 9.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+  padding: 9px var(--s4);
+  /* A shadow rather than a border: a collapsed border does not move with a
+     sticky cell, so the rule was left behind as the header travelled. */
+  box-shadow: inset 0 -1px 0 var(--rule);
+  white-space: nowrap;
+}
+table.boq th.r, table.boq td.r { text-align: right; }
+
+table.boq tbody td {
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+table.boq tbody tr {
+  transition: background 130ms var(--ease);
+}
+table.boq tbody tr:hover { background: #f7f9fc; }
+table.boq tbody tr:last-child td { box-shadow: none; }
+table.boq td { padding: 11px var(--s4); vertical-align: top; }
+
+.el-name { font-weight: 500; font-size: 13px; display: flex; align-items: center; gap: 7px; }
+.el-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--rule-strong);
   border-radius: 3px;
+  padding: 0 4px;
+}
+.el-desc { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+
+.qty { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13.5px; white-space: nowrap; }
+.qty-unit { font-size: 10.5px; color: var(--faint); margin-left: 3px; }
+.qty-btn {
+  background: none;
+  border: 0;
+  border-bottom: 1px dashed var(--rule-strong);
+  padding: 0 1px 1px;
+  cursor: pointer;
+  transition: border-color 150ms var(--ease), color 150ms var(--ease);
+}
+.qty-btn:hover { border-color: var(--primary); color: var(--primary); }
+.qty-input {
+  width: 92px;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 3px 6px;
+  border: 1px solid var(--primary);
+  border-radius: var(--r-sm);
+}
+.qty-edited { color: var(--primary); }
+
+.carbon { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13.5px; white-space: nowrap; }
+.carbon-none { color: var(--faint); font-family: var(--sans); font-size: 11.5px; font-style: italic; }
+
+/* A sheet tag reads like the stamp it refers to, and is the trace control. */
+.cite {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--card);
+  cursor: pointer;
+  padding: 0;
+  max-width: 100%;
+  transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease), transform 150ms var(--ease);
+}
+.cite:hover { border-color: var(--primary); box-shadow: var(--shadow-1); transform: translateY(-1px); }
+.cite:active { transform: translateY(0); }
+.cite-sheet {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 3px 7px;
+  background: var(--primary);
+  color: #fff;
+  white-space: nowrap;
+}
+.cite-detail {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  padding: 3px 8px;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cite-none { opacity: 0.55; font-size: 11px; font-family: var(--mono); color: var(--faint); }
+
+.derivation {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.derivation:hover { color: var(--primary); }
+.derivation-body {
+  margin-top: 6px;
+  padding: var(--s3);
+  background: var(--page);
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  display: grid;
+  gap: 6px;
+}
+.derivation-body ul { margin: 0; padding-left: 16px; }
+
+/* ------------------------------------------------ open decisions / swaps -- */
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--s4);
+  align-items: start;
+}
+/* Below this the two panels are each too narrow to read, so they stack
+   rather than squeezing. */
+@media (max-width: 1100px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
+
+.decisions, .swaps { padding: var(--s4) var(--s5); display: grid; gap: var(--s3); }
+
+.decision { border: 1px solid var(--rule); border-radius: var(--r); padding: var(--s3) var(--s4); }
+.decision-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); }
+.decision-cat { font-weight: 600; font-size: 13px; }
+.decision-tag { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 7px; }
+.decision-range { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.decision-says { font-size: 11.5px; color: var(--muted); line-height: 1.5; margin: 5px 0 9px; }
+.decision-opts { display: grid; gap: 4px; }
+.decision-opt {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-size: 12px;
+  padding: 5px 9px;
+  background: var(--page);
+  border-radius: var(--r-sm);
+  transition: background 140ms var(--ease);
+}
+.decision-opt:hover { background: var(--accent-soft); }
+.decision-opt b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 500; }
+
+.swap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+.swap:hover { border-color: var(--measured); box-shadow: var(--shadow-1); }
+.swap-el { font-size: 12.5px; font-weight: 500; }
+.swap-move { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
+.swap-delta { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; color: var(--measured); text-align: right; white-space: nowrap; }
+.swap-pct { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; }
+
+/* ------------------------------------------------------------- trace -- */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgb(11 18 32 / 0.55);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  animation: fade 180ms var(--ease);
+}
+@keyframes fade { from { opacity: 0; } }
+
+.trace {
+  width: min(1120px, 100%);
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  animation: rise 220ms var(--ease);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.99); } }
+
+.trace-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--rule);
+}
+.trace-title { font-family: var(--mono); font-size: 13.5px; margin-top: 3px; }
+.trace-close {
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 7px 10px;
+  color: var(--muted);
+  transition: all 150ms var(--ease);
+}
+.trace-close:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
+
+.trace-meta { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding: var(--s3) var(--s5) 0; }
+.trace-sheet { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.trace-pager { display: flex; gap: 4px; margin-left: auto; }
+.trace-pager button {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all 150ms var(--ease);
+}
+.trace-pager button:hover { border-color: var(--primary); color: var(--primary); }
+.trace-pager button.is-on { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.trace-note { padding: var(--s2) var(--s5) 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.trace-body { padding: var(--s3) var(--s5) var(--s5); overflow: auto; }
+.trace-img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: #fff;
+  display: block;
 }
 
-.mono {
-  font-family: var(--font-mono);
+/* ------------------------------------------------------------ states -- */
+
+.centre { display: grid; place-items: center; min-height: 72dvh; padding: var(--s5); }
+.panel { max-width: 460px; width: 100%; }
+.panel h2 { font-size: 17px; margin-bottom: 6px; }
+.panel p { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 0 0 var(--s4); }
+
+.form { display: grid; gap: var(--s3); }
+.form label { display: grid; gap: 4px; }
+.form input {
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
+  transition: border-color 150ms var(--ease);
+}
+.form input:focus { border-color: var(--primary); }
+.form-fail { color: var(--danger); font-size: 12.5px; margin-top: var(--s3); }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--rule) 25%, #eef2f7 37%, var(--rule) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--r-sm);
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+.muted { color: var(--muted); }
+.eyebrow {
+  font-size: 9.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The sheet is drawn clean and the measured regions are laid over it as
+   vectors, so the outline stays sharp at any zoom and can draw itself on.
+   Opening zoomed to the region is the whole point: a 36x24 inch sheet scaled
+   into a dialog is a grey haze, and this panel exists to let you see the
+   thing that was measured. */
+.trace-sheetview {
+  width: 100%;
+  max-height: 68dvh;
+  display: block;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: #fff;
+}
+
+.trace-rect {
+  fill: rgb(220 38 38 / 0.10);
+  stroke: #dc2626;
+  vector-effect: non-scaling-stroke;
+  /* A halo, so an outline around a small schedule cell is still findable on a
+     dense drawing without the stroke itself growing thick enough to cover the
+     thing it points at. */
+  filter: drop-shadow(0 0 3px rgb(220 38 38 / 0.55));
+  transition: stroke-dashoffset 520ms var(--ease);
+}
+
+.trace-zoom {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+}
+.trace-zoom:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
+/* The donut, the bars and the bill are three views of one thing, so they
+   share a hover and a filter. Dimming rather than removing matters: a bill
+   that silently drops rows would let a reader believe the total only covers
+   what is on screen. */
+table.boq tbody tr.is-dimmed { opacity: 0.26; }
+table.boq tbody tr.is-lit { background: var(--primary-soft); }
+table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var(--ease); }
+
+.bar-row { cursor: pointer; }
+.bar-row.is-filtered { background: var(--primary-soft); box-shadow: inset 2px 0 0 var(--primary); }
+
+.filter-clear {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid var(--primary);
+  border-radius: var(--r-sm);
+  padding: 3px 9px;
+  cursor: pointer;
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-clear:hover { background: var(--primary); color: #fff; }
+
+/* One choreographed arrival per view: the tiles and the bars rise in
+   sequence while the headline counts up. 40 ms apart is enough to read as
+   deliberate and short enough that the page is settled before a reader has
+   finished looking at the number. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.kpi, .bar-row {
+  animation: rise-in 420ms var(--ease) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi, .bar-row { animation: none; }
+}
+
+/* ------------------------------------------------------------- upload -- */
+
+.upload {
+  width: min(680px, 100%);
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+  overflow: auto;
+  animation: rise 220ms var(--ease);
+}
+
+.upload-body { padding: var(--s4) var(--s5) var(--s5); display: grid; gap: var(--s4); }
+
+.dropzone {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: var(--s6) var(--s4);
+  border: 2px dashed var(--rule-strong);
+  border-radius: var(--r);
+  background: var(--page);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 160ms var(--ease), background 160ms var(--ease);
+}
+.dropzone b { font-size: 14px; }
+.dropzone span { font-size: 12px; color: var(--muted); }
+.dropzone:hover { border-color: var(--primary); }
+.dropzone.is-over { border-color: var(--primary); background: var(--primary-soft); }
+.dropzone.has-file { border-style: solid; border-color: var(--measured); background: var(--measured-soft); }
+
+.upload-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s3);
+}
+.upload-facts label { display: grid; gap: 4px; }
+.upload-facts input {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
+}
+.upload-facts input:focus { border-color: var(--primary); outline: none; }
+
+.upload-actions { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; }
+.upload-actions .muted { font-size: 12px; }
+
+/* ------------------------------------------------------- sheet coverage -- */
+
+/* Every page of the set, in order, coloured by what it turned out to be. The
+   title block says "45 of 46 sheets read" as a number; this is the same claim
+   in a form where a reader can see which ones carried the weight, and see
+   that the unreadable one is a visible tick rather than a silent omission. */
+.strip-wrap { padding: var(--s4) var(--s5) var(--s5); display: grid; gap: var(--s3); }
+
+.strip {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  min-height: 46px;
+}
+
+.tick {
+  flex: 1 1 0;
+  min-width: 5px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 140ms var(--ease), height 160ms var(--ease),
+    box-shadow 160ms var(--ease);
+}
+.tick:hover, .tick.is-hover { opacity: 1; height: 46px; }
+
+/* A sheet the bill actually draws on stands taller and keeps full colour, so
+   the four that carry the number are findable among forty-six. */
+.tick.is-cited { opacity: 1; height: 42px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.55); }
+.tick.is-cited::after { content: ""; }
+
+/* Hatched rather than absent: a sheet with no readable text is a fact about
+   the drawing set, not a gap in this chart. */
+.tick.is-unreadable {
+  background: repeating-linear-gradient(
+    45deg,
+    #94a3b8, #94a3b8 2px,
+    #e2e8f0 2px, #e2e8f0 4px
+  );
+  opacity: 0.9;
+}
+
+.strip-read {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  min-height: 20px;
+  font-size: 12.5px;
+}
+.strip-read b { font-family: var(--mono); font-size: 12.5px; }
+.strip-read span { color: var(--muted); }
+
+.strip-key { display: flex; flex-wrap: wrap; gap: var(--s4); }
+.strip-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.strip-key-item i {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.strip-key-item i.hatch {
+  background: repeating-linear-gradient(
+    45deg, #94a3b8, #94a3b8 2px, #e2e8f0 2px, #e2e8f0 4px
+  );
+}
+.strip-key-item i.cited { background: var(--primary); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.6); }
+
+/* ------------------------------------------------------------- massing -- */
+
+.massing { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 0; }
+@media (max-width: 980px) { .massing { grid-template-columns: minmax(0, 1fr); } }
+
+.massing-view {
+  padding: var(--s5);
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--rule);
+  background:
+    linear-gradient(transparent 0 0),
+    repeating-linear-gradient(0deg, #f6f8fc 0 23px, #eef2f8 23px 24px),
+    repeating-linear-gradient(90deg, #f6f8fc 0 23px, #eef2f8 23px 24px);
+}
+@media (max-width: 980px) {
+  .massing-view { border-right: 0; border-bottom: 1px solid var(--rule); }
+}
+.massing-view svg { width: 100%; max-height: 420px; display: block; }
+
+.massing-side { padding: var(--s4) var(--s5); display: grid; gap: var(--s3); align-content: start; }
+.massing-note { font-size: 12.5px; line-height: 1.55; color: var(--ink-2); margin: 0; }
+.massing-caveat { font-size: 11.5px; line-height: 1.5; color: var(--muted); margin: 0; }
+
+.massing-storeys { display: grid; gap: 5px; }
+.massing-storeys button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+}
+.massing-storeys button span { font-size: 10.5px; opacity: 0.8; }
+.massing-storeys button:hover { border-color: var(--primary); color: var(--primary); }
+.massing-storeys button.is-on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* An overridden quantity shows the reader's figure, with ours kept beside it.
+   Replacing one with the other silently would lose the comparison that makes
+   the correction meaningful -- and showing ours alone, which is what this
+   used to do, left the old number next to a total computed from the new. */
+.qty-was {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+  margin-top: 2px;
+}
+.qty-edited .qty-btn { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* The bill opens at eight lines. Twenty, each two rows tall, pushed the
+   substitutions four thousand pixels down the page -- and the whole bill is
+   one press, or one CSV export, away. */
+.bill-more {
+  display: block;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  background: #fbfcfe;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  padding: 11px var(--s4);
+  cursor: pointer;
+  transition: color 150ms var(--ease), background 150ms var(--ease);
+}
+.bill-more:hover { color: var(--primary); background: var(--primary-soft); }
+
+/* Structure / carbon toggle and the heat legend. The legend carries the
+   figure beside every swatch: colour alone cannot separate 12,305 from
+   11,078, and asking a reader to try would be the same sin as a chart with
+   no axis. */
+.massing-modes { display: flex; gap: 4px; }
+.massing-modes button {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+}
+.massing-modes button:hover { border-color: var(--primary); color: var(--primary); }
+.massing-modes button.is-on { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+.heat-key { display: grid; gap: 3px; }
+.heat-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  padding: 3px 0;
+}
+.heat-row i {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgb(15 23 42 / 0.12);
+}
+.heat-row span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.heat-row b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11.5px; font-weight: 500; }
+
+/* The legend carries intensity and total together: colour is the way in, the
+   figures are the evidence. */
+.heat-row b { display: flex; align-items: baseline; gap: 7px; }
+.heat-row b em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--faint);
+  font-weight: 400;
+}
+.heat-row.is-undrawn span,
+.heat-row.is-undrawn b { color: var(--faint); }
+
+/* Drag to turn the building. grab/grabbing is the whole affordance, plus a
+   hint that fades once the view has been moved. */
+.massing-view { position: relative; }
+.massing-svg { cursor: grab; touch-action: none; }
+.massing-svg.is-dragging { cursor: grabbing; }
+
+.massing-hint {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  pointer-events: none;
 }

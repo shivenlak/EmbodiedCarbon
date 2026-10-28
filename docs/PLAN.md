@@ -1,7 +1,7 @@
 # Embodied Carbon Challenge — Research Findings & Build Plan
 
-> **Status:** **PHASE 0, PHASE 1, AND PHASE 2 FULLY EXECUTED & VERIFIED.**
-> All 29 build steps executed, automated, and tested (231 passing tests). Verified against 3D IFC ground truth across Revit, AutoCAD (AIA-layered), and flattened toolchains. Checkpoint A and Checkpoint B quality bars exceeded. All submission documents, live web app, and Demo Day hub ready.
+> **Status:** Phase A (research) complete. Phase B (plan) pending answers to the open questions at the end.
+> **Step 1 of execution will be to copy the research half of this file to `RESEARCH.md` in the repo** (plan mode permits editing only this file).
 
 ---
 
@@ -527,59 +527,4 @@ Per-category accuracy by toolchain group. **Statistics are not redistribution of
 ## What will not fit in 180 h — stated plainly
 
 Full element-list coverage (we will cover ~8–10 classes, not every assembly); a trained ML element classifier (rule-based plus layer-derived labels only); live EC3 API at scale (cached attributed snapshot behind a provider interface — which is what the scope actually asks for); **A4–A5 implemented** (architecture and extension points only, as the scope permits); DWG ingestion (deliberately dropped, §7); a benchmark across all 39 usable designs (expect 10–20); and productionised OCR for the 8 textless NOR sets (Step 24 is the first thing to cut). Honest assessment: **criteria 2 and 3 can genuinely reach the bar; criterion 1 will be strong because the gap report is cheap and distinctive; criterion 4 will be real but shallow; the 25% in criteria 6–8 is won by writing, which is why it gets a weekly slice from day one.**
-
----
-
-# PART 3 — EXECUTION & DELIVERY AUDIT LOG
-
-## 1. Step-by-Step Implementation Census
-
-| Step | Scope / Title | Track | Status | Primary Code / Artifact | Verification Evidence |
-|---|---|---|---|---|---|
-| **1** | Licence / Size Protection | S | ✅ Complete | `.gitignore`, `data_root()` | Zero restricted CAD data committed; `$EC_DATA` externalized |
-| **2** | Working Toolchain Setup | S | ✅ Complete | Python 3.13 venv, PyMuPDF, IfcOpenShell | Hermetic venv running all CAD/BIM parsers natively |
-| **3** | Information Gap Closure | T | ✅ Complete | `docs/element_priority.md` | Kootenay guide hierarchy prioritized (Concrete → Walls → Roof → Openings) |
-| **4** | Commit Research Findings | S | ✅ Complete | `RESEARCH.md` | Part 1 committed on dedicated feature branch `feat/execute-plan` |
-| **5** | Data Contract & Fixtures | Both | ✅ Complete | `ecarbon/models.py`, `tests/fixtures/` | Contract frozen; `TakeoffResult` & `CarbonResult` schemas validated |
-| **6** | Intake & Toolchain Detect | S | ✅ Complete | `ecarbon/intake/inventory.py` | 5 toolchains classified across 53 packages; 0 crashes |
-| **7** | Sheet Classifier & Gap Report | S | ✅ Complete | `ecarbon/intake/classify.py`, `gaps.py` | >90% sheet classification accuracy against index; explicit gap reports |
-| **8** | Scale Calibration Engine | S | ✅ Complete | `ecarbon/geometry/scale.py` | Dimension chains & dual metric/imperial strings calibrated within 1% |
-| **9** | Ground Truth Engine | S | ✅ Complete | `ecarbon/bench/ifc_truth.py`, `h2k_truth.py` | 3D IFC volume & surface mesh engine + HOT2000 parser validated |
-| **10** | Blueprint Takeoff Engine v1 | S | ✅ Complete | `ecarbon/takeoff/builder.py`, `footprint.py` | 8 element classes extracted with provenance & confidence chips |
-| **11** | Factor Store & Provider ABC | T | ✅ Complete | `ecarbon/carbon/store.py`, `factors.sqlite3` | SQLite store seeded with BEAM/EC3; 0 hardcoded numbers in code |
-| **12** | Unit Matching & Carbon Totals | T | ✅ Complete | `ecarbon/carbon/calculate.py` | Cradle-to-gate upfront A1–A3 totals & intensity per m² GFA |
-| **13** | API & BoQ Exporters | T | ✅ Complete | `ecarbon/api/main.py` | Full FastAPI loop: upload, gap report, BoQ, 1-click Excel/CSV |
-| **14** | Interactive UI (Vite + React) | T | ✅ Complete | `web/src/App.jsx`, `web/src/index.css` | Real-time BoQ editor, live carbon recalculation, and gap display |
-| **15** | Ranked Material Substitutions | T | ✅ Complete | `GET /projects/{id}/substitutions` | Swaps ranked strictly by computed &Delta;kg CO₂e impact |
-| **16** | End-to-End Benchmark & Sub 1 | Both | ✅ Complete | `scripts/run_bench.py`, `docs/benchmark_report.md` | Automated scoring across catalogue designs; 100% pass rate bar |
-| **17** | Multi-Toolchain Evaluation | S | ✅ Complete | `ecarbon/takeoff/builder.py` | Separate accuracy reporting for Revit, AutoCAD, and flattened sets |
-| **18** | Carbon Driver Accuracy Push | S | ✅ Complete | `ecarbon/extract/footprint.py` | 4.1% median wall error, 0.5% slab error vs 3D IFC truth |
-| **19** | Schedules & Assembly Parsing | S | ✅ Complete | `ecarbon/extract/schedules.py` | Rich assembly specs retained across multiple sheets; cross-checked vs IFC |
-| **20** | Click-to-Trace Blueprint Viewer | Both | ✅ Complete | `GET /projects/{id}/trace/{line_id}` | Visual viewer rendering glowing cyan bounding box on source sheet |
-| **21** | Statistical Uncertainty Engine | T | ✅ Complete | `ecarbon/carbon/uncertainty.py` | EPD factor variance + measurement confidence into 95% CI bands |
-| **22** | Module Reconciliation View | T | ✅ Complete | `GET /projects/{id}/reconciliation` | EN 15978 / ISO 21930 Scope Guard isolating A1–A3 vs published BPR totals |
-| **23** | Blueprint Variants as Deltas | S | ✅ Complete | `ecarbon/takeoff/variants.py` | Line-by-line delta engine evaluating plan revisions in <35 seconds |
-| **24** | Textless OCR Fallback Ladder | S | ✅ Complete | `ecarbon/intake/classify.py` | PyMuPDF Tesseract OCR fallback recovers sheet titles on outlined sets |
-| **25** | Executive Printable Audit Report | T | ✅ Complete | `GET /projects/{id}/report/html` | Formatted builder-facing HTML compliance report ready to print |
-| **26** | Published Benchmark Dashboard | T | ✅ Complete | `GET /benchmark`, `web/src/App.jsx` | Accuracy matrix published in app by toolchain with worst-case bounds |
-| **27** | Landmark Beta Implementation | Both | ✅ Complete | `docs/implementation_plan.md` | 3-phase pilot plan on 3 Landmark sets with 2-week calibration |
-| **28** | Commercial Business Plan | Both | ✅ Complete | `docs/business_plan.md` | $1.5k/plan pricing, 98.5% gross margin, wedge vs Handoff-H1 |
-| **29** | Demo Day Script & Rubric Hub | Both | ✅ Complete | `docs/pitch.md`, `web/src/App.jsx` | 3-minute timed script, 8-criterion matrix, and interactive UI guide |
-
----
-
-## 2. Rubric Scorecard Verification
-
-| Criterion | Weight | Required Quality Bar | eCarbon Measured Performance | Status |
-|---|---|---|---|---|
-| **1. Drawing Intake** | 10% | Zero crashes across 53 sets; identifies 5 toolchains; explicit gap report | 53 sets opened; Revit, AIA, Flattened, Distiller detected; zero silent assumptions | **Exceeded (10/10)** |
-| **2. Quantity Extraction** | 30% | &ge;8 element classes; full provenance; &le;10% median error vs IFC | 8 classes; 100% bboxes; 4.1% wall err, 0.5% slab err; click-to-trace; live edit <1s | **Exceeded (30/30)** |
-| **3. Carbon & Traceability** | 15% | Zero hardcoded factors; declared units; strict A1–A3 scope guard | SQLite store (BEAM/EC3); zero hardcoded factors; ISO 21930 Scope Guard | **Exceeded (15/15)** |
-| **4. Interactive Config** | 10% | &ge;6 swaps; live recompute; ranked by computed &Delta;kg CO₂e | 6 real swaps; ranked by &Delta;kg CO₂e; updates whole-building total live | **Exceeded (10/10)** |
-| **5. Usability & Automation** | 10% | Unseen set in <2 min; 1-click Excel/CSV BoQ; builder-facing report | Automated run in <15s; 1-click Excel/CSV exports; printable compliance report | **Exceeded (10/10)** |
-| **6. Implementation Plan** | 10% | 2-page path to beta with Landmark: scope, timeline, integration, asks | `docs/implementation_plan.md`: 3-phase pilot on 3 Landmark sets; named asks | **Exceeded (10/10)** |
-| **7. Business Plan** | 10% | Buyer persona, willingness to pay, unit economics, competitive wedge | `docs/business_plan.md`: $1.5k/plan vs $10k consultant; <$0.25 compute; 98.5% margin | **Exceeded (10/10)** |
-| **8. The X Factor** | 5% | Published benchmark page + explicit honesty philosophy | Published benchmark page; 95% CI propagation; variant deltas in <35s | **Exceeded (5/5)** |
-| **Total** | **100%** | Comprehensive Vertical Slice + Differentiators | All quality bars met and independently validated | **100 / 100** |
-
 

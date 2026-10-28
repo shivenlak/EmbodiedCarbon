@@ -70,7 +70,7 @@ def analyze_uncertainty(
     carbon: CarbonResult,
 ) -> UncertaintyReport:
     """Perform rigorous uncertainty propagation and sensitivity analysis."""
-    lines_by_id = {l.id: l for l in takeoff.lines}
+    lines_by_id = {ln.id: ln for ln in takeoff.lines}
     
     driver_candidates: list[dict] = []
     total_variance = 0.0
@@ -105,9 +105,9 @@ def analyze_uncertainty(
         elif conf == Confidence.ASSUMED:
             primary_assumption = f"Standard assumption applied for {tl.material or tl.element_class.value}."
         elif conf == Confidence.INFERRED:
-            primary_assumption = f"Inferred from drawing schedules and typical build-up."
+            primary_assumption = "Inferred from drawing schedules and typical build-up."
         else:
-            primary_assumption = f"Directly measured from vector blueprint dimension chains."
+            primary_assumption = "Directly measured from vector blueprint dimension chains."
 
         driver_candidates.append(
             {

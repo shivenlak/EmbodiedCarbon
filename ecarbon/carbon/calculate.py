@@ -13,7 +13,7 @@ Implements the requirements of RESEARCH.md §6/§9 and docs/PLAN.md Step 12:
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Sequence
+from collections.abc import Sequence
 
 from ecarbon.carbon.store import FactorProvider, LocalSnapshotProvider
 from ecarbon.models import (

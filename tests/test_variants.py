@@ -1,9 +1,16 @@
 """Unit tests for Step 23: Variants as deltas."""
 
-import pytest
 
 from ecarbon.fixtures import example_takeoff
-from ecarbon.models import ElementClass, TakeoffLine, TakeoffResult, Unit, Confidence, Provenance, Basis, BasisSource
+from ecarbon.models import (
+    Basis,
+    BasisSource,
+    Confidence,
+    ElementClass,
+    Provenance,
+    TakeoffLine,
+    Unit,
+)
 from ecarbon.takeoff.variants import compute_variant_delta
 
 
@@ -23,7 +30,7 @@ def test_variant_delta_identical():
 def test_variant_delta_modified_and_added():
     to1 = example_takeoff()
     # Create variant with modified quantity on wall and added insulation line
-    var_lines = [l.model_copy() for l in to1.lines]
+    var_lines = [ln.model_copy() for ln in to1.lines]
     # Modify line 0
     var_lines[0].quantity = var_lines[0].quantity * 1.2
 

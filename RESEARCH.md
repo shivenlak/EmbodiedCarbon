@@ -162,6 +162,16 @@ All 53 are **IFC2X3**. 46 are Autodesk Revit exports; 7 (all SKMB) are **Vectorw
 
 That is **39 designs with usable element-level ground truth**, not 52 — which materially changes your proposed 25–30 / 10–12 / 10–12 split.
 
+> ### ⚠️ THE TWO PARAGRAPHS ABOVE ARE WRONG — corrected in §15
+>
+> The "zero walls" finding was an artifact of the stdlib survey's regex
+> (`=IFCWALL\(`), which misses the space-separated `= IFCWALL(` that Vectorworks
+> writes, and which also undercounted walls everywhere by roughly half.
+> IfcOpenShell finds walls, slabs, windows, doors and material layer sets in
+> **all 53 models**. The real limit is geometry coverage, not semantics, and
+> usable ground truth is **46 designs, not 39**. Left in place rather than
+> edited out, because the mistake is instructive.
+
 ---
 
 ## 6. The `Energy and Carbon` folder is the hidden prize
@@ -437,3 +447,658 @@ measured-vs-inferred labelling depends on text we can actually prove we read.
 - **The index is not always complete.** Several sets contain more pages than their
   index lists (BC_Duplex: 34 pages vs 29 listed; ON_ADU_01: 34 vs 25), so the index is
   usable as ground truth but not as a contents guarantee.
+
+---
+
+## 15. IFC ground truth, re-measured with IfcOpenShell
+
+§5 surveyed the IFCs with a stdlib regex before the real toolchain existed. Two of
+its conclusions were wrong, and both were wrong in our favour. Re-measured
+2026-10-24 with IfcOpenShell 0.9.
+
+### Correction 1 — every model has semantic elements
+
+The regex `=IFCWALL\(` misses `= IFCWALL(`, which is how Vectorworks writes it, and
+it also failed to combine `IfcWall` with `IfcWallStandardCase`. Real counts:
+
+| | §5 regex | IfcOpenShell |
+|---|---|---|
+| AB_Fourplex_01 walls | 92 | **166** |
+| SKMB_ADU_01 walls | **0** | **21** |
+| SKMB_Fourplex_01 walls | **0** | **194** |
+| Designs with zero walls | 7 | **0** |
+
+**All 53 models carry walls, slabs, windows, doors and material layer sets.** The SKMB
+models in fact carry far *more* material detail than any other region — 152–1286
+`IfcMaterial` and 96–1094 `IfcMaterialLayerSet`, against 16–77 and 9–42 elsewhere.
+
+Still true from §5: **no model has pre-computed quantities** (`IfcElementQuantity`)
+except ATL_Fourplex_03, so quantities must be derived from geometry either way.
+SKMB additionally has **zero `IfcFooting` and zero `IfcRoof`** across all 7 designs —
+roofs there appear to be modelled as `IfcSlab`.
+
+### Correction 2 — the real limit is geometry coverage
+
+An element count says nothing about whether geometry can be built from it.
+SKMB_ADU_02 declares 22 walls and produces **0** shapes. Fraction of building walls
+(site elements excluded) that yield buildable geometry:
+
+| Coverage | Designs | Which |
+|---|---|---|
+| **100%** | **46** | all AB, ATL, BC, NOR, ON, QC |
+| 64–74% | 3 | SKMB_Fourplex_01/02, SKMB_Sixplex |
+| 0–26% | 4 | SKMB_ADU_01/02, SKMB_Triplex, skmb_rowhouse |
+
+So **usable element-level ground truth is 46 designs, not 39** — the Revit exports are
+flawless and only the 7 Vectorworks exports are degraded, by geometry rather than by
+semantics. `ecarbon/bench/ifc_truth.geometry_coverage()` is the gate, and it is
+checked before a design is used for quantity scoring.
+
+**Revised benchmark split** (supersedes §11 adj. 1): draw dev / validation / held-out
+from the **46**, grouped by dominant toolchain. The 7 SKMB designs become a
+*geometry-degraded* slice — still fully usable for PDF-extraction scoring, which needs
+no IFC, and their 1286 material layer sets are the best material data in the catalogue
+for Stage 3.
+
+Note the useful pairing this exposes: the 8 NOR designs have **textless PDFs but 100%
+usable IFCs**, so they are the ideal test of geometry-only extraction — the PDF gives
+us nothing to cheat with and the IFC scores us honestly.
+
+### Why this was caught
+
+Step 8's bar 2 flagged SKMB_ADU_01 as a 1.9 x 1.7 m "building". Chasing that
+implausible number exposed the regex error. It is a direct example of the rule in
+§14: **no stage is trusted without a scored benchmark behind it** — including the
+research itself.
+
+---
+
+## 16. The CMHC resources page — what the cost estimates actually are, and a carbon table we did not know existed
+
+§6 flagged the Construction Cost Estimates as the highest-value missing asset, on the
+strength of the User Guide §10 saying *"detailed unit costs and quantity take-offs have
+been incorporated into the estimates."* That is now settled, and the answer is no.
+
+**No browser was needed.** The *design listing* is an Angular SPA, but
+`/how-it-works/resources` is server-rendered and links 17 files directly on
+`assets.cmhc-schl.gc.ca`. `scripts/fetch_cmhc_resources.py` downloads them.
+
+### The cost estimates contain no quantities
+
+Seven regional PDFs, 7–8 pages each, prepared by **Vermeulens**, Q1-2025. Each gives a
+**Class B cost range only**: total hard cost, cost per unit, cost per sq ft, gross
+building area, unit count, unit mix with leasable area. The detailed takeoff behind the
+estimate was not published.
+
+**So the convention-calibration set described in §6 does not exist publicly.** Close that
+risk as unobtainable and commit to the fallback: IFC geometry plus HOT2000 envelope
+areas as two independent measurement conventions, with our own measurement basis stated
+explicitly in the output. That was always the backup; it is now the plan.
+
+What the estimates *do* give us, which is still worth having:
+
+- **Gross building area per design**, independently of the Building Performance Reports.
+  AB Fourplex 01: 3,293 sq ft = **305.9 m²**, against the BPR's **306 m²**. Two
+  independent CMHC sources agreeing gives us a trustworthy intensity denominator.
+- **Leasable area per unit.** AB Fourplex 01 units sum to 264.2 m² leasable against
+  305.9 m² gross — **86%**. If a builder quotes intensity per leasable area and we quote
+  per gross, that is a 16% discrepancy with nobody in error. The UI must name the basis.
+- **A material specification per building element**, keyed to the *same assembly tags*
+  as the drawings and the IFC — a third independent confirmation of the tag system:
+
+  | Element | CMHC's costed assumption |
+  |---|---|
+  | Foundations / excavation | **Grade beam on screw piles** (not strip footings) |
+  | Lowest floor | Concrete slab-on-grade |
+  | Exterior cladding | Cementitious panel + outboard rigid insulation, **per W1–W2** |
+  | Windows & doors | Residential grade, **double glazed** |
+  | Sloped roof | **Asphalt shingles, per R1** |
+  | Flat roof | **Modified bitumen, per R3** |
+  | Interior partitions | Wood stud + gypsum board |
+  | HVAC | Gas furnace, A/C condenser, gas DHW |
+
+  Note the foundation: **grade beam on screw piles**, which is a very different concrete
+  quantity from strip footings. Worth checking against what the drawings show before
+  Step 10 assumes a footing type.
+
+### The Materials Guide is a published Canadian carbon factor table
+
+16 pages, authored for CMHC by **Ha/f Climate Design**, with a Sources section. Columns:
+material, thickness, **embodied carbon kgCO₂e/m²**, **biogenic carbon kgCO₂e/m²**,
+relative cost, **expected life span**, relative life-cycle cost. Categories: cladding,
+roofing (sloped and flat), rigid and cavity insulation, membranes, sheathing, windows,
+plus structural elements.
+
+**It covers all four Stage 4 substitutions the scope names, with CMHC's own numbers:**
+
+| Scope's example | Options (kgCO₂e/m², biogenic in brackets) | Δ |
+|---|---|---|
+| cellulose vs spray foam | Blown-in cellulose R20 **0.4** (+2.8) vs closed-cell sprayfoam R39 **22.2** | 55× — but normalise per R-value, the R's differ |
+| fibre cement vs vinyl | Fibre cement 19mm **13.7** vs vinyl siding **25.6** | −47%, and 60-year life vs 25 |
+| window frame | Wood **76.2** (+13.7) vs vinyl **248.8** vs anodized aluminium **277.2** | −69% wood vs vinyl |
+| lower-carbon concrete | not in this guide — use the Kootenay guide's mix table | −37% |
+
+### ⚠️ The module-scope trap, and why it is a differentiator
+
+The guide states plainly: *"This guide presents both **A-C** Global Warming Potential
+(GWP)."* Its embodied carbon column spans **production, use-stage repair and
+replacement, and end of life** — explicitly aligned to EN 15978 / ISO 21930 and the NRC
+guidelines. Only the **biogenic** column is scoped to A1–A3.
+
+**So these figures cannot be summed as A1–A3.** A team that reaches for CMHC's own
+material table, calls the numbers "embodied carbon" and totals them would produce a
+confidently wrong A1–A3 figure that *looks* impeccably sourced. This is precisely what
+criterion 3's "only like-for-like modules may be summed" is testing, and our factor
+store already carries `modules[]` per row with a guard that raises on a mixed sum.
+
+How we use it, then:
+
+- **Not** as A1–A3 factors. Rows are stored with `modules = [A1..C4]` and the guard
+  excludes them from the A1–A3 total.
+- **Yes** for substitution *ranking*, where the ordering is stable across module scope,
+  shown beside the A1–A3 total with the scope labelled.
+- **Yes** for the `expected_life_span` column, which is exactly the input A4–A5 and
+  B4–B5 would need — the architecture the scope asks us to leave room for.
+- **Yes** as an independent cross-check on BEAM and the Kootenay guide.
+- `data_type = industry_avg`, `geography = CA` — *"averages from suppliers across
+  Canada"*, with a documented instruction to prefer manufacturer EPDs where available.
+
+### Also downloaded
+
+**Climate Resilience Guide** (19 pp) and five regional **Site Design Examples**
+(Alberta and SK/MB listed "Coming Soon"). Not carbon-relevant; retained for the
+implementation-plan narrative.
+
+---
+
+## 17. Step 9 — the ground-truth store, and three IFC traps
+
+Two modules: `ecarbon/bench/ifc_quantities.py` and `ecarbon/bench/hot2000.py`.
+Both are scoring-only; the pipeline never reads them.
+
+### The cross-check works
+
+AB_Fourplex_01, IFC against HOT2000 — two independent professional measurements
+of the same building, one by the architect and one by the energy modeller:
+
+| Quantity | IFC | HOT2000 | Diff |
+|---|---|---|---|
+| Exterior wall (above grade) | 287.6 m² | 290.6 m² | **1.0%** |
+| Foundation wall | 62.1 m² | 63.4 m² | **2.2%** |
+| All walls | 349.7 m² | 354.0 m² | **1.2%** |
+| Windows | 38.2 m² | 41.2 m² | 7.1% |
+
+That is the Step 9 deliverable: a benchmark whose two sources agree to ~1% on the
+largest envelope quantities, so a Stage 2 error of 10% will be unambiguously ours.
+
+### How area is derived, and why not from faces
+
+`area = volume / total_layer_thickness`. Volume from the mesh (signed tetrahedron
+sum, exact for a closed mesh), thickness from `IfcMaterialLayerSet`. For a layered
+prismatic element the division is exact, and per-layer volume falls out as
+`area x layer_thickness`. Summing mesh face areas instead would count both faces
+plus the edge returns, and picking "the wall face" out of a triangle soup is fragile.
+
+### Trap 1 — `by_type("IfcWall")` already includes `IfcWallStandardCase`
+
+It is a subtype, so adding the two double-counts. **AB_Fourplex_01 has 92 walls, not
+166.** §15's corrected counts were themselves inflated 2x by exactly this; §5's
+original regex figure of 92 for AB was right all along. The SKMB part of §15 stands —
+those models genuinely do have walls, which the regex missed.
+
+Corrected wall counts are whatever `by_type("IfcWall")` alone reports; §15's table
+should be read as roughly halved for every Revit export.
+
+### Trap 2 — 18 of 92 walls carry no material association at all
+
+Nine of them are **W2 exterior envelope** walls, the single most important assembly.
+They are plain `IfcWall` rather than `IfcWallStandardCase` and have no
+`IfcRelAssociatesMaterial` at all. Taking only walls that declare a build-up gives
+**78 m² of exterior wall for a 7 x 22 m two-storey building** — obviously wrong, and
+wrong in the quiet direction.
+
+The build-up is recovered from other walls sharing the same assembly tag, since walls
+of one tag share a build-up by definition, and the result is flagged
+`thickness_inferred`. That lifts exterior wall area from 78 m² to 287.6 m², which is
+the figure that then matches HOT2000 to 1.0%. It is also our own
+measured/inferred distinction applied to our own ground truth.
+
+### Trap 3 — openings are not cut from the exterior walls
+
+W2 measures 287.3 m² net against 287.6 gross, so the window voids are not subtracted,
+while interior P1 walls do show door voids (198.1 vs 259.0). **An exterior wall figure
+from this geometry is a GROSS area.** Net-of-openings must come from subtracting the
+window and door schedule explicitly, so both are reported — which convention a
+reference takeoff uses is exactly what we cannot see in advance (§16).
+
+### Elements with no build-up still yield a volume
+
+Footings and roofs carry no layer set in these models. An earlier version dropped them,
+which silently discarded **the largest carbon contributor** — concrete is ~35%
+(`docs/element_priority.md`). Volume needs no thickness, so volume is always recorded
+and only area is left `None`. AB_Fourplex_01: 6 footings at 6.76 m³.
+
+`IfcRoof` is an aggregate with no geometry of its own; its `IfcSlab` children carry it.
+The two `R2` slabs look like duplicates by name but have distinct GlobalIds — two roof
+planes, correctly counted once each.
+
+### :warning: The IFC foundation may not be usable ground truth
+
+`F1 - Slab on Grade` is modelled as **one 454 mm layer of `CMHC_Concrete, CIP`** —
+136.4 m² x 0.454 m = 61.9 m³. A slab on grade is normally 100–150 mm. Meanwhile the
+Construction Cost Estimate (§16) costs Alberta foundations as **grade beam on screw
+piles**, which is a different system entirely.
+
+So three sources disagree about the foundation: the IFC says a very thick concrete
+slab, the cost estimate says grade beams on piles, and the drawings say whatever S201
+shows. Concrete is the #1 carbon item, so **this must be resolved against sheet S201
+before Step 10 benchmarks foundation concrete**, and until then IFC foundation volume
+is a weak reference. Total model concrete: 84.3 m³ (slab 61.9 + foundation wall 15.6 +
+footings 6.8).
+
+### HOT2000 conventions
+
+- A `<Wall>` record has **no `area` attribute** — it carries `height` and `perimeter`,
+  so area is their product. `<Ceiling>` does carry `area`. Looking for `area` on a wall
+  silently yields zero, which is how the first cross-check read 0.0 m².
+- `<Wall>` records lump the above-grade envelope together with the foundation wall.
+  They separate cleanly by height (2.515/2.667 m against 0.305/1.238/1.295 m), which is
+  how the two sets were matched to W2 and N1 above.
+- These are thermal envelope areas: gross, by orientation, exterior only. No interior
+  partitions, no structural quantities. They validate the two biggest envelope
+  quantities and nothing else.
+
+### Building Performance Reports — parsed, with their scope attached
+
+73 of 74 reports fully parsed; the 74th is reported unreadable rather than silently
+empty. Each yields location and climate zone, gross and conditioned floor area,
+storeys and units, total EC, EC/GFA, biogenic carbon, the A1–A5 / B4–B5 / C2–C4 split,
+operational energy, nominal assembly RSI values, and the element breakdown.
+
+**The element breakdown is the find.** CMHC publishes a per-design contribution
+analysis by building element — exactly the Stage 3 output criterion 3 asks for. Mean
+normalised shares across all reports:
+
+| Element | Mean | Range | n |
+|---|---|---|---|
+| Foundations | **32.0%** | 15–61% | 72 |
+| External walls | **20.2%** | 5–35% | 72 |
+| Interiors | 14.9% | 6–36% | 51 |
+| Upper floors | 14.8% | 3–27% | 60 |
+| Roofs and terraces | 14.7% | 6–42% | 72 |
+| Windows and doors | 9.3% | 3–33% | 72 |
+| Stairs and elevators | 1.6% | 0–35% | 43 |
+
+Foundations at 32% corroborates the Kootenay guide's concrete-at-35%
+(`docs/element_priority.md`) from an independent source and on a different axis
+(element rather than material). It confirms the build order: **slab, footings and
+foundation wall first.** Note the ranges are wide — foundations span 15–61% — so this
+sets priorities, never a default.
+
+Intensity across the catalogue: **141 to 731 kgCO₂e/m²**, at A1–A5 + B4–B5 + C2–C4.
+
+Four parsing traps:
+
+1. **Position fails, reading order works.** The carbon-over-time chart sits beside the
+   metric column, so a nearest-numeric-span search returned **2085** — an x-axis year —
+   for every module figure. Reading order pairs each labelled metric with its own value.
+2. **Every numeric field needs plausibility bounds.** A dashboard has numbers
+   everywhere; without bounds, gross floor area came out as **6 m²** on eight reports.
+3. **Element labels vary by region**, as the schedule names did in Step 7: BC writes
+   `Roof & Terraces` and `Windows & Doors`. An exact whitelist silently returned 3 of 5
+   elements on every BC report. Labels are now matched by pattern.
+4. **Some legends do not sum to 100%.** AB_ADU_01 reaches 182%, with every entry a
+   constant 1.82x its pie slice — internally consistent, scaled against a different
+   denominator. Shares are normalised for comparison and `breakdown_sum_pct` keeps the
+   raw total visible.
+
+Five reports' parsed floor area disagrees with total/intensity by 5–8%. Both of those
+are unambiguously labelled, so `best_gfa_m2` prefers the implied value and the
+discrepancy is reported.
+
+`NOR_ADU_Municipal_Garage`'s report embeds fonts with no ToUnicode map **and a custom
+glyph ordering** — not a constant offset, so `textrepair` cannot shift it (`'`→T is +45,
+`(`→h is +64). It is a solvable substitution cipher, with the boilerplate sentence
+common to all 74 reports as a crib, but not worth a solver for one report. It is
+flagged `unreadable`.
+
+---
+
+## 18. The ground-truth manifest, and two bugs that would have faked our accuracy
+
+`ecarbon/bench/manifest.py` joins all three reference sources per design and tiers
+each one by whether its ground truth is good enough to attribute an error to the
+pipeline. `docs/PLAN.md` asked for exactly this — "a per-design data-quality check ...
+and exclude weak ground truth from accuracy scoring".
+
+| Tier | Meaning |
+|---|---|
+| **GOLD** | IFC geometry complete, HOT2000 present, and the two agree within 5%. A 10% pipeline error on these is unambiguously ours. |
+| **SILVER** | Geometry complete but nothing corroborates it (the 7 BC designs have no HOT2000), or the sources agree within 15%. |
+| **BRONZE** | Sources disagree by more than 15%, so a quantity error cannot be attributed. |
+| **GEOMETRY_ONLY** | IFC geometry degraded (the 7 Vectorworks exports). Still fully usable for PDF-extraction scoring, which needs no IFC. |
+| **ROBUSTNESS** | PDF has no readable text (the 8 NOR sets). Scored on whether we correctly *report* what we cannot read. |
+
+### Bug 1 — classifying walls by code prefix
+
+`exterior_wall_area_m2()` originally selected tags starting with `W`. That looked like
+the catalogue's convention because `W1` and `W2` are everywhere. Then AB_ADU_01:
+
+```
+CPH-2-STANDARD EXTERIOR ENVELOPE WALL                   129.0 m2   <- missed
+W1 -STANDARD EXTERIOR ENVELOPE WALL - SOFFIT BULKHEAD    11.0 m2   <- the only hit
+```
+
+The prefix rule returned **11 m² of soffit bulkhead as the entire building envelope**,
+against a true 175 m².
+
+Replacing it with flat keyword matching — `EXTERIOR`/`ENVELOPE` for exterior,
+`STUD`/`PARTITION` for interior — fixed Alberta and **broke ATL and QC**, which name
+envelope walls by their *framing* rather than their position:
+
+```
+ATL  W1* - 2x6 Stud w Wood Shingles Cladding     185.0 m2  -> read as interior
+ATL  W2 - 2x6 Stud w Metal Cladding              184.8 m2  -> read as interior
+QC   W1 - 2x6 Stud w Brick                       104.2 m2  -> read as interior
+```
+
+Those designs dropped to **0.21–0.47** of their HOT2000 wall area. But a `W` prefix is
+not sufficient either, because ATL also uses it for walls that are not envelope:
+
+```
+ATL  W8 - RATED DEMISING                          53.4 m2  -> separates units
+ATL  W9 - 2x8 Stud w Metal Cladding_(both sides)  11.4 m2  -> no outdoor face
+```
+
+So the rule needs **ordered precedence**, not keyword presence: foundation first, then
+interior *overrides* (`DEMISING`, `BOTH SIDES`, `PARTY`, `PLUMBING`, `CHASE`,
+`FURRING`), then exterior evidence (`EXTERIOR`, `ENVELOPE`, `CLADDING`, `BRICK`,
+`SHINGLE`, `SIDING`, `STUCCO`), then framing, then a bare `W` code as the fallback.
+Twenty real tags across all three conventions are pinned in
+`tests/test_ground_truth.py::TestWallRoleClassification`.
+
+This is the fourth appearance of the same lesson — regional schedule names in §14,
+element labels in §17, and wall tags twice here. **The catalogue's naming varies, so
+match meaning rather than form — and the first attempt at matching meaning will be
+calibrated on one firm's vocabulary.** Every such rule needs to be checked against all
+seven regions before it is believed.
+
+This one was quiet in the worst way. An 11 m² envelope would not have crashed anything
+— it would have made the PDF extraction look wildly *over*-estimated on every ADU, and
+the obvious reaction would have been to "fix" the extraction.
+
+### Bug 2 — the sources do not always describe the same building
+
+Wall-area ratio, IFC against HOT2000, Alberta:
+
+| Design | BPR units | BPR GFA | IFC wall | HOT2000 wall | Ratio |
+|---|---|---|---|---|---|
+| AB_Fourplex_01 | 4 | 306 m² | 349.7 | 354.0 | **0.99** |
+| AB_Fourplex_02 | 4 | 431 m² | 426.8 | 380.1 | 1.12 |
+| AB_Sixplex | 6 | 492 m² | 479.6 | 427.9 | 1.12 |
+| AB_ADU_01 | 1 | 73 m² | 175.0 | 124.0 | 1.41 |
+| AB_Rowhouse_01 | 1 | 74 m² | 410.9 | 68.3 | **6.01** |
+| AB_Rowhouse_02 | 1 | 131 m² | 547.8 | 70.9 | **7.73** |
+
+**For rowhouses the Building Performance Report and HOT2000 model ONE UNIT while the
+IFC models the whole terrace.** Confirmed three ways: the BPR reports `units=1`; the
+Construction Cost Estimate gives Rowhouse 02 as 394 m² for a 3-unit block and
+131 × 3 = 393; and its footnote says costing is "based on three rowhouse buildings of
+one unit each repeated side by side".
+
+So a naive cross-check marks every rowhouse 500–700% wrong when nothing is wrong at
+all. The manifest flags `source_extent_mismatch_ratio_Nx` and tiers the design out of
+quantity scoring, rather than leaving it as an unexplained bad score.
+
+The ADUs sit at 1.33–1.41, which is a genuine difference in what the two sources
+measure — most likely walls adjacent to unconditioned space, which HOT2000 excludes
+from the thermal envelope and the IFC counts. Not forced into agreement; they land in
+BRONZE and are excluded from accuracy scoring, which is the honest outcome.
+
+### Why this matters for the pitch
+
+Three of the four accuracy-destroying problems found so far were **silent**: the
+glyph-ID fonts (§14), the 11 m² envelope, and the rowhouse extent mismatch. None
+crashed, none looked wrong, and each would have produced a confident number that was
+badly incorrect. That is the argument for the benchmark harness existing at all, and
+for the gap report being a first-class output rather than a log.
+
+### The tiering gate had to change: the IFC is the reference, not the agreement
+
+The manifest first gated on IFC/HOT2000 agreement, on the assumption that a
+disagreement meant our parsing was wrong. Chasing that assumption found three real
+bugs — the wall-role prefix rule, its flat-keyword replacement, and the rowhouse
+extent mismatch — and after all three the median disagreement still sat at **29% on
+exterior wall area alone** (36% including foundations).
+
+It does not shrink further, because the two sources genuinely measure different things:
+
+- HOT2000 models the **thermal envelope only**, so walls bounding a garage, breezeway
+  or unheated store are excluded while the IFC counts them.
+- Its wall height is the **thermal** height, not the structural height.
+- For rowhouses and stacked townhouses it models **one unit** while the IFC models the
+  whole block.
+
+Agreement distribution across the 45 designs with both sources:
+
+| Disagreement | Designs |
+|---|---|
+| 0–5% | 4 |
+| 5–15% | 5 |
+| 15–30% | 8 |
+| 30–60% | 11 |
+| >60% | 17 |
+
+Gating on that threw away **25 designs with 100%-buildable architectural models**
+because a second source with a different measurement basis disagreed. So the gate is
+now the IFC — complete geometry plus a readable PDF — and HOT2000 agreement is a
+recorded confidence annotation. **Scoreable set: 13 designs → 38.**
+
+| Tier | n | Meaning |
+|---|---|---|
+| GOLD | 6 | Complete geometry, readable PDF, HOT2000 corroborates ≤15% |
+| SILVER | 32 | Complete geometry, readable PDF; HOT2000 absent or different basis |
+| GEOMETRY_ONLY | 7 | Degraded IFC (Vectorworks) — PDF-extraction scoring only |
+| ROBUSTNESS | 8 | Textless PDF (NOR) — scored on reporting what it cannot read |
+
+The lesson generalises past this project: **`wall_agreement_pct` is an uncertainty on
+the ground truth, not a pass/fail on the design.** Two professional measurements of the
+same building differ by a median of 29%, which is the same phenomenon as Handoff's
+human estimators reaching only 87.9% precision against each other (§8), and the same
+phenomenon as gross-vs-leasable floor area (§16). It is the central difficulty of this
+challenge, not an artefact: **there is no single true takeoff, only a basis.** Stating
+ours explicitly is worth more than matching any one reference.
+
+---
+
+## 19. Step 10 opens by settling the foundation — and the PDF wins
+
+§17 flagged that three sources disagreed about the foundation and that concrete, the
+single biggest carbon item, could not be benchmarked until it was resolved. Settled
+against the drawings:
+
+| Source | Alberta foundation |
+|---|---|
+| **Drawings** (S201, S401, S101, S102, S105) | **130 mm slab on grade** + **200 × 1200 deep concrete grade beams** on **400 mm Ø screw piles**, 100 mm frost insulation under beams |
+| Construction Cost Estimate (§16) | "Grade beam construction on screw piles" ✓ |
+| IFC | one **454 mm** layer of `CMHC_Concrete, CIP` |
+
+Derived from the drawings: 136.4 m² × 0.130 = **17.7 m³** of slab, plus ~60 m of beam
+× 0.24 m² = **14.4 m³**, so about **32 m³**. The IFC's 61.9 m³ **overstates it 1.93×**,
+and the cost estimate agrees with the drawings rather than the model.
+
+**So for foundations the PDF is the better source than the IFC, and the IFC must not be
+used to score this element.** That is a pleasing reversal — the thing we are building
+beats the reference we were going to grade it against — and it is worth saying in the
+pitch, because it is the opposite of what a BIM-first team would assume.
+
+One detail that matters disproportionately: **screw piles are steel.** Counting their
+displaced volume as concrete would invent concrete on the largest carbon item, so
+`pile_volume_m3()` returns `None` when the spec says screw piles and only computes a
+volume for cast-in-place.
+
+### Reading dimensioned specs instead of measuring them
+
+Some of the highest-carbon quantities are *stated* on the structural sheets rather than
+measurable from geometry, and reading them is more reliable than inferring them. From
+S201: `"130mm THICK CONCRETE SLAB"`, `"200x1200 DP. CONC. GRADE BEAM"`,
+`"PILE MINIMUM SIZE SHALL BE 400mmØ"`. Each is a *directly measured* quantity in the
+sense the scope means — read off the drawing, not assumed — leaving only the footprint
+area and beam run length to be measured geometrically.
+
+Two regexes fooled themselves on flattened text, and both are now pinned as tests:
+
+| Note | Naive reading | Error |
+|---|---|---|
+| `4-15M x 1200mm LG. DOWELS AT ALL PILE TO GRADE BEAM LOCATIONS` | 1200 × 1200 beam | **6×** on the largest concrete item |
+| `100mm FROST INSULATION UNDER SLAB` | 100 mm slab | 23% low |
+
+Requiring `DP.`/`DEEP` adjacent to `GRADE BEAM`, and `mm THICK ... SLAB` without
+intervening words, fixes both. Sheets are also read in priority order — foundation plan
+and sections before detail sheets — because S102 shows a 100 mm slab *condition* at a
+stoop while S201 *states* the 130 mm design.
+
+### Honest coverage: Alberta only
+
+| Result | Designs |
+|---|---|
+| System **and** dimensions extracted | **7** (all Alberta) |
+| System identified, dimensions not stated in the notes we read | 17 (strip footing) |
+| Nothing identified | 29 |
+
+That is the fifth appearance of the naming-variance lesson, and this time **I am not
+going to fix it with more regexes.** Writing per-firm patterns for seven regions is the
+brittleness the plan warned about. The plan's own answer applies: *LLM proposes,
+geometry verifies* — have a model read the foundation notes and emit a structured spec
+against this same schema, validated against the regex patterns wherever they fire, and
+gap-reported where they do not. The schema, the traceability and the regression tests
+built here are what make that safe to add.
+
+What is already correct: **every design that failed says exactly what is missing**
+("slab thickness not stated", "foundation system not identified") rather than
+defaulting silently. That is the behaviour criterion 1 scores.
+
+A Step 7 gap surfaced here too. Filtering structural sheets by *type* excluded BC and
+QC completely, because BC titles its foundation plan `PLAN FOUNDATION / MAIN FLOOR` and
+QC uses `STRUCTURAL PLANS` — neither matched the phrase rules. Added an order-insensitive
+co-occurrence fallback, which lifted **sheet type match from 94.1% to 95.1%** across the
+catalogue, and the spec reader now takes every readable `S*` sheet regardless of type.
+
+### Footprint: scored across the catalogue
+
+`scripts/score_footprint.py`, against the IFC envelope:
+
+| Metric | Result |
+|---|---|
+| Designs scored | **38** |
+| Median error | **3.3%** |
+| Within 5% | 24/38 |
+| **Within 10%** | **32/38** |
+| Within 25% | 33/38 |
+| Worst | 63.3% |
+| Not detected | 8 — all NOR, correctly refused |
+| Not scoreable | 7 — SKMB, IFC geometry degraded |
+
+The 8 refusals are the right answer: the NOR sets have no readable dimension chains,
+so there is nothing to cross-check a lineweight group against, and a footprint from
+lineweight alone would be a guess.
+
+**The lineweight differs by firm** — 1.42 for AB and ON, 1.2 for ATL, 1.32 for BC and
+QC, ~0.3–2.8 across SKMB. A hardcoded stroke width would have been exact on Alberta and
+wrong everywhere else, which is the trap the naming rules fell into five times. Choosing
+the group by agreement with independently-parsed dimension chains is what makes it
+generalise.
+
+### Getting to 63% worst case from 287% took three attempts, and two were wrong
+
+First version: lineweight group chosen purely by dimension-chain agreement. Median 3.4%,
+but **QC_ADU_02 returned a 170 m² footprint for a 61 m² ADU — a 287% error reported with
+2% dimension agreement.** A long chain total can describe a site setback rather than the
+building, so a sheet artefact can agree convincingly. A confidently wrong number is worse
+than none.
+
+Second: added floor area per storey (gross ÷ storeys) as a third signal and used it to
+**reject** candidates. That eliminated the 287% case but **rejected 7 correct footprints**,
+including AB_Rowhouse_01 at 8.4%, because for rowhouses and stacked townhouses the
+Building Performance Report describes **one unit** while the drawing shows the whole
+block (§18) — so the hint is a multiple out and its bound discards the right answer.
+
+Third, and current: area both **ranks** candidates (weighted, not as a lexicographic
+tie-break — two lineweight groups rarely agree to the same decimal, so a tie-break never
+fires) **and** bounds them at 0.4×–2.5×, which is generous enough for a block-vs-unit
+multiple. The hint is withheld entirely for rowhouses and stacked townhouses, where it is
+known to describe a single unit; those fall back to dimension agreement, which handles
+them.
+
+Result across the three attempts: median 3.4% → 3.4% → **3.3%**, within 10% 30 → 28 →
+**32**, worst **287% → 67% → 63%**.
+
+Worth noting the floor area is a legitimate input, not ground truth leaking in: the scope
+requires Stage 1 to prompt for "conditioned floor area basis", so a builder supplies it.
+
+---
+
+## 20. Storey heights, and a textrepair bug that silently emptied them
+
+Section sheets carry a level ladder — a label with its elevation on the line
+directly below. AB_Fourplex_01 A300:
+
+```
+TOP OF ROOF        7.873 m
+T/O F/F SECOND     3.000 m
+GROUND FLOOR       0.000 m
+ASSUMED GRADE      (no elevation -- a reference line, not a level)
+```
+
+Perimeter × the wall height these imply gives exterior wall area, ~20% of embodied
+carbon and second only to concrete.
+
+### The top storey has to be inferred
+
+There is no plate datum above the top floor, so its height is taken from the storey
+below and recorded in `notes` as inferred. Using the roof level instead would include
+the roof pitch — **1.87 m of it** on this design (7.873 roof vs 6.0 m of wall).
+
+### Two wall heights, 20% apart, and neither is wrong
+
+| Basis | Height | Wall area at 58 m perimeter |
+|---|---|---|
+| Gross, floor to floor | 6.000 m | 348.0 m² |
+| **Net, less floor assemblies** | **5.334 m** | **309.4 m²** |
+| IFC W2 exterior envelope | — | 287.6 m² |
+| HOT2000 above-grade records | 5.182 m | 290.6 m² |
+
+The net height matches HOT2000's to **2.9%**, and net wall area lands within ~7% of
+both references while gross is 20% over. A quantity surveyor measures gross floor to
+floor; an energy model measures the thermal envelope. HOT2000 records 2.667 m and
+2.515 m against a 3.000 m floor-to-floor, and 3.000 − 2.667 = 0.333 m, which is the
+floor assembly depth — so the relationship is exactly construction, not noise.
+
+**Both are reported with the basis named.** Silently picking one would make us look 20%
+out against half the references in existence — the same lesson as gross-vs-leasable
+floor area (§16) and the IFC/HOT2000 wall disagreement (§18).
+
+### The bug worth recording
+
+The level ladder came back **empty on every design**. Cause: `textrepair.repair()` was
+destroying the elevations.
+
+```
+'7.873 m'  ->  'XOYXTA\x8e'
+'3.000 m'  ->  'TOQQQA\x8e'
+```
+
+The single-trailing-letter exception added in §14 so that `A101a` (arriving as
+`$\x14\x13\x14D`) could be recovered also admitted any dimension whose only letter is a
+trailing unit. `'7.873 m'` is letter-free apart from the `m`, is not word-like, and did
+not match the numeric guard — so it was shifted into nonsense.
+
+Fixed by extending the numeric guard to allow a trailing unit
+(`mm|cm|m|ft|in|M|MM`). All thirteen cases now hold: every dimension untouched, every
+mojibake string still repaired.
+
+**This is the third time a textrepair guard has had to be tightened**, and the pattern
+is consistent: each exception added to recover one real case opens a hole for another.
+The module now carries 13 pinned cases precisely because the failure mode is silent —
+nothing crashes, the text just quietly becomes wrong, and here it emptied an entire
+extraction stage without a single error.

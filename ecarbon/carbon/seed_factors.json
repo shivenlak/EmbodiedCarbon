@@ -10,7 +10,11 @@
       "density_kg_m3": 2400.0,
       "gwp_value": 276.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA-AB",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -26,9 +30,13 @@
       "source_id": "concrete/portland-limestone-40fa/25mpa",
       "declared_unit": "m3",
       "density_kg_m3": 2350.0,
-      "gwp_value": 142.0,
+      "gwp_value": 175.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA-AB",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -37,16 +45,20 @@
       "attribution": "Builders for Climate Action / City of Nelson, funded by FortisBC"
     },
     {
-      "factor_id": "koot-concrete-gu-20",
-      "material_key": "concrete_gu_20",
-      "name": "Concrete, Portland Type GU, 20 MPa Footings",
+      "factor_id": "koot-concrete-gul15-25",
+      "material_key": "concrete_gul_15fa_25",
+      "name": "Concrete, Portland-Limestone GUL + 15% fly ash, 25 MPa",
       "source": "Kootenay Construction Material Impact Guide (2026)",
-      "source_id": "concrete/portland-gu/20mpa",
+      "source_id": "concrete/portland-limestone-15fa/25mpa",
       "declared_unit": "m3",
       "density_kg_m3": 2350.0,
-      "gwp_value": 220.0,
+      "gwp_value": 218.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA-AB",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -64,7 +76,11 @@
       "density_kg_m3": 450.0,
       "gwp_value": 62.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -82,7 +98,11 @@
       "density_kg_m3": 550.0,
       "gwp_value": 195.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -100,7 +120,11 @@
       "density_kg_m3": 750.0,
       "gwp_value": 210.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -118,7 +142,11 @@
       "density_kg_m3": 45.0,
       "gwp_value": 105.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -136,7 +164,11 @@
       "density_kg_m3": 30.0,
       "gwp_value": 460.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -154,7 +186,11 @@
       "density_kg_m3": 24.0,
       "gwp_value": 180.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -172,7 +208,11 @@
       "density_kg_m3": 48.0,
       "gwp_value": 18.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -190,7 +230,11 @@
       "density_kg_m3": 7850.0,
       "gwp_value": 15.8,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -208,7 +252,11 @@
       "density_kg_m3": 1100.0,
       "gwp_value": 8.9,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -226,7 +274,11 @@
       "density_kg_m3": 1350.0,
       "gwp_value": 6.4,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -244,7 +296,11 @@
       "density_kg_m3": 1400.0,
       "gwp_value": 12.2,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -262,7 +318,11 @@
       "density_kg_m3": null,
       "gwp_value": 55.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -280,7 +340,11 @@
       "density_kg_m3": null,
       "gwp_value": 42.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
@@ -298,13 +362,83 @@
       "density_kg_m3": null,
       "gwp_value": 68.0,
       "gwp_unit": "kgCO2e",
-      "modules": ["A1", "A2", "A3"],
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
       "geography": "CA",
       "valid_from": "2026-01-01",
       "valid_to": null,
       "data_type": "epd",
       "uncertainty_pct": 20.0,
       "attribution": "Building Transparency EC3"
+    },
+    {
+      "factor_id": "koot-concrete-gul25-25",
+      "material_key": "concrete_gul_25fa_25",
+      "name": "Concrete, Portland-Limestone GUL + 25% fly ash, 25 MPa",
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "source_id": "concrete/portland-limestone-25fa/25mpa",
+      "declared_unit": "m3",
+      "density_kg_m3": 2350.0,
+      "gwp_value": 201.0,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA-AB",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action / City of Nelson, funded by FortisBC"
+    },
+    {
+      "factor_id": "koot-sheathing-plywood",
+      "material_key": "sheathing_plywood_13mm",
+      "name": "Softwood Plywood Sheathing (1/2 in, BC average)",
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "source_id": "sheathing/plywood-13mm",
+      "declared_unit": "m3",
+      "density_kg_m3": 600.0,
+      "gwp_value": 242.5,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA-BC",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 20.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-sheathing-osb",
+      "material_key": "sheathing_osb_13mm",
+      "name": "Oriented Strand Board Sheathing (1/2 in, NA average)",
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "source_id": "sheathing/osb-13mm",
+      "declared_unit": "m3",
+      "density_kg_m3": 600.0,
+      "gwp_value": 131.5,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA-BC",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 20.0,
+      "attribution": "Builders for Climate Action"
     }
   ],
   "cmhc_mappings": {
@@ -320,7 +454,7 @@
       "category": "Framing",
       "assembly_class": "exterior_wall",
       "density_kg_m3": 450.0,
-      "waste_factor": 0.10
+      "waste_factor": 0.1
     },
     "CMHC_Plywood": {
       "default_factor_id": "beam-plywood-sheathing",
@@ -334,7 +468,7 @@
       "category": "Interior Finishes",
       "assembly_class": "interior_partition",
       "density_kg_m3": 750.0,
-      "waste_factor": 0.10
+      "waste_factor": 0.1
     },
     "CMHC_Insulation, Mineral Wool Semi-Rigid": {
       "default_factor_id": "koot-insul-mineral-wool-batt",
@@ -433,6 +567,33 @@
       "to_factor_id": "ec3-window-double-vinyl",
       "description": "Alternative double-pane argon low-E window package for lower embodied carbon where permitted.",
       "category": "Windows & Glazing"
+    },
+    {
+      "swap_id": "swap-concrete-gul25",
+      "title": "Lower-Carbon Concrete (GUL + 25% Fly Ash)",
+      "target_material": "CMHC_Concrete, CIP",
+      "from_factor_id": "koot-concrete-gu-30",
+      "to_factor_id": "koot-concrete-gul25-25",
+      "description": "Replace 30 MPa Portland GU with 25 MPa Portland-Limestone GUL at 25% fly ash. A middle option: less saving than 40% replacement, and less effect on early strength gain in cold-weather pours.",
+      "category": "Concrete"
+    },
+    {
+      "swap_id": "swap-concrete-gul15",
+      "title": "Modest-Carbon Concrete (GUL + 15% Fly Ash)",
+      "target_material": "CMHC_Concrete, CIP",
+      "from_factor_id": "koot-concrete-gu-30",
+      "to_factor_id": "koot-concrete-gul15-25",
+      "description": "Replace 30 MPa Portland GU with 25 MPa Portland-Limestone GUL at 15% fly ash. The most conservative substitution, widely available from Alberta ready-mix suppliers without a change to the pour schedule.",
+      "category": "Concrete"
+    },
+    {
+      "swap_id": "swap-sheathing-osb",
+      "title": "OSB Sheathing in place of Plywood",
+      "target_material": "CMHC_Plywood",
+      "from_factor_id": "koot-sheathing-plywood",
+      "to_factor_id": "koot-sheathing-osb",
+      "description": "Replace 1/2 in softwood plywood sheathing with 1/2 in OSB. Both values are from the same guide so the difference is the material, not the database.",
+      "category": "Sheathing"
     }
   ]
 }

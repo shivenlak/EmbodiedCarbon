@@ -1,12 +1,23 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>eCarbon — Automated Takeoff & Whole-Building Embodied Carbon</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <title>ecarbon — embodied carbon takeoff</title>
+    <meta
+      name="description"
+      content="Reads a vector plan set and returns a bill of quantities and an A1-A3 carbon estimate, with every quantity traceable to the sheet it came from."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Archivo Narrow for sheet titles, which on a real drawing are set in a
+         condensed gothic; IBM Plex Sans/Mono for body and for every number,
+         because a bill of quantities only reads straight if the digits are
+         tabular. -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>

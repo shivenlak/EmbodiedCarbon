@@ -1,28 +1,30 @@
 """Ground truth from the IFC model.
 
-Used for scoring only -- the pipeline never reads the IFC during extraction,
-because Landmark's plan sets are PDF and a benchmark that peeks at the answer
-measures nothing.
+Used for scoring only -- the pipeline never reads the IFC, because Landmark's
+plan sets are PDF and a benchmark that peeks at the answer measures nothing.
 
-As discovered in RESEARCH.md §5:
-  - 52 of 53 IFCs contain zero IfcElementQuantity or pre-computed volumes.
-  - All SKMB designs (Vectorworks export) lack semantic element classes
-    (zero IfcWall/IfcSlab/IfcWindow).
-  - NOR Tanked designs contain 650-812 IfcSlabs with zero footings.
-  - Slabs in catalogue models contain landscape elements (asphalt, grass)
-    that must be filtered out by `is_site_element`.
+Two things to know before trusting a model:
 
-This engine derives exact 3D volumes and surface areas directly from IFC geometry
-and resolves IfcMaterialLayerSetUsage to yield material-by-material quantities.
+1. LANDSCAPE elements are modelled as IfcSlab -- `Floor:xSite - Asphalt`,
+   `Floor:xSite - Grass`. They are not part of the building and must be
+   excluded from any takeoff too, or the model gains hundreds of square metres
+   of fictitious asphalt. On AB_Fourplex_01, including them inflates the
+   footprint from 7.0 x 22.0 m to 31.2 x 46.3 m. CMHC appears to prefix
+   non-building families with 'x'.
+
+2. GEOMETRY COVERAGE varies. All 53 models carry correct semantic elements, but
+   the 7 Vectorworks (SKMB) exports use B-rep geometry that IfcOpenShell can
+   only partly build -- 0% to 74% of walls yield a shape, versus 100% for the
+   46 Revit exports. A model can therefore have the right element count and
+   still be useless for quantities, which `geometry_coverage()` detects.
+   Measured 2026-10-24; see RESEARCH.md §15.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 # Name fragments that mark an element as site/landscape rather than building.
 SITE_MARKERS = ("xsite", "site -", "topography", "landscape", "asphalt", "grass", "paver")
@@ -33,6 +35,33 @@ BUILDING_WALL_TYPES = ("IfcWall", "IfcWallStandardCase")
 def is_site_element(name: str | None) -> bool:
     low = (name or "").lower()
     return any(m in low for m in SITE_MARKERS)
+
+
+# Below this fraction of wall elements yielding geometry, the model cannot be
+# trusted for quantities. The Vectorworks (SKMB) exports carry correct semantic
+# data but B-rep geometry that IfcOpenShell can only partly build.
+MIN_GEOMETRY_COVERAGE = 0.90
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """How much of the model's wall geometry can actually be built."""
+
+    n_elements: int
+    n_shapes: int
+
+    @property
+    def fraction(self) -> float:
+        return self.n_shapes / self.n_elements if self.n_elements else 0.0
+
+    @property
+    def usable(self) -> bool:
+        return self.fraction >= MIN_GEOMETRY_COVERAGE
+
+    @property
+    def verdict(self) -> str:
+        f = self.fraction
+        return "good" if f >= 0.90 else ("partial" if f >= 0.40 else "poor")
 
 
 @dataclass(frozen=True)
@@ -54,82 +83,15 @@ class BBox:
         return (min(self.x_mm, self.y_mm), max(self.x_mm, self.y_mm))
 
 
-@dataclass(frozen=True)
-class IFCLayerInfo:
-    material_name: str
-    thickness_mm: float
-    volume_m3: float
-
-
-@dataclass(frozen=True)
-class IFCElementRecord:
-    element_id: int
-    element_type: str
-    name: str
-    volume_m3: float
-    thickness_m: float | None = None
-    area_m2: float | None = None
-    is_exterior: bool = False
-    assembly_tag: str | None = None
-    layers: list[IFCLayerInfo] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class IFCTakeoffTruth:
-    file_path: Path
-    is_usable: bool
-    unusable_reason: str | None
-
-    # Extents
-    bbox: BBox | None = None
-
-    # Aggregated quantities (building only, excluding site)
-    exterior_wall_area_m2: float = 0.0
-    exterior_wall_volume_m3: float = 0.0
-    slab_on_grade_volume_m3: float = 0.0
-    slab_on_grade_area_m2: float = 0.0
-    upper_floor_slab_volume_m3: float = 0.0
-    roof_volume_m3: float = 0.0
-    footing_volume_m3: float = 0.0
-    window_count: int = 0
-    door_count: int = 0
-
-    # Material volumes: material name -> m3
-    material_volumes_m3: dict[str, float] = field(default_factory=dict)
-
-    # Detailed element records
-    elements: list[IFCElementRecord] = field(default_factory=list)
-
-
-def _compute_mesh_volume(verts_flat: list[float], faces_flat: list[int]) -> float:
-    """Compute volume of closed 3D triangular mesh via divergence theorem."""
-    import numpy as np
-
-    if not verts_flat or not faces_flat:
-        return 0.0
-    verts = np.array(verts_flat, dtype=np.float64).reshape(-1, 3)
-    faces = np.array(faces_flat, dtype=np.int64).reshape(-1, 3)
-    v0 = verts[faces[:, 0]]
-    v1 = verts[faces[:, 1]]
-    v2 = verts[faces[:, 2]]
-    cross = np.cross(v1 - v0, v2 - v0)
-    signed_vols = np.sum(v0 * cross, axis=1) / 6.0
-    return float(np.abs(np.sum(signed_vols)))
-
-
-def _extract_assembly_tag(name: str | None) -> str | None:
-    """Extract assembly code like 'W2', 'P1', 'F1', 'R1' from element or type name."""
-    import re
-
-    if not name:
-        return None
-    m = re.search(r"\b([WPFSRC][0-9]{1,2})\b", name)
-    return m.group(1) if m else None
-
-
 @lru_cache(maxsize=16)
-def building_bbox(ifc_path: str | Path, types: tuple[str, ...] = BUILDING_WALL_TYPES) -> BBox | None:
-    """Extent of the building envelope, excluding site elements."""
+def building_bbox(
+    ifc_path: str | Path, types: tuple[str, ...] = BUILDING_WALL_TYPES
+) -> BBox | None:
+    """Extent of the building envelope, excluding site elements.
+
+    Walls are the default because they define the envelope cleanly: slabs in
+    these models include landscape, and footings extend past the wall line.
+    """
     import ifcopenshell
     import ifcopenshell.geom as geom
 
@@ -164,6 +126,8 @@ def building_bbox(ifc_path: str | Path, types: tuple[str, ...] = BUILDING_WALL_T
 
     if not n or lo[0] == float("inf"):
         return None
+    # ifcopenshell returns world coordinates in metres regardless of the file's
+    # own length unit, so convert once here.
     return BBox(
         x_mm=(hi[0] - lo[0]) * 1000.0,
         y_mm=(hi[1] - lo[1]) * 1000.0,
@@ -172,201 +136,31 @@ def building_bbox(ifc_path: str | Path, types: tuple[str, ...] = BUILDING_WALL_T
     )
 
 
-def get_length_unit_scale(model) -> float:
-    """Return multiplier to convert model length quantities into metres."""
-    for u in model.by_type("IfcUnitAssignment"):
-        for item in u.Units:
-            if getattr(item, "UnitType", None) == "LENGTHUNIT":
-                if item.is_a("IfcSIUnit"):
-                    prefix = getattr(item, "Prefix", None)
-                    if prefix == "MILLI":
-                        return 0.001
-                    return 1.0
-                elif item.is_a("IfcConversionBasedUnit"):
-                    conv = getattr(item, "ConversionFactor", None)
-                    if conv and hasattr(conv, "ValueComponent"):
-                        val = conv.ValueComponent
-                        return float(val.wrappedValue)
-    return 0.001
+@lru_cache(maxsize=16)
+def geometry_coverage(ifc_path: str | Path) -> Coverage:
+    """What fraction of building walls yield buildable geometry.
 
-
-def parse_ifc_takeoff(ifc_path: str | Path) -> IFCTakeoffTruth:
-    """Extract ground truth element and material quantities from an IFC model."""
+    This is the gate for using a model as quantity ground truth. Element counts
+    alone are misleading: SKMB_ADU_02 declares 22 walls and builds 0 shapes.
+    """
     import ifcopenshell
     import ifcopenshell.geom as geom
 
-    path = Path(ifc_path)
-    model = ifcopenshell.open(str(path))
-
-    # Usability checks per RESEARCH.md §5:
-    # 1. Vectorworks SKMB files lack semantic classes
-    all_walls = model.by_type("IfcWall")
-    all_slabs = model.by_type("IfcSlab")
-    if not all_walls and not all_slabs:
-        return IFCTakeoffTruth(
-            file_path=path,
-            is_usable=False,
-            unusable_reason="vectorworks_brep_no_semantic_elements (SKMB design)",
-        )
-
-    # 2. NOR Tanked variants have >500 slabs and 0 footings
-    all_footings = model.by_type("IfcFooting")
-    if len(all_slabs) > 500 and not all_footings:
-        return IFCTakeoffTruth(
-            file_path=path,
-            is_usable=False,
-            unusable_reason="nor_tanked_inconsistent_slabs (650+ slabs, 0 footings)",
-        )
-
+    model = ifcopenshell.open(str(ifc_path))
     settings = geom.settings()
     settings.set("use-world-coords", True)
 
-    unit_scale = get_length_unit_scale(model)
-
-    # Map object id -> list of (material_name, thickness_m)
-    element_layer_map: dict[int, list[tuple[str, float]]] = {}
-    for rel in model.by_type("IfcRelAssociatesMaterial"):
-        mat = rel.RelatingMaterial
-        layers: list[tuple[str, float]] = []
-        if mat.is_a("IfcMaterialLayerSetUsage"):
-            ls = mat.ForLayerSet
-            for l in ls.MaterialLayers:
-                mname = l.Material.Name if l.Material else "Unknown"
-                layers.append((mname, float(l.LayerThickness) * unit_scale))
-        elif mat.is_a("IfcMaterialLayerSet"):
-            for l in mat.MaterialLayers:
-                mname = l.Material.Name if l.Material else "Unknown"
-                layers.append((mname, float(l.LayerThickness) * unit_scale))
-        elif mat.is_a("IfcMaterial"):
-            layers.append((mat.Name, 0.0))
-
-        if layers:
-            for obj in rel.RelatedObjects:
-                element_layer_map[obj.id()] = layers
-
-    bbox = building_bbox(path)
-    element_records: list[IFCElementRecord] = []
-    material_vols: dict[str, float] = defaultdict(float)
-
-    total_ext_wall_area = 0.0
-    total_ext_wall_vol = 0.0
-    total_sog_vol = 0.0
-    total_sog_area = 0.0
-    total_upper_slab_vol = 0.0
-    total_roof_vol = 0.0
-    total_footing_vol = 0.0
-
-    target_types = ("IfcWall", "IfcSlab", "IfcRoof", "IfcFooting")
-    for tname in target_types:
-        for el in model.by_type(tname):
-            el_name = getattr(el, "Name", "") or ""
-            if is_site_element(el_name):
-                continue
-
-            try:
-                shape = geom.create_shape(settings, el)
-            except Exception:
-                continue
-
-            vol = _compute_mesh_volume(shape.geometry.verts, shape.geometry.faces)
-            if vol <= 0.0001:
-                continue
-
-            layers = element_layer_map.get(el.id(), [])
-            tot_thickness_m = sum(th for _, th in layers)
-            thickness_m = tot_thickness_m if tot_thickness_m > 0 else None
-
-            # Geometric thickness fallback for slabs only (for walls dz is height)
-            if tname == "IfcSlab":
-                verts = shape.geometry.verts
-                zs = verts[2::3] if verts else []
-                dz = (max(zs) - min(zs)) if zs else 0.0
-                if (thickness_m is None or thickness_m <= 0) and dz > 0.04:
-                    thickness_m = dz
-
-            area_m2 = (vol / thickness_m) if (thickness_m and thickness_m > 0) else None
-
-            # Distribute layer volumes
-            layer_infos: list[IFCLayerInfo] = []
-            if layers and tot_thickness_m > 0:
-                for mname, th_m in layers:
-                    frac = th_m / tot_thickness_m
-                    l_vol = vol * frac
-                    material_vols[mname] += l_vol
-                    layer_infos.append(
-                        IFCLayerInfo(material_name=mname, thickness_mm=th_m * 1000.0, volume_m3=round(l_vol, 4))
-                    )
-            elif layers:
-                for mname, _ in layers:
-                    material_vols[mname] += vol
-                    layer_infos.append(
-                        IFCLayerInfo(material_name=mname, thickness_mm=0.0, volume_m3=round(vol, 4))
-                    )
-            else:
-                material_vols[f"Unknown:{tname}"] += vol
-
-            tag = _extract_assembly_tag(el_name)
-            is_ext = False
-            up_name = el_name.upper()
-
-            if tname == "IfcWall":
-                is_ext = any(k in up_name for k in ("EXTERIOR", "W1", "W2", "EW-", "EXT_"))
-                if is_ext:
-                    total_ext_wall_vol += vol
-                    if area_m2 is not None:
-                        total_ext_wall_area += area_m2
-                    else:
-                        total_ext_wall_area += vol / 0.24
-
-            elif tname == "IfcSlab":
-                if any(k in up_name for k in ("F1", "SLAB ON GRADE", "GRADE")):
-                    total_sog_vol += vol
-                    if area_m2 is not None:
-                        total_sog_area += area_m2
-                    else:
-                        total_sog_area += (vol / dz) if dz > 0.04 else (vol / 0.15)
-                elif any(k in up_name for k in ("ROOF", "R1", "R2")):
-                    total_roof_vol += vol
-                else:
-                    total_upper_slab_vol += vol
-
-            elif tname == "IfcRoof":
-                total_roof_vol += vol
-
-            elif tname == "IfcFooting":
-                total_footing_vol += vol
-
-            element_records.append(
-                IFCElementRecord(
-                    element_id=el.id(),
-                    element_type=tname,
-                    name=el_name,
-                    volume_m3=round(vol, 4),
-                    thickness_m=round(thickness_m, 4) if thickness_m else None,
-                    area_m2=round(area_m2, 4) if area_m2 else None,
-                    is_exterior=is_ext,
-                    assembly_tag=tag,
-                    layers=layer_infos,
-                )
-            )
-
-    windows = model.by_type("IfcWindow")
-    doors = model.by_type("IfcDoor")
-
-    return IFCTakeoffTruth(
-        file_path=path,
-        is_usable=True,
-        unusable_reason=None,
-        bbox=bbox,
-        exterior_wall_area_m2=round(total_ext_wall_area, 2),
-        exterior_wall_volume_m3=round(total_ext_wall_vol, 2),
-        slab_on_grade_volume_m3=round(total_sog_vol, 2),
-        slab_on_grade_area_m2=round(total_sog_area, 2),
-        upper_floor_slab_volume_m3=round(total_upper_slab_vol, 2),
-        roof_volume_m3=round(total_roof_vol, 2),
-        footing_volume_m3=round(total_footing_vol, 2),
-        window_count=len(windows),
-        door_count=len(doors),
-        material_volumes_m3={k: round(v, 3) for k, v in material_vols.items()},
-        elements=element_records,
-    )
+    elements = [
+        el
+        for t in BUILDING_WALL_TYPES
+        for el in model.by_type(t)
+        if not is_site_element(getattr(el, "Name", None))
+    ]
+    built = 0
+    for el in elements:
+        try:
+            if geom.create_shape(settings, el).geometry.verts:
+                built += 1
+        except Exception:
+            continue
+    return Coverage(n_elements=len(elements), n_shapes=built)

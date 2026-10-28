@@ -1,2070 +1,2114 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Building2, 
-  Layers, 
-  AlertTriangle, 
-  CheckCircle2, 
-  ArrowRight, 
-  Download, 
-  RefreshCw, 
-  ChevronDown, 
-  ChevronUp, 
-  Sliders, 
-  BarChart3, 
-  ShieldCheck, 
-  FileSpreadsheet,
-  Info,
-  ExternalLink,
-  Flame,
-  Check,
-  Upload,
-  Printer,
-  X,
-  Eye,
-  FileText,
-  Scale,
-  GitCompare,
-  TrendingDown,
-  Sparkles,
-  Presentation,
-  Play,
-  BookOpen,
-  Clock,
-  Target,
-  Users,
-  Zap
-} from 'lucide-react';
+/* ecarbon — reading a drawing set into a carbon figure you can argue with.
+ *
+ * The ordering of this page is the argument: what we could not read comes
+ * before the number, the number is given twice because one of its lines is
+ * measured rather than stated, and every quantity carries the sheet it came
+ * from as a control you can press.
+ *
+ * Styling lives in index.css as classes, where the type scale and the colour
+ * meanings can be held in one place.
+ */
 
-const API_BASE = 'http://127.0.0.1:8000';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+// Same origin in a build, because the service serves this bundle itself.
+// Hardcoding the dev address once shipped an interface that called the
+// *viewer's* localhost: every request failed for anyone but the developer,
+// while curl against the deployment worked perfectly and hid it.
+const API = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
+
+// Mirrors PARTITION_LINE_PREFIX in ecarbon/takeoff/builder.py.
+const PARTITION_PREFIX = "ln-interior-partition";
+
+/* ------------------------------------------------------------ plumbing -- */
+
+// Credentials are held for the tab and sent explicitly on every request.
+// Relying on the browser's own basic-auth cache is not safe enough: the page
+// loads while every fetch comes back 401, which renders as a dead app and
+// looks exactly like a broken deployment.
+let AUTH = sessionStorage.getItem("ecarbon-auth") || "";
+
+export function setAuth(user, password) {
+  AUTH = "Basic " + btoa(`${user}:${password}`);
+  try {
+    sessionStorage.setItem("ecarbon-auth", AUTH);
+  } catch {
+    // A private window can refuse storage; the value still works for this tab.
+  }
+}
+
+export function clearAuth() {
+  AUTH = "";
+  try {
+    sessionStorage.removeItem("ecarbon-auth");
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+class Unauthorized extends Error {}
+
+async function getJSON(path) {
+  const res = await fetch(`${API}${path}`, {
+    headers: AUTH ? { Authorization: AUTH } : {},
+  });
+  if (res.status === 401) throw new Unauthorized("Credentials required");
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} on ${path}`);
+  return res.json();
+}
+
+async function postJSON(path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(AUTH ? { Authorization: AUTH } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) throw new Unauthorized("Credentials required");
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// A rendered sheet is an <img src>, which cannot carry a header, so the
+// credential rides the query string instead. Same origin, same gate.
+export function authedUrl(path) {
+  if (!AUTH) return `${API}${path}`;
+  const joiner = path.includes("?") ? "&" : "?";
+  return `${API}${path}${joiner}auth=${encodeURIComponent(AUTH.slice(6))}`;
+}
+
+const int = (n) => (n == null ? "—" : Math.round(n).toLocaleString());
+
+// Motion is suppressed wherever a reader has asked for that, so this is
+// checked once rather than at every call site.
+const STILL =
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** A number that counts up to its value, easing out.
+ *
+ * The headline is the thing a reader looks at first, and a figure that
+ * arrives reads as a figure that was computed. It is 700 ms, once, on load
+ * and on project change -- not a flourish repeated on every render, which
+ * would make the page feel busy rather than alive.
+ */
+function useCountUp(value, duration = 700) {
+  const [shown, setShown] = useState(value ?? 0);
+  const from = useRef(0);
+
+  useEffect(() => {
+    if (value == null) return;
+    if (STILL) {
+      setShown(value);
+      return;
+    }
+    const start = performance.now();
+    const origin = from.current;
+    const delta = value - origin;
+    let raf = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      // easeOutCubic: fast enough to feel immediate, settled enough to read.
+      const eased = 1 - Math.pow(1 - t, 3);
+      setShown(origin + delta * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else from.current = value;
+    };
+    raf = requestAnimationFrame(tick);
+
+    // A headline stuck partway through counting is a wrong number on screen.
+    // requestAnimationFrame stops in a background tab and does not advance
+    // reliably under headless capture, so the true value is written once the
+    // animation should have finished whatever happened to the frames.
+    const settle = setTimeout(() => {
+      cancelAnimationFrame(raf);
+      from.current = value;
+      setShown(value);
+    }, duration + 120);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+    };
+  }, [value, duration]);
+
+  return shown;
+}
+const dec = (n, p = 1) => (n == null ? "—" : Number(n).toFixed(p));
+// A carbon line is counted when it carries a figure. `is_counted` exists on
+// the Python model as a property and is never serialised, so testing it here
+// silently marked every line uncounted -- which read as "0 of 20 counted" and
+// quietly suppressed the without-partitions total.
+const isCounted = (line) => line.kg_co2e != null;
+const titleCase = (s) =>
+  String(s || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Which plan set to open on. `?plan=` wins so a demo or a bug report can
+// deep-link an exact design; otherwise prefer a multi-storey set over an ADU,
+// because a single-storey plan yields fewer than two floor datums and so has
+// no wall height, no wall, floor or partition area, and a thin bill.
+function pickInitial(list) {
+  const wanted = new URLSearchParams(window.location.search).get("plan");
+  const idOf = (p) => p.id ?? p.project_id;
+  if (wanted) {
+    const exact = list.find((p) => idOf(p) === wanted);
+    if (exact) return idOf(exact);
+    const loose = list.find((p) =>
+      String(idOf(p)).toLowerCase().includes(wanted.toLowerCase()),
+    );
+    if (loose) return idOf(loose);
+  }
+  const multi = list.find((p) => !/_ADU_/i.test(String(idOf(p))));
+  return idOf(multi ?? list[0]);
+}
+
+/* -------------------------------------------------------------- pieces -- */
+
+const CONFIDENCE = {
+  measured: "chip-measured",
+  inferred: "chip-inferred",
+  assumed: "chip-assumed",
+};
+
+function Confidence({ value }) {
+  return <span className={`chip ${CONFIDENCE[value] || "chip-assumed"}`}>{value}</span>;
+}
+
+// The sheet tag is the trace control. It is styled like the stamp it refers
+// to so that pressing it feels like reaching for the drawing.
+function Citation({ provenance, onTrace, lineId }) {
+  const sheet = provenance?.sheet_no;
+  if (!sheet) return <span className="cite-none">no sheet recorded</span>;
+  return (
+    <button
+      className="cite"
+      onClick={() => onTrace?.(lineId, provenance)}
+      title={`Show where this came from on sheet ${sheet}`}
+    >
+      <span className="cite-sheet">{sheet}</span>
+      <span className="cite-detail" title={provenance.detail || ""}>
+        {provenance.detail || `page ${provenance.page + 1}`}
+      </span>
+    </button>
+  );
+}
+
+// Intensity is only as good as its denominator, and the denominator is the
+// one project fact the drawings may not state. Where the measured area and
+// the stated area disagree, say which is in use before it is read.
+function floorAreaNote(gaps) {
+  const list = gaps || [];
+  if (list.some((g) => String(g.message).startsWith("Floor area: using")))
+    return "measured from the drawings — whole block, confirm this";
+  if (list.some((g) => String(g.message).includes("kgCO2e/m2 is not possible")))
+    return "check this — the intensity it gives is impossible";
+  return null;
+}
+
+function TitleBlock({ takeoff, carbon, coverage }) {
+  const p = takeoff?.project || {};
+  const sheets = takeoff?.sheets || [];
+  const readable = sheets.filter((s) => s.readable).length;
+  const areaNote = floorAreaNote(takeoff?.gaps);
+  const pct = coverage == null ? null : Math.round(coverage * 100);
+
+  const rows = [
+    [
+      "Project",
+      (p.name || "—")
+        .replace(/_/g, " ")
+        .replace(/\s*Technical Design Package$/i, ""),
+    ],
+    ["Location", p.jurisdiction || "—"],
+    [
+      "Floor area",
+      <>
+        {p.gfa_m2 ? `${dec(p.gfa_m2, 1)} m²` : "—"}
+        {p.gfa_basis ? ` · ${p.gfa_basis}` : ""}
+        {areaNote && <span className="tb-flag">{areaNote}</span>}
+      </>,
+    ],
+    ["Storeys / units", `${p.storeys || "—"} / ${p.units || "—"}`],
+    ["Sheets read", `${readable} of ${sheets.length}`],
+    ["Module scope", carbon?.modules?.join(" · ") || "—"],
+    [
+      "Element coverage",
+      <>
+        {pct == null ? "—" : `${pct}% of carbon`}
+        <span className="meter">
+          <i style={{ width: `${pct ?? 0}%` }} />
+        </span>
+      </>,
+    ],
+    ["Factor sources", carbon?.factor_sources?.join(", ") || "Kootenay · BEAM · EC3"],
+  ];
+
+  return (
+    <aside className="card titleblock">
+      {rows.map(([label, value]) => (
+        <div className="tb-row" key={label}>
+          <span className="tb-label">{label}</span>
+          <span className="tb-value">{value}</span>
+        </div>
+      ))}
+    </aside>
+  );
+}
+
+function Hero({ carbon, takeoff, coverage }) {
+  const shownTotal = useCountUp(carbon?.total_kg_co2e);
+  const counted = (carbon?.lines || []).filter(isCounted).length;
+  const measured = (takeoff?.lines || []).filter(
+    (l) => l.confidence === "measured",
+  ).length;
+
+  // Carbon carried by the interior-partition lines. Their run length is
+  // measured off the drawing rather than stated by a schedule, so the total
+  // is shown both ways instead of asking the reader to take one on trust.
+  const partitions = (carbon?.lines || [])
+    .filter((l) => isCounted(l) && String(l.line_id).startsWith(PARTITION_PREFIX))
+    .reduce((sum, l) => sum + (l.kg_co2e || 0), 0);
+
+  return (
+    <section className="card hero">
+      <div className="hero-top">
+        <div>
+          <div className="figure">
+            {carbon?.total_kg_co2e == null ? "—" : int(shownTotal)}
+            <span className="figure-unit">kg CO₂e</span>
+          </div>
+          <div className="chips">
+            <span className="chip chip-scope">
+              {carbon?.modules?.length
+                ? `modules ${carbon.modules.join("–")} · product stage only`
+                : "module scope unknown"}
+            </span>
+            {coverage != null && coverage < 1 && (
+              <span className="chip chip-danger">
+                partial · {Math.round(coverage * 100)}% of the building
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {partitions > 0 && (
+        <div className="alt-total">
+          <span className="alt-total-figure">
+            {int(carbon.total_kg_co2e - partitions)}
+          </span>
+          <span className="alt-total-note">
+            without the inferred interior partitions, measured from the plan
+            linework rather than read from a schedule. Both are given because
+            that run is the least certain quantity here.
+          </span>
+        </div>
+      )}
+
+      <div className="kpis">
+        <div className="kpi" style={{ "--i": 0 }}>
+          <div className="kpi-label">Intensity</div>
+          <div className="kpi-value">{dec(carbon?.intensity_kg_co2e_per_m2, 1)}</div>
+          <div className="kpi-sub">kg/m² {carbon?.intensity_basis || ""}</div>
+        </div>
+        <div className="kpi" style={{ "--i": 1 }}>
+          <div className="kpi-label">Counted</div>
+          <div className="kpi-value">{counted}</div>
+          <div className="kpi-sub">of {takeoff?.lines?.length ?? 0} lines</div>
+        </div>
+        <div className="kpi" style={{ "--i": 2 }}>
+          <div className="kpi-label">Measured</div>
+          <div className="kpi-value">{measured}</div>
+          <div className="kpi-sub">from geometry</div>
+        </div>
+        <div className="kpi" style={{ "--i": 3 }}>
+          <div className="kpi-label">Notices</div>
+          <div className="kpi-value">{takeoff?.gaps?.length ?? 0}</div>
+          <div className="kpi-sub">things we could not read</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------- charts -- */
+
+const SERIES = [
+  "#1e40af", "#2563eb", "#3b82f6", "#60a5fa",
+  "#0891b2", "#0d9488", "#b45309", "#94a3b8",
+];
+
+// Hand-drawn rather than pulled from a chart library: eight segments and a
+// bar list do not justify the bundle, and this way the palette is the same
+// one the confidence chips use.
+function Contribution({ carbon, focus, onFocus, filter, onFilter }) {
+  const rows = (carbon?.by_material_category || []).slice(0, 8);
+  const total = rows.reduce((sum, r) => sum + (r.kg_co2e || 0), 0);
+  if (!rows.length) return null;
+
+  const R = 68;
+  const C = 2 * Math.PI * R;
+  let running = 0;
+  const segments = rows.map((row, i) => {
+    const frac = total ? (row.kg_co2e || 0) / total : 0;
+    const seg = { row, i, dash: frac * C, offset: running };
+    running += frac * C;
+    return seg;
+  });
+
+  // Focus is the material key rather than an index, because the bill, the
+  // donut and the bars are three views of the same thing and an index means
+  // nothing outside this component.
+  const hover = focus == null ? null : rows.findIndex((r) => r.key === focus);
+  const active = hover >= 0 ? rows[hover] : null;
+
+  return (
+    <div className="charts">
+      <div className="donut-wrap">
+        <div className={`donut${active ? " has-hover" : ""}`}>
+          <svg
+            width="190"
+            height="190"
+            viewBox="0 0 190 190"
+            role="img"
+            aria-label="Carbon by material category"
+          >
+            {segments.map(({ row, i, dash, offset }) => (
+              <circle
+                key={row.key}
+                className={`donut-seg${hover === i ? " is-hover" : ""}`}
+                cx="95"
+                cy="95"
+                r={R}
+                fill="none"
+                stroke={SERIES[i % SERIES.length]}
+                strokeWidth="24"
+                strokeDasharray={`${dash} ${C - dash}`}
+                strokeDashoffset={-offset}
+                onMouseEnter={() => onFocus(row.key)}
+                onMouseLeave={() => onFocus(null)}
+                onClick={() => onFilter(filter === row.key ? null : row.key)}
+              />
+            ))}
+          </svg>
+          <div className="donut-centre">
+            <b>{active ? `${dec(active.pct_of_total, 1)}%` : int(total)}</b>
+            <span>{active ? active.key : "kg CO₂e counted"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="bars">
+        {rows.map((row, i) => (
+          <div
+            className={`bar-row${filter === row.key ? " is-filtered" : ""}`}
+            key={row.key}
+            style={{ "--i": i }}
+            onMouseEnter={() => onFocus(row.key)}
+            onMouseLeave={() => onFocus(null)}
+            onClick={() => onFilter(filter === row.key ? null : row.key)}
+            title={
+              filter === row.key
+                ? "Show every line again"
+                : "Show only the lines made of this"
+            }
+          >
+            <span className="bar-name" title={row.key}>{row.key}</span>
+            <span className="bar-track">
+              <i
+                style={{
+                  width: `${row.pct_of_total}%`,
+                  background: SERIES[i % SERIES.length],
+                }}
+              />
+            </span>
+            <span className="bar-value">{dec(row.pct_of_total, 1)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- notices -- */
+
+function Notices({ gaps }) {
+  // Nineteen notices, most of them near-identical, pushed the bill of
+  // quantities below two screens of repeated text. Nothing is dropped --
+  // honesty is the point of this panel -- but repeats of one kind collapse
+  // behind a count so the distinct problems are read first.
+  const [expanded, setExpanded] = useState({});
+  if (!gaps?.length) return null;
+
+  const rank = { blocking: 0, warning: 1, info: 2 };
+  const sorted = [...gaps].sort(
+    (a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3),
+  );
+
+  const groups = [];
+  const seen = new Map();
+  for (const gap of sorted) {
+    const key = `${gap.severity}:${gap.code}`;
+    if (gap.severity === "blocking" || !seen.has(key)) {
+      const group = { key, severity: gap.severity, code: gap.code, items: [gap] };
+      if (gap.severity !== "blocking") seen.set(key, group);
+      groups.push(group);
+    } else {
+      seen.get(key).items.push(gap);
+    }
+  }
+
+  const SHOWN = 2;
+  return (
+    <div className="notices">
+      {groups.map((group) => {
+        const open = expanded[group.key];
+        const shown = open ? group.items : group.items.slice(0, SHOWN);
+        const hidden = group.items.length - shown.length;
+        return (
+          <Fragment key={group.key}>
+            {shown.map((gap, i) => (
+              <div className={`notice notice-${gap.severity || "info"}`} key={i}>
+                <div className="notice-head">
+                  {gap.severity === "blocking" ? "Read this first" : "Worth knowing"}
+                  {" · "}
+                  {(gap.code || "").replace(/_/g, " ")}
+                </div>
+                <div className="notice-body">{gap.message}</div>
+              </div>
+            ))}
+            {hidden > 0 && (
+              <button
+                className="notice-more"
+                onClick={() => setExpanded((e) => ({ ...e, [group.key]: true }))}
+              >
+                + {hidden} more of the same kind (
+                {(group.code || "").replace(/_/g, " ")})
+              </button>
+            )}
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ BoQ -- */
+
+// Twenty lines, each two rows tall with its derivation control, put the
+// substitutions and the open decisions four thousand pixels down the page.
+// Eight is enough to show the shape of a bill -- measured, inferred and
+// assumed, with and without a factor -- and the rest is one press away.
+const BILL_PREVIEW = 8;
+
+function BillOfQuantities({
+  takeoff,
+  carbon,
+  onOverride,
+  onTrace,
+  focus,
+  onFocus,
+  filter,
+}) {
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState({});
+  const [showAll, setShowAll] = useState(false);
+
+  const byLine = useMemo(() => {
+    const map = {};
+    for (const line of carbon?.lines || []) map[line.line_id] = line;
+    return map;
+  }, [carbon]);
+
+  const commit = async (line) => {
+    const value = parseFloat(draft);
+    setEditing(null);
+    if (!Number.isFinite(value) || value < 0 || value === line.quantity) return;
+    await onOverride(line.id, value);
+  };
+
+  return (
+    <div className="table-scroll">
+      <table className="boq">
+        <thead>
+          <tr>
+            <th>Element</th>
+            <th className="r">Quantity</th>
+            <th>Basis</th>
+            <th>Source</th>
+            <th className="r">kg CO₂e</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(showAll
+            ? takeoff?.lines || []
+            : (takeoff?.lines || []).slice(0, BILL_PREVIEW)
+          ).map((line) => {
+            const result = byLine[line.id];
+            const edited = line.user_override != null;
+            const material = result?.factor?.name || null;
+            // Dimmed rather than removed: a filtered bill that silently drops
+            // rows would let a reader think the total only covers what is on
+            // screen.
+            const dimmed = filter != null && material !== filter;
+            const lit = focus != null && material === focus;
+            return (
+              <tr
+                key={line.id}
+                className={`${dimmed ? "is-dimmed" : ""}${lit ? " is-lit" : ""}`}
+                onMouseEnter={() => material && onFocus(material)}
+                onMouseLeave={() => onFocus(null)}
+              >
+                <td>
+                  <div className="el-name">
+                    {titleCase(line.element_class)}
+                    {line.assembly_tag && (
+                      <span className="el-tag">{line.assembly_tag}</span>
+                    )}
+                  </div>
+                  {line.description && (
+                    <div className="el-desc">{line.description}</div>
+                  )}
+                  {(line.assumptions?.length || line.basis?.note) && (
+                    <>
+                      <div
+                        className="derivation"
+                        onClick={() =>
+                          setOpen((o) => ({ ...o, [line.id]: !o[line.id] }))
+                        }
+                      >
+                        {open[line.id] ? "▾" : "▸"} how this was derived
+                      </div>
+                      {open[line.id] && (
+                        <div className="derivation-body">
+                          {line.basis?.note && <div>{line.basis.note}</div>}
+                          {line.assumptions?.length > 0 && (
+                            <ul>
+                              {line.assumptions.map((a, i) => (
+                                <li key={i}>{a}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </td>
+
+                <td className="r">
+                  {editing === line.id ? (
+                    <input
+                      className="qty-input"
+                      autoFocus
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={() => commit(line)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commit(line);
+                        if (e.key === "Escape") setEditing(null);
+                      }}
+                    />
+                  ) : (
+                    <span className={`qty${edited ? " qty-edited" : ""}`}>
+                      <button
+                        className="qty-btn"
+                        title={
+                          edited
+                            ? `Your figure. We read ${dec(line.quantity, 2)} ${line.unit}.`
+                            : "Correct this quantity"
+                        }
+                        onClick={() => {
+                          setEditing(line.id);
+                          setDraft(String(line.user_override ?? line.quantity));
+                        }}
+                      >
+                        {/* The effective quantity, not the original. Showing
+                            line.quantity after an override left the number we
+                            read on screen beside a total computed from the
+                            number the reader typed. */}
+                        {dec(edited ? line.user_override : line.quantity, 2)}
+                      </button>
+                      <span className="qty-unit">{line.unit}</span>
+                      {edited && (
+                        <span className="qty-was">
+                          we read {dec(line.quantity, 2)}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </td>
+
+                <td><Confidence value={line.confidence} /></td>
+
+                <td>
+                  <Citation
+                    provenance={line.provenance}
+                    onTrace={onTrace}
+                    lineId={line.id}
+                  />
+                </td>
+
+                <td className="r">
+                  {result && isCounted(result) ? (
+                    <span className="carbon">{int(result.kg_co2e)}</span>
+                  ) : (
+                    <span
+                      className="carbon-none"
+                      title={result?.missing_reason || "no factor"}
+                    >
+                      not counted
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {(takeoff?.lines?.length || 0) > BILL_PREVIEW && (
+        <button className="bill-more" onClick={() => setShowAll((v) => !v)}>
+          {showAll
+            ? `Show the first ${BILL_PREVIEW} lines`
+            : `Show all ${takeoff.lines.length} lines · ${
+                takeoff.lines.length - BILL_PREVIEW
+              } more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- open decisions -- */
+
+// Not a substitution: a substitution replaces a material somebody chose,
+// while this is a choice nobody has made. Showing them the same way would
+// imply a decision exists where none does.
+function OpenDecisions({ choices }) {
+  if (!choices?.length) return null;
+  return (
+    <div className="decisions">
+      {choices.map((c) => (
+        <div className="decision" key={`${c.assembly_tag}-${c.category}`}>
+          <div className="decision-head">
+            <div>
+              <span className="decision-cat">{c.category}</span>
+              <span className="decision-tag">
+                {c.assembly_tag} · {c.area_m2} m²
+              </span>
+            </div>
+            <div className="decision-range">
+              {int(c.low_kg_co2e)}–{int(c.high_kg_co2e)}
+            </div>
+          </div>
+          <div className="decision-says">
+            The drawings say “{c.drawing_says}” — the choice is still open, so
+            nothing is added to the total until one is made.
+          </div>
+          <div className="decision-opts">
+            {c.options.map((o) => (
+              <div className="decision-opt" key={o.factor_id}>
+                <span>{o.name}</span>
+                <b>{int(o.kg_co2e)}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Substitutions({ swaps, takeoff }) {
+  if (!swaps?.length)
+    return <div className="notices muted">No swaps apply to this design.</div>;
+  const nameOf = (id) => {
+    const line = (takeoff?.lines || []).find((l) => l.id === id);
+    return line ? titleCase(line.element_class) : id;
+  };
+  return (
+    <div className="swaps">
+      {swaps.slice(0, 8).map((s, i) => (
+        <div className="swap" key={`${s.line_id}-${i}`}>
+          <div>
+            <div className="swap-el">{nameOf(s.line_id)}</div>
+            <div className="swap-move">
+              {s.from_material} → {s.to_material}
+            </div>
+          </div>
+          <div className="swap-delta">
+            {int(s.delta_kg_co2e)}
+            <span className="swap-pct">{dec(s.pct_of_total, 1)}% of total</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- trace -- */
+
+// How strong a trace is. These are different claims and the interface must
+// not flatten them.
+const TRACE_KIND = {
+  measured_geometry: {
+    label: "Measured here",
+    cls: "chip-measured",
+    blurb: "Each outline is one element whose size is in the quantity.",
+  },
+  schedule_row: {
+    label: "Read from this",
+    cls: "chip-inferred",
+    blurb: "The quantity was computed from the highlighted text.",
+  },
+  sheet_only: {
+    label: "Sheet only",
+    cls: "chip-assumed",
+    blurb:
+      "The right sheet, but the exact region could not be located. Nothing is highlighted rather than pointing at a guess.",
+  },
+};
+
+// The sheet is fetched clean and the regions are drawn over it as SVG, so
+// the outline stays sharp at any zoom and can be animated. Opening zoomed to
+// the measured region is the point: a 36x24 inch sheet scaled to fit a
+// dialog shows a grey haze, and the whole claim of this panel is that you can
+// see the thing that was measured.
+function TracePanel({ trace, onClose }) {
+  const [page, setPage] = useState(0);
+  const [whole, setWhole] = useState(false);
+  const [drawn, setDrawn] = useState(false);
+
+  useEffect(() => {
+    setPage(0);
+    setWhole(false);
+  }, [trace?.lineId]);
+
+  useEffect(() => {
+    setDrawn(false);
+    const id = setTimeout(() => setDrawn(true), 120);
+    return () => clearTimeout(id);
+  }, [page, whole, trace?.lineId]);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!trace) return null;
+
+  const { lineId, label, regions, loading, error } = trace;
+  const region = regions?.[page];
+  const kind = TRACE_KIND[region?.kind] || TRACE_KIND.sheet_only;
+
+  // The viewBox is the measured region with a margin, or the whole sheet.
+  // Everything else -- image placement, stroke widths -- follows from it, so
+  // zooming is one number rather than a transform stack.
+  const view = (() => {
+    const W = region?.page_width || 0;
+    const H = region?.page_height || 0;
+    if (!W || !H) return null;
+    const rects = region.rects || [];
+    if (whole || !rects.length) return { x: 0, y: 0, w: W, h: H, full: true };
+    const x0 = Math.min(...rects.map((r) => r[0]));
+    const y0 = Math.min(...rects.map((r) => r[1]));
+    const x1 = Math.max(...rects.map((r) => r[2]));
+    const y1 = Math.max(...rects.map((r) => r[3]));
+    // Breathing room so the region is legible in context rather than cropped
+    // to its own edges, and a floor so a single thin wall is not magnified
+    // into abstraction.
+    const pad = Math.max((x1 - x0) * 0.6, (y1 - y0) * 0.6, 90);
+    const x = Math.max(0, x0 - pad);
+    const y = Math.max(0, y0 - pad);
+    return {
+      x,
+      y,
+      w: Math.min(W - x, x1 - x0 + pad * 2),
+      h: Math.min(H - y, y1 - y0 + pad * 2),
+      full: false,
+    };
+  })();
+
+  // The outline uses vector-effect: non-scaling-stroke, so this width is in
+  // screen pixels and stays constant however far the view zooms. Computing it
+  // from the viewBox -- as page units -- drew an 8 px slab over the very wall
+  // it was pointing at.
+  const stroke = 2.4;
+
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div
+        className="trace"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label={`Where ${label} came from`}
+      >
+        <div className="trace-head">
+          <div>
+            <div className="eyebrow">Where this number came from</div>
+            <div className="trace-title">{label || lineId}</div>
+          </div>
+          <button className="trace-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        {loading && (
+          <div className="trace-body">
+            <div className="skeleton" style={{ height: 340 }} />
+          </div>
+        )}
+        {error && <div className="trace-body muted">{error}</div>}
+
+        {region && (
+          <>
+            <div className="trace-meta">
+              <span className={`chip ${kind.cls}`}>{kind.label}</span>
+              <span className="trace-sheet">
+                {region.sheet_no || "—"} · page {region.page + 1}
+              </span>
+              {region.rects?.length > 0 && (
+                <button
+                  className="trace-zoom"
+                  onClick={() => setWhole((w) => !w)}
+                >
+                  {whole ? "Zoom to the measurement" : "Show the whole sheet"}
+                </button>
+              )}
+              {regions.length > 1 && (
+                <span className="trace-pager">
+                  {regions.map((r, i) => (
+                    <button
+                      key={r.page}
+                      className={i === page ? "is-on" : ""}
+                      onClick={() => setPage(i)}
+                    >
+                      {r.sheet_no || `p${r.page + 1}`}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+            <p className="trace-note">{region.note || kind.blurb}</p>
+
+            <div className="trace-body">
+              {view ? (
+                <svg
+                  className="trace-sheetview"
+                  viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  role="img"
+                  aria-label={`Sheet ${region.sheet_no}${
+                    region.rects?.length
+                      ? ` with ${region.rects.length} measured region(s) outlined`
+                      : ""
+                  }`}
+                >
+                  <image
+                    href={authedUrl(
+                      `/projects/${trace.projectId}/trace/${lineId}/image.png` +
+                        `?page=${region.page}&dpi=120&highlight=0`,
+                    )}
+                    x="0"
+                    y="0"
+                    width={region.page_width}
+                    height={region.page_height}
+                  />
+                  {(region.rects || []).map((r, i) => {
+                    const w = r[2] - r[0];
+                    const h = r[3] - r[1];
+                    const perimeter = 2 * (w + h);
+                    return (
+                      <rect
+                        key={i}
+                        className="trace-rect"
+                        x={r[0]}
+                        y={r[1]}
+                        width={w}
+                        height={h}
+                        strokeWidth={stroke}
+                        strokeDasharray={perimeter}
+                        strokeDashoffset={drawn ? 0 : perimeter}
+                        style={{ transitionDelay: `${Math.min(i * 22, 500)}ms` }}
+                      />
+                    );
+                  })}
+                </svg>
+              ) : (
+                <div className="muted">
+                  Nothing is highlighted on this sheet, by design.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- sign in -- */
+
+function SignIn({ onDone }) {
+  const [user, setUser] = useState("judge");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setFailed(false);
+    try {
+      const res = await fetch(`${API}/projects`, {
+        headers: { Authorization: "Basic " + btoa(`${user}:${password}`) },
+      });
+      if (!res.ok) throw new Error("rejected");
+      setAuth(user, password);
+      onDone();
+    } catch {
+      clearAuth();
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="centre">
+      <div className="card panel" style={{ padding: 32 }}>
+        <h2>Sign in</h2>
+        <p>
+          This service reads licence-restricted drawings, so it is not open to
+          the web. Use the credentials supplied with the submission.
+        </p>
+        <form onSubmit={submit} className="form">
+          <label>
+            <span className="eyebrow">User</span>
+            <input value={user} onChange={(e) => setUser(e.target.value)} />
+          </label>
+          <label>
+            <span className="eyebrow">Password</span>
+            <input
+              type="password"
+              value={password}
+              autoFocus
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={busy || !password}
+          >
+            {busy ? "Checking…" : "Open"}
+          </button>
+        </form>
+        {failed && (
+          <p className="form-fail">
+            Those credentials were refused. Check them and try again.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
+
+/* ------------------------------------------------------------- massing -- */
+
+// An axonometric, drawn in SVG, rather than a 3D engine.
+//
+// Three.js would be ~600 kB against a 260 kB bundle to show a box with
+// internal walls. An axonometric is also how a building is drawn rather than
+// rendered, which is the right register for a tool whose subject is drawings:
+// this is a reading of a plan set, not a visualisation of a house.
+//
+// Nothing here is decorative. The footprint is measured from the linework,
+// the storey heights come from the section datums, and every wall is one of
+// the partitions counted in the bill. So a wrong reading shows up as a wrong
+// shape -- on AB_ADU_02, where partitions over-detect by 92%, you can see
+// walls standing where no walls are.
+
+// A sequential ramp, cool to warm. The legend carries the figures beside
+// every swatch, so colour is a way in rather than the evidence.
+//
+// It is driven by carbon per square metre of surface, not by totals. Totals
+// made almost the whole drawing red: exterior wall, partitions and slab come
+// to 12,305, 11,078 and 10,909 kgCO2e -- within 13% of each other -- and they
+// happen to be the three most visible surfaces, so a ramp scaled to the
+// largest painted everything at the top of it. Intensity is also the more
+// honest thing to show spatially: it says this surface is carbon-dense, not
+// that there is a lot of this surface.
+// Blue through yellow to red, with no green in it. Green at the midpoint
+// reads as "fine", and nothing here is making that judgement -- the ramp
+// says denser or lighter, not better or worse.
+const HEAT = ["#bfdbfe", "#7dd3fc", "#fde047", "#fbbf24", "#f97316", "#dc2626"];
+
+function heatColour(value, max, min = 0) {
+  if (!max || value == null) return "#e2e8f0";
+  // Scaled across the observed range rather than from zero, so the coolest
+  // surface is visibly cool instead of merely less red than the rest.
+  const span = max - min || max;
+  const t = Math.max(0, Math.min(1, (value - min) / span));
+  const step = (HEAT.length - 1) * t;
+  const i = Math.min(HEAT.length - 2, Math.floor(step));
+  const f = step - i;
+  const lerp = (a, b) => Math.round(a + (b - a) * f);
+  const hex = (c) => [1, 3, 5].map((k) => parseInt(c.slice(k, k + 2), 16));
+  const [r1, g1, b1] = hex(HEAT[i]);
+  const [r2, g2, b2] = hex(HEAT[i + 1]);
+  return `rgb(${lerp(r1, r2)} ${lerp(g1, g2)} ${lerp(b1, b2)})`;
+}
+
+const CLASS_LABEL = {
+  exterior_wall: "Exterior wall",
+  interior_partition: "Interior partitions",
+  slab_on_grade: "Slab on grade",
+  footing: "Footings",
+  roof_assembly: "Roof",
+  floor_assembly: "Floors",
+  door: "Doors",
+  window: "Windows",
+};
+
+// A general axonometric rather than a fixed isometric, so the view can turn.
+// Azimuth spins about the vertical axis; elevation is how far above the
+// building the viewer sits. Both are plain angles, which keeps the depth sort
+// below honest -- it uses the same rotated coordinate the projection does,
+// rather than a constant that only held at 45 degrees.
+const ELEVATION = Math.sin(Math.PI / 6);
+
+function rotate(x, y, azimuth) {
+  const c = Math.cos(azimuth);
+  const sn = Math.sin(azimuth);
+  return [x * c - y * sn, x * sn + y * c];
+}
+
+function project(x, y, z, s, azimuth = Math.PI / 4) {
+  const [rx, ry] = rotate(x, y, azimuth);
+  return [rx * s, (ry * ELEVATION - z) * s];
+}
+
+// How far into the scene a point sits, for the painter's algorithm. Larger is
+// nearer the viewer, so faces sort ascending and the near ones land last.
+function depthOf(x, y, z, azimuth) {
+  const [, ry] = rotate(x, y, azimuth);
+  return ry + z * 0.001;
+}
+
+function face(points, fill, stroke, key, opacity = 1) {
+  return (
+    <polygon
+      key={key}
+      points={points.map(([a, b]) => `${a.toFixed(2)},${b.toFixed(2)}`).join(" ")}
+      fill={fill}
+      stroke={stroke}
+      strokeWidth="0.6"
+      strokeLinejoin="round"
+      opacity={opacity}
+    />
+  );
+}
+
+function Massing({ massing }) {
+  const [storey, setStorey] = useState(null); // null = every storey
+  // Dragging turns the building. Held in a ref as well as state so the
+  // pointer handlers do not need to be rebound on every frame of a drag.
+  // `?turn=<degrees>` sets the opening angle, so a demo can link to a
+  // viewpoint and so the rotation can be reviewed in a screenshot at all.
+  const [azimuth, setAzimuth] = useState(() => {
+    const turn = new URLSearchParams(window.location.search).get("turn");
+    const deg = turn == null ? null : Number(turn);
+    return Number.isFinite(deg) ? (deg * Math.PI) / 180 : Math.PI / 4;
+  });
+  const drag = useRef(null);
+  const [mode, setMode] = useState(
+    // `?view=carbon` opens on the heat map, so the demo can link to it and so
+    // it can be reviewed in a screenshot at all.
+    () =>
+      new URLSearchParams(window.location.search).get("view") === "carbon"
+        ? "carbon"
+        : "structure",
+  );
+
+  if (!massing) return null;
+  const {
+    width_m: W,
+    depth_m: D,
+    storey_heights_m: heights,
+    walls,
+    note,
+    carbon_by_class: carbon = {},
+  } = massing;
+  if (!W || !D || !heights?.length) return null;
+
+  const s = 15;
+  const WALL_H = 0.82;
+  const heat = mode === "carbon";
+
+  // Storey datums first: the surface areas below are computed from the
+  // building's height, and a const read above its declaration is a temporal
+  // dead zone error that blanks the entire page rather than warning.
+  let z = 0;
+  const datums = [0];
+  for (const h of heights) {
+    z += h;
+    datums.push(z);
+  }
+  const total = z;
+
+  // Carbon per square metre of the surface we actually draw for each class.
+  // Totals answer "how much of this is there"; intensity answers "how heavy
+  // is this surface", which is the question a picture of a building can
+  // usefully show.
+  const wallFace = walls.reduce(
+    (sum, w) =>
+      sum + 2 * Math.max(w.w, w.d) * (heights[w.storey] ?? 3) * WALL_H,
+    0,
+  );
+  const floorArea = W * D;
+  const area = {
+    slab_on_grade: floorArea,
+    exterior_wall: 2 * (W + D) * total,
+    interior_partition: wallFace,
+    roof_assembly: floorArea,
+    floor_assembly: floorArea * Math.max(1, heights.length - 1),
+  };
+  const intensity = {};
+  for (const [cls, kg] of Object.entries(carbon)) {
+    if (area[cls]) intensity[cls] = kg / area[cls];
+  }
+  const values = Object.values(intensity);
+  const hotI = values.length ? Math.max(...values) : 1;
+  const coolI = values.length ? Math.min(...values) : 0;
+
+  // In carbon mode a surface takes the colour of its intensity; in structure
+  // mode the colour that makes the building readable.
+  const tone = (cls, fallback) =>
+    heat && intensity[cls] != null
+      ? heatColour(intensity[cls], hotI, coolI)
+      : heat
+        ? "#e2e8f0"
+        : fallback;
+
+  const shapes = [];
+  const p3 = (X, Y, Z) => project(X, Y, Z, s, azimuth);
+
+  const onPointerDown = (e) => {
+    drag.current = { x: e.clientX, from: azimuth };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e) => {
+    if (!drag.current) return;
+    // A full turn across roughly the width of the view, so a short drag is a
+    // small adjustment rather than a spin.
+    setAzimuth(drag.current.from + (e.clientX - drag.current.x) * 0.012);
+  };
+  const endDrag = (e) => {
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
+  // Ground slab.
+  shapes.push({
+    depth: -1e6,
+    el: face(
+      [p3(0, 0, 0), p3(W, 0, 0), p3(W, D, 0), p3(0, D, 0)],
+      tone("slab_on_grade", "#e2e8f0"),
+      "#94a3b8",
+      "slab-0",
+    ),
+  });
+
+  // The two far walls only, so the building is cut away and the partitions
+  // inside stay visible. Drawing all four would make a closed box, which is
+  // a worse drawing and hides every quantity that matters.
+  shapes.push({
+    depth: -1e5,
+    el: (
+      <g key="envelope">
+        {face(
+          [p3(0, 0, 0), p3(W, 0, 0), p3(W, 0, total), p3(0, 0, total)],
+          tone("exterior_wall", "#f1f5f9"),
+          "#94a3b8",
+          "env-a",
+          heat ? 0.62 : 0.5,
+        )}
+        {face(
+          [p3(0, 0, 0), p3(0, D, 0), p3(0, D, total), p3(0, 0, total)],
+          tone("exterior_wall", "#e8edf4"),
+          "#94a3b8",
+          "env-b",
+          heat ? 0.62 : 0.5,
+        )}
+      </g>
+    ),
+  });
+
+  const shown = walls.filter((w) => storey == null || w.storey === storey);
+  for (const [i, w] of shown.entries()) {
+    const base = datums[w.storey] ?? 0;
+    const h = (heights[w.storey] ?? 3) * WALL_H;
+    const { x, y, w: ww, d: dd } = w;
+    const top = base + h;
+    const body = tone("interior_partition", "#93b4f5");
+    const side = tone("interior_partition", "#6f98ea");
+    const cap = tone("interior_partition", "#c3d6fb");
+    shapes.push({
+      depth: depthOf(x + ww / 2, y + dd / 2, base, azimuth),
+      el: (
+        <g key={`w${i}`}>
+          {face(
+            [p3(x, y + dd, base), p3(x + ww, y + dd, base), p3(x + ww, y + dd, top), p3(x, y + dd, top)],
+            body,
+            heat ? "#7f1d1d" : "#1e40af",
+            `w${i}a`,
+          )}
+          {face(
+            [p3(x + ww, y, base), p3(x + ww, y + dd, base), p3(x + ww, y + dd, top), p3(x + ww, y, top)],
+            side,
+            heat ? "#7f1d1d" : "#1e40af",
+            `w${i}b`,
+          )}
+          {face(
+            [p3(x, y, top), p3(x + ww, y, top), p3(x + ww, y + dd, top), p3(x, y + dd, top)],
+            cap,
+            heat ? "#7f1d1d" : "#1e40af",
+            `w${i}c`,
+          )}
+        </g>
+      ),
+    });
+  }
+
+  // Storey slabs and the roof. Drawn last because they sit above everything,
+  // which means they are also the easiest surfaces to bury the building
+  // under -- so they stay faint. The roof is skipped while every storey is
+  // shown, or it simply lids the thing the panel exists to reveal.
+  datums.slice(1).forEach((d, i) => {
+    const isRoof = i === datums.length - 2;
+    if (isRoof && storey == null) return;
+    shapes.push({
+      depth: 1e6 + d,
+      el: face(
+        [p3(0, 0, d), p3(W, 0, d), p3(W, D, d), p3(0, D, d)],
+        heat
+          ? tone(isRoof ? "roof_assembly" : "floor_assembly", null)
+          : "rgba(148,163,184,0.30)",
+        "#64748b",
+        `slab${i + 1}`,
+        heat ? 0.3 : 1,
+      ),
+    });
+  });
+
+  shapes.sort((a, b) => a.depth - b.depth);
+
+  const corners = [
+    p3(0, 0, 0), p3(W, 0, 0), p3(W, D, 0), p3(0, D, 0),
+    p3(0, 0, total), p3(W, 0, total), p3(W, D, total), p3(0, D, total),
+  ];
+  const xs = corners.map((c) => c[0]);
+  const ys = corners.map((c) => c[1]);
+  const pad = 16;
+  const vb = [
+    Math.min(...xs) - pad,
+    Math.min(...ys) - pad,
+    Math.max(...xs) - Math.min(...xs) + pad * 2,
+    Math.max(...ys) - Math.min(...ys) + pad * 2,
+  ];
+
+  // Ranked by intensity where we have it, because that is what the drawing
+  // is coloured by; classes with no drawn surface follow, greyed.
+  const ranked = Object.entries(carbon)
+    .map(([cls, kg]) => [cls, kg, intensity[cls] ?? null])
+    .sort((a, b) => (b[2] ?? -1) - (a[2] ?? -1));
+
+  return (
+    <div className="massing">
+      <div className="massing-view">
+        <span className="massing-hint">drag to turn</span>
+        <svg
+          className={`massing-svg${drag.current ? " is-dragging" : ""}`}
+          viewBox={vb.join(" ")}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          role="img"
+          aria-label={`Axonometric of the measured building: ${W} by ${D} metres, ${heights.length} storeys, ${walls.length} measured partition walls`}
+        >
+          {shapes.map((sh) => sh.el)}
+        </svg>
+      </div>
+
+      <div className="massing-side">
+        <div className="massing-modes">
+          <button
+            className={mode === "structure" ? "is-on" : ""}
+            onClick={() => setMode("structure")}
+          >
+            Structure
+          </button>
+          <button
+            className={mode === "carbon" ? "is-on" : ""}
+            onClick={() => setMode("carbon")}
+          >
+            Carbon
+          </button>
+        </div>
+
+        {heat ? (
+          <>
+            <p className="massing-note">
+              Coloured by carbon per square metre of surface, not by total —
+              totals would paint almost all of it red, because the three
+              largest are within 13% of each other and happen to be the three
+              biggest surfaces.
+            </p>
+            <div className="heat-key">
+              {ranked.map(([cls, kg, dens]) => (
+                <div
+                  className={`heat-row${dens == null ? " is-undrawn" : ""}`}
+                  key={cls}
+                >
+                  <i
+                    style={{
+                      background:
+                        dens == null
+                          ? "#e2e8f0"
+                          : heatColour(dens, hotI, coolI),
+                    }}
+                  />
+                  <span>{CLASS_LABEL[cls] || titleCase(cls)}</span>
+                  <b>
+                    {dens == null ? "—" : dec(dens, 1)}
+                    <em>{int(kg)}</em>
+                  </b>
+                </div>
+              ))}
+            </div>
+            <p className="massing-caveat">
+              kgCO₂e per m² of surface, with the element's total beside it.
+              Doors and windows carry no surface in this drawing, so they are
+              listed without a colour rather than coloured arbitrarily.
+            </p>
+          </>
+        ) : (
+          <p className="massing-note">{note}</p>
+        )}
+
+        <div className="massing-storeys">
+          <button
+            className={storey == null ? "is-on" : ""}
+            onClick={() => setStorey(null)}
+          >
+            Every storey
+          </button>
+          {heights.map((h, i) => (
+            <button
+              key={i}
+              className={storey === i ? "is-on" : ""}
+              onClick={() => setStorey(i)}
+            >
+              Storey {i + 1}
+              <span>{walls.filter((w) => w.storey === i).length} walls</span>
+            </button>
+          ))}
+        </div>
+
+        <p className="massing-caveat">
+          A massing of what was read, not an architectural model. The near two
+          walls are cut away so the partitions inside stay visible. If the
+          footprint were misread the box would be the wrong shape, and where
+          partitions over-detect you would see walls with no room between them.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- sheet coverage -- */
+
+// Sheet types grouped into the families that matter to a reader, in the order
+// they matter. A schedule is where the build-ups come from and is worth more
+// than its page count suggests; mechanical and electrical sheets are opened,
+// classified and then legitimately not used.
+const SHEET_FAMILY = [
+  ["schedule", "Schedules", ["assembly_schedule", "opening_schedule"], "#1e40af"],
+  [
+    "plan",
+    "Plans",
+    ["floor_plan", "foundation_plan", "roof_plan", "framing_plan", "site_plan"],
+    "#2563eb",
+  ],
+  ["section", "Sections & elevations", ["section", "elevation", "detail"], "#0891b2"],
+  [
+    "other",
+    "Cover, legends, services",
+    [
+      "title", "cover", "legend", "specification", "mechanical", "electrical",
+    ],
+    "#cbd5e1",
+  ],
+];
+
+function familyOf(type) {
+  for (const [key, , types] of SHEET_FAMILY) if (types.includes(type)) return key;
+  return "other";
+}
+
+// Every page of the set, in order, coloured by what it turned out to be and
+// marked where the bill actually drew on it. The claim "45 of 46 sheets were
+// read" is in the title block as a number; this is the same claim in a form
+// where a reader can see which ones carried the weight -- and see that the
+// unreadable one is a single tick rather than a silent omission.
+function SheetStrip({ takeoff }) {
+  const [hover, setHover] = useState(null);
+  const sheets = takeoff?.sheets || [];
+  if (!sheets.length) return null;
+
+  const cited = new Set(
+    (takeoff.lines || [])
+      .map((l) => l.provenance?.sheet_no)
+      .filter(Boolean),
+  );
+  const active = hover == null ? null : sheets[hover];
+  const counts = SHEET_FAMILY.map(([key, label, , colour]) => [
+    label,
+    colour,
+    sheets.filter((x) => x.readable && familyOf(x.sheet_type) === key).length,
+  ]);
+  const unreadable = sheets.filter((x) => !x.readable).length;
+
+  return (
+    <div className="strip-wrap">
+      <div className="strip">
+        {sheets.map((sheet, i) => {
+          const family = familyOf(sheet.sheet_type);
+          const colour =
+            SHEET_FAMILY.find(([k]) => k === family)?.[3] || "#cbd5e1";
+          const isCited = sheet.sheet_no && cited.has(sheet.sheet_no);
+          return (
+            <button
+              key={sheet.page}
+              className={`tick${isCited ? " is-cited" : ""}${
+                sheet.readable ? "" : " is-unreadable"
+              }${hover === i ? " is-hover" : ""}`}
+              style={{ "--c": colour }}
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(i)}
+              onBlur={() => setHover(null)}
+              aria-label={`${sheet.sheet_no || `page ${sheet.page + 1}`}: ${
+                sheet.title || sheet.sheet_type
+              }`}
+            />
+          );
+        })}
+      </div>
+
+      <div className="strip-read">
+        {active ? (
+          <>
+            <b>{active.sheet_no || `page ${active.page + 1}`}</b>
+            <span>
+              {(active.title || active.sheet_type || "").toString().slice(0, 78)}
+              {active.readable ? "" : " · no readable text"}
+              {active.sheet_no && cited.has(active.sheet_no)
+                ? " · a quantity is read from this sheet"
+                : ""}
+            </span>
+          </>
+        ) : (
+          <>
+            <b>{sheets.length} sheets opened</b>
+            <span>
+              every page classified · {cited.size} carry a quantity in the bill
+              {unreadable > 0 ? ` · ${unreadable} had no readable text` : ""}
+            </span>
+          </>
+        )}
+      </div>
+
+      <div className="strip-key">
+        {counts.map(([label, colour, n]) =>
+          n ? (
+            <span className="strip-key-item" key={label}>
+              <i style={{ background: colour }} />
+              {label} {n}
+            </span>
+          ) : null,
+        )}
+        {unreadable > 0 && (
+          <span className="strip-key-item">
+            <i className="hatch" />
+            unreadable {unreadable}
+          </span>
+        )}
+        <span className="strip-key-item">
+          <i className="cited" />
+          cited by the bill
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- upload -- */
+
+// The catalogue is a development set; a builder's own drawings are the
+// product. Until this existed the upload endpoint was reachable only by curl,
+// which meant the one thing that proves this is not a canned demo -- running
+// a set the service has never opened -- could not be done from the interface.
+function Upload({ onDone, onClose }) {
+  const [file, setFile] = useState(null);
+  const [over, setOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [facts, setFacts] = useState({
+    name: "",
+    gfa_m2: "",
+    storeys: "",
+    units: "",
+    jurisdiction: "",
+  });
+
+  const take = (f) => {
+    setError(null);
+    if (!f) return;
+    if (!/\.pdf$/i.test(f.name)) {
+      setError(
+        "This reads vector PDF drawing sets. A scan or an image export carries no geometry to measure.",
+      );
+      return;
+    }
+    setFile(f);
+    setFacts((x) => ({ ...x, name: x.name || f.name.replace(/\.pdf$/i, "") }));
+  };
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    const body = new FormData();
+    body.append("file", file);
+    for (const [k, v] of Object.entries(facts)) if (v !== "") body.append(k, v);
+    try {
+      const res = await fetch(`${API}/projects/upload`, {
+        method: "POST",
+        headers: AUTH ? { Authorization: AUTH } : {},
+        body,
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail || `upload failed (${res.status})`);
+      onDone(payload.id);
+    } catch (err) {
+      setError(String(err.message || err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div
+        className="upload"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Upload a plan set"
+      >
+        <div className="trace-head">
+          <div>
+            <div className="eyebrow">Run this on your own drawings</div>
+            <div className="trace-title">Upload a plan set</div>
+          </div>
+          <button className="trace-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        <form className="upload-body" onSubmit={submit}>
+          <label
+            className={`dropzone${over ? " is-over" : ""}${file ? " has-file" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setOver(false);
+              take(e.dataTransfer.files?.[0]);
+            }}
+          >
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              hidden
+              onChange={(e) => take(e.target.files?.[0])}
+            />
+            {file ? (
+              <>
+                <b>{file.name}</b>
+                <span>{(file.size / 1e6).toFixed(1)} MB · click to choose another</span>
+              </>
+            ) : (
+              <>
+                <b>Drop a vector PDF here</b>
+                <span>or click to choose · any set from the CMHC catalogue works</span>
+              </>
+            )}
+          </label>
+
+          {/* Asked for rather than inferred. Floor area in particular decides
+              the intensity per square metre, and guessing it from a plan whose
+              extents cover a whole block gave one catalogue design an
+              intensity six times its neighbours'. */}
+          <div className="upload-facts">
+            {[
+              ["name", "Name", "text", "As you want it shown"],
+              ["gfa_m2", "Floor area m²", "number", "Leave blank to measure it"],
+              ["storeys", "Storeys", "number", ""],
+              ["units", "Units", "number", ""],
+              ["jurisdiction", "Location", "text", "Edmonton, AB"],
+            ].map(([key, label, type, hint]) => (
+              <label key={key}>
+                <span className="eyebrow">{label}</span>
+                <input
+                  type={type}
+                  value={facts[key]}
+                  placeholder={hint}
+                  onChange={(e) =>
+                    setFacts((x) => ({ ...x, [key]: e.target.value }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+
+          {error && <p className="form-fail">{error}</p>}
+
+          <div className="upload-actions">
+            <button className="btn btn-primary" type="submit" disabled={!file || busy}>
+              {busy ? "Reading the drawings…" : "Read this plan set"}
+            </button>
+            <span className="muted">
+              {busy
+                ? "A 46-page set takes about 20 seconds."
+                : "Nothing is stored beyond this session."}
+            </span>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- topbar -- */
+
+function Topbar({ projects, projectId, onPick, exportHref, reportHref, onUpload }) {
+  return (
+    <header className="topbar">
+      <div className="wordmark">
+        e<span>carbon</span>
+      </div>
+      <div className="topbar-spacer" />
+      {onUpload && (
+        <button className="btn btn-primary" onClick={onUpload}>
+          Upload a plan set
+        </button>
+      )}
+      {exportHref && (
+        <>
+          <a className="btn" href={exportHref}>
+            Download takeoff
+          </a>
+          <a className="btn" href={reportHref} target="_blank" rel="noreferrer">
+            Open report
+          </a>
+        </>
+      )}
+      {projects?.length > 0 && (
+        <div className="selector">
+          <label htmlFor="plan">Plan set</label>
+          <select
+            id="plan"
+            value={projectId || ""}
+            onChange={(e) => onPick(e.target.value)}
+          >
+            {projects.map((p) => {
+              const id = p.id ?? p.project_id;
+              const label = String(p.name || id)
+                .replace(/_/g, " ")
+                .replace(/ Technical Design Package/i, "");
+              return (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
+    </header>
+  );
+}
+
+/* ------------------------------------------------------------------ app -- */
 
 export default function App() {
-  const [projectId, setProjectId] = useState('demo');
-  const [intake, setIntake] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [projectId, setProjectId] = useState(null);
   const [takeoff, setTakeoff] = useState(null);
   const [carbon, setCarbon] = useState(null);
-  const [substitutions, setSubstitutions] = useState([]);
-  const [reconciliation, setReconciliation] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [uploadTimer, setUploadTimer] = useState(0);
-  const [uploadNotice, setUploadNotice] = useState(null);
+  const [swaps, setSwaps] = useState([]);
+  const [decisions, setDecisions] = useState([]);
+  const [trace, setTrace] = useState(null);
+  // One hover and one filter shared by the donut, the bars and the bill, so
+  // the three read as views of the same thing rather than three tables that
+  // happen to sit on one page.
+  // `?upload=1` opens the upload dialog on load, for the same two reasons as
+  // `?trace=`: a dialog that only opens on click cannot be screenshotted in
+  // review, and a demo wants to link straight to the moment that matters.
+  const [massing, setMassing] = useState(null);
+  const [uploading, setUploading] = useState(
+    () => new URLSearchParams(window.location.search).get("upload") === "1",
+  );
+  const [focus, setFocus] = useState(null);
+  const [filter, setFilter] = useState(null);
+  const [status, setStatus] = useState("connecting");
   const [error, setError] = useState(null);
-  const [presets, setPresets] = useState([]);
-  
-  // UI states
-  const [showGaps, setShowGaps] = useState(true);
-  const [showReconciliation, setShowReconciliation] = useState(false);
-  const [selectedClass, setSelectedClass] = useState('all');
-  const [editingLineId, setEditingLineId] = useState(null);
-  const [editQty, setEditQty] = useState('');
-  const [updating, setUpdating] = useState(false);
-  const [tracingLine, setTracingLine] = useState(null);
-  const fileInputRef = useRef(null);
-
-  // Phase 2 Differentiators (Benchmark, Uncertainty, Variants, Pitch)
-  const [showBenchmark, setShowBenchmark] = useState(false);
-  const [benchmarkData, setBenchmarkData] = useState(null);
-  const [showUncertainty, setShowUncertainty] = useState(false);
-  const [uncertaintyData, setUncertaintyData] = useState(null);
-  const [showVariants, setShowVariants] = useState(false);
-  const [variantData, setVariantData] = useState(null);
-  const [variantUploading, setVariantUploading] = useState(false);
-  const variantFileInputRef = useRef(null);
-  const [showPitchModal, setShowPitchModal] = useState(false);
-  const [pitchTab, setPitchTab] = useState('script'); // 'script' | 'rubric' | 'landmark' | 'business'
-  const [showDemoGuide, setShowDemoGuide] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    fetchPresets();
-  }, []);
+    getJSON("/projects")
+      .then((p) => {
+        const list = Array.isArray(p) ? p : p.projects || [];
+        setProjects(list);
+        setStatus(list.length ? "ready" : "empty");
+        if (list.length) setProjectId(pickInitial(list));
+      })
+      .catch((e) => {
+        // A 401 is not an outage: the service is up and declining to answer
+        // without credentials, which is a different thing to tell the reader.
+        if (e instanceof Unauthorized) {
+          setStatus("locked");
+          return;
+        }
+        setError(e.message);
+        setStatus("offline");
+      });
+  }, [reloadToken]);
 
-  async function fetchPresets() {
-    try {
-      const res = await fetch(`${API_BASE}/presets`);
-      if (res.ok) setPresets(await res.json());
-    } catch (e) {
-      console.warn('Failed to fetch presets:', e);
-    }
-  }
-
-  async function handleSelectPreset(presetId) {
-    if (presetId === projectId) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/presets/${presetId}/load`, { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setProjectId(data.id);
-      }
-    } catch (e) {
-      alert('Failed to load preset: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    fetchProjectData();
-  }, [projectId]);
-
-  async function fetchProjectData() {
-    setLoading(true);
+  const load = useCallback(async (id) => {
+    if (!id) return;
+    setStatus("loading");
     setError(null);
     try {
-      const [intakeRes, takeoffRes, carbonRes, subsRes, reconRes] = await Promise.all([
-        fetch(`${API_BASE}/projects/${projectId}/intake`),
-        fetch(`${API_BASE}/projects/${projectId}/takeoff`),
-        fetch(`${API_BASE}/projects/${projectId}/carbon`),
-        fetch(`${API_BASE}/projects/${projectId}/substitutions`),
-        fetch(`${API_BASE}/projects/${projectId}/reconciliation`)
-      ]);
-
-      if (!intakeRes.ok || !takeoffRes.ok || !carbonRes.ok) {
-        throw new Error('Failed to fetch project data from API.');
-      }
-
-      const intakeData = await intakeRes.json();
-      const takeoffData = await takeoffRes.json();
-      const carbonData = await carbonRes.json();
-      const subsData = subsRes.ok ? await subsRes.json() : [];
-      const reconData = reconRes.ok ? await reconRes.json() : null;
-
-      setIntake(intakeData);
-      setTakeoff(takeoffData);
-      setCarbon(carbonData);
-      setSubstitutions(subsData);
-      setReconciliation(reconData);
-    } catch (err) {
-      console.warn('API error, check if uvicorn is running:', err);
-      setError('Backend API not reached. Ensure FastAPI is running at http://127.0.0.1:8000.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function openBenchmark() {
-    setShowBenchmark(true);
-    if (!benchmarkData) {
+      setTakeoff(await getJSON(`/projects/${id}/takeoff`));
+      setCarbon(await getJSON(`/projects/${id}/carbon`));
       try {
-        const res = await fetch(`${API_BASE}/benchmark`);
-        if (res.ok) setBenchmarkData(await res.json());
-      } catch (err) {
-        console.warn('Failed to fetch benchmark data:', err);
+        setSwaps(await getJSON(`/projects/${id}/substitutions`));
+      } catch {
+        setSwaps([]);
       }
-    }
-  }
-
-  async function openUncertainty() {
-    setShowUncertainty(true);
-    try {
-      const res = await fetch(`${API_BASE}/projects/${projectId}/uncertainty`);
-      if (res.ok) setUncertaintyData(await res.json());
-    } catch (err) {
-      console.warn('Failed to fetch uncertainty data:', err);
-    }
-  }
-
-  async function handleVariantUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setVariantUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const res = await fetch(`${API_BASE}/projects/${projectId}/variants/compare`, {
-        method: 'POST',
-        body: formData,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setVariantData(data);
-        setShowVariants(true);
-      } else {
-        alert('Variant comparison failed. Please ensure valid blueprint PDF.');
+      try {
+        setDecisions(await getJSON(`/projects/${id}/unspecified`));
+      } catch {
+        setDecisions([]);
       }
-    } catch (err) {
-      console.warn('Variant comparison failed:', err);
-    } finally {
-      setVariantUploading(false);
-    }
-  }
-
-  async function handleFileUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    setUploadTimer(0);
-    const timerInterval = setInterval(() => {
-      setUploadTimer(t => +(t + 0.1).toFixed(1));
-    }, 100);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    const startTime = performance.now();
-
-    try {
-      const res = await fetch(`${API_BASE}/projects/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Upload failed');
+      try {
+        // Null for most of the catalogue: a design without a footprint or
+        // storey datums has no geometry to draw, and drawing a guess would
+        // be the one thing this view exists not to do.
+        setMassing(await getJSON(`/projects/${id}/massing`));
+      } catch {
+        setMassing(null);
       }
-      const data = await res.json();
-      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-      setUploadNotice(`Blueprint takeoff extracted in ${elapsed}s!`);
-      setTimeout(() => setUploadNotice(null), 7000);
-      setProjectId(data.id);
-    } catch (err) {
-      alert('Blueprint upload failed: ' + err.message);
-    } finally {
-      clearInterval(timerInterval);
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setStatus("ready");
+    } catch (e) {
+      if (e instanceof Unauthorized) {
+        setStatus("locked");
+        return;
+      }
+      setError(e.message);
+      setStatus("error");
     }
-  }
+  }, []);
 
-  async function handleOverrideQuantity(lineId, newQuantity) {
-    setUpdating(true);
-    try {
-      const res = await fetch(`${API_BASE}/projects/${projectId}/lines/${lineId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity: newQuantity !== null ? parseFloat(newQuantity) : null })
+  useEffect(() => {
+    if (projectId) load(projectId);
+    setFilter(null);
+    setFocus(null);
+  }, [projectId, load]);
+
+
+  const override = useCallback(
+    async (lineId, quantity) => {
+      const next = await postJSON(`/projects/${projectId}/lines/${lineId}`, {
+        quantity,
       });
-      if (!res.ok) throw new Error('Failed to update quantity');
-      const updatedCarbon = await res.json();
-      setCarbon(updatedCarbon);
-      
-      const [tRes, sRes, rRes] = await Promise.all([
-        fetch(`${API_BASE}/projects/${projectId}/takeoff`),
-        fetch(`${API_BASE}/projects/${projectId}/substitutions`),
-        fetch(`${API_BASE}/projects/${projectId}/reconciliation`)
-      ]);
-      setTakeoff(await tRes.json());
-      if (sRes.ok) setSubstitutions(await sRes.json());
-      if (rRes.ok) setReconciliation(await rRes.json());
-      setEditingLineId(null);
-    } catch (err) {
-      alert('Error updating quantity: ' + err.message);
-    } finally {
-      setUpdating(false);
-    }
-  }
+      setCarbon(next);
+      setTakeoff(await getJSON(`/projects/${projectId}/takeoff`));
+    },
+    [projectId],
+  );
 
-  function handleExport(format) {
-    window.open(`${API_BASE}/projects/${projectId}/export/${format}`, '_blank');
-  }
+  const showTrace = useCallback(
+    async (lineId, provenance) => {
+      if (!projectId || !lineId) return;
+      const label =
+        provenance?.detail ||
+        (provenance?.sheet_no ? `Sheet ${provenance.sheet_no}` : lineId);
+      setTrace({ lineId, label, projectId, regions: [], loading: true, error: null });
+      try {
+        const regions = await getJSON(`/projects/${projectId}/trace/${lineId}`);
+        setTrace({ lineId, label, projectId, regions, loading: false, error: null });
+      } catch (e) {
+        setTrace({
+          lineId,
+          label,
+          projectId,
+          regions: [],
+          loading: false,
+          error: `Could not trace this line: ${e.message}`,
+        });
+      }
+    },
+    [projectId],
+  );
 
-  function handleOpenReport() {
-    window.open(`${API_BASE}/projects/${projectId}/report/html`, '_blank');
-  }
+  // `?trace=<line id>` opens that line's trace on load. It exists so a demo
+  // or a bug report can link straight to the moment that matters instead of
+  // describing which row to press, and it is how this panel is reviewed --
+  // a dialog that only opens on click cannot otherwise be screenshotted.
+  //
+  // Keyed on the takeoff rather than on `status`: an earlier version watched
+  // status alone, so whether it fired depended on whether `takeoff` happened
+  // to be set in the same render. It worked for one line and silently did
+  // nothing for the next. The ref keeps it to once per project, so closing
+  // the panel does not reopen it.
+  const autoTraced = useRef(null);
+  useEffect(() => {
+    if (!takeoff || !projectId) return;
+    if (autoTraced.current === projectId) return;
+    const wanted = new URLSearchParams(window.location.search).get("trace");
+    if (!wanted) return;
+    const line =
+      takeoff.lines.find((l) => l.id === wanted) ||
+      takeoff.lines.find((l) => l.id.includes(wanted));
+    if (!line) return;
+    autoTraced.current = projectId;
+    showTrace(line.id, line.provenance);
+  }, [takeoff, projectId, showTrace]);
 
-  if (loading) {
+  // The coverage the takeoff reports about itself, not a recomputation.
+  const coverage = useMemo(() => {
+    const gap = (takeoff?.gaps || []).find((g) =>
+      /covers roughly \d+%/.test(g.message),
+    );
+    if (!gap) return takeoff ? 1 : null;
+    return parseInt(gap.message.match(/covers roughly (\d+)%/)[1], 10) / 100;
+  }, [takeoff]);
+
+  if (status === "locked") {
     return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B0F17' }}>
-        <div style={{ textAlign: 'center' }}>
-          <RefreshCw size={36} color="#3B82F6" style={{ animation: 'spin 1s linear infinite' }} />
-          <p style={{ marginTop: '16px', color: '#94A3B8' }}>Loading project carbon pipeline...</p>
+      <div className="app">
+        <Topbar />
+        <SignIn
+          onDone={() => {
+            setStatus("connecting");
+            setReloadToken((n) => n + 1);
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (status === "offline" || status === "error") {
+    return (
+      <div className="app">
+        <Topbar />
+        <div className="centre">
+          <div className="card panel" style={{ padding: 32 }}>
+            <h2>The reader is not running</h2>
+            <p>
+              {error || "Start the service and this page will connect on its own."}
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={() => setReloadToken((n) => n + 1)}
+            >
+              Try again
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const project = takeoff?.project || { name: 'Demo Project', gfa_m2: 306, jurisdiction: 'Edmonton, AB' };
-  const lines = takeoff?.lines || [];
-  const carbonLines = carbon?.lines || [];
-  const carbonMap = Object.fromEntries(carbonLines.map(c => [c.line_id, c]));
-
-  const filteredLines = selectedClass === 'all' 
-    ? lines 
-    : lines.filter(l => l.element_class === selectedClass);
-
-  const classes = ['all', ...new Set(lines.map(l => l.element_class))];
-
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', paddingBottom: '60px' }}>
-      
-      {/* Top Navbar */}
-      <header style={{ 
-        borderBottom: '1px solid var(--border)', 
-        backgroundColor: 'rgba(19, 26, 38, 0.85)', 
-        backdropFilter: 'blur(8px)',
-        position: 'sticky', 
-        top: 0, 
-        zIndex: 50,
-        padding: '14px 28px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{ 
-            width: '38px', 
-            height: '38px', 
-            borderRadius: '10px', 
-            backgroundColor: 'var(--accent-green-bg)', 
-            border: '1px solid var(--accent-green)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <Flame size={20} color="var(--accent-green)" />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h1 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em' }}>eCarbon</h1>
-              <span style={{ 
-                fontSize: '11px', 
-                fontWeight: 600, 
-                backgroundColor: 'var(--accent-blue-bg)', 
-                color: 'var(--accent-blue)', 
-                padding: '2px 8px', 
-                borderRadius: '6px',
-                border: '1px solid rgba(59, 130, 246, 0.25)'
-              }}>
-                Landmark Built World Challenge
-              </span>
-            </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Automated Vector Takeoff to A1-A3 Whole-Building LCA</p>
-          </div>
-        </div>
+    <div className="app">
+      <Topbar
+        projects={projects}
+        projectId={projectId}
+        onPick={setProjectId}
+        onUpload={() => setUploading(true)}
+        exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
+        reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
+      />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Preset Selector */}
-          <select
-            value={projectId}
-            onChange={(e) => handleSelectPreset(e.target.value)}
-            style={{
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text-main)',
-              backgroundColor: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '7px 10px',
-              cursor: 'pointer'
-            }}
-          >
-            <option value="demo">Demo: AB_Fourplex_01</option>
-            {presets.filter(p => p.id !== 'demo').map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-
-          {/* Upload Button */}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileUpload} 
-            accept=".pdf" 
-            style={{ display: 'none' }} 
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: '#fff',
-              backgroundColor: 'rgba(59, 130, 246, 0.25)',
-              border: '1px solid var(--accent-blue)',
-              borderRadius: '8px',
-              padding: '7px 12px',
-              cursor: uploading ? 'not-allowed' : 'pointer'
-            }}
-          >
-            {uploading ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
-            {uploading ? `Extracting (${uploadTimer}s)...` : 'Upload PDF'}
-          </button>
-
-          {/* Pitch & Strategy Presentation */}
-          <button
-            onClick={() => setShowPitchModal(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: '#fff',
-              backgroundColor: 'rgba(139, 92, 246, 0.2)',
-              border: '1px solid rgba(139, 92, 246, 0.5)',
-              borderRadius: '8px',
-              padding: '7px 12px',
-              cursor: 'pointer'
-            }}
-          >
-            <Sparkles size={13} color="#A78BFA" />
-            Pitch & Strategy
-          </button>
-
-          {/* Benchmark Accuracy Dashboard */}
-          <button
-            onClick={openBenchmark}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text-main)',
-              backgroundColor: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '7px 12px',
-              cursor: 'pointer'
-            }}
-          >
-            <Scale size={13} color="var(--accent-green)" />
-            Benchmark
-          </button>
-
-          {/* Variant Delta Compare */}
-          <input 
-            type="file" 
-            ref={variantFileInputRef} 
-            onChange={handleVariantUpload} 
-            accept=".pdf" 
-            style={{ display: 'none' }} 
-          />
-          <button
-            onClick={() => variantFileInputRef.current?.click()}
-            disabled={variantUploading}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text-main)',
-              backgroundColor: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '7px 12px',
-              cursor: variantUploading ? 'not-allowed' : 'pointer'
-            }}
-          >
-            {variantUploading ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <GitCompare size={13} color="var(--accent-blue)" />}
-            {variantUploading ? 'Comparing...' : 'Compare Variant'}
-          </button>
-
-          {/* Demo Guide Toggle */}
-          <button
-            onClick={() => setShowDemoGuide(!showDemoGuide)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: showDemoGuide ? 'var(--accent-blue)' : 'var(--text-muted)',
-              backgroundColor: showDemoGuide ? 'rgba(59, 130, 246, 0.12)' : 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '7px 12px',
-              cursor: 'pointer'
-            }}
-          >
-            <Play size={13} />
-            {showDemoGuide ? 'Hide Guide' : 'Demo Guide'}
-          </button>
-
-          {/* View Audit Report */}
-          <button
-            onClick={handleOpenReport}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text-main)',
-              backgroundColor: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '7px 12px',
-              cursor: 'pointer'
-            }}
-          >
-            <Printer size={13} />
-            Report
-          </button>
-
-          {/* Export CSV & XLSX */}
-          <button 
-            onClick={() => handleExport('csv')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text-main)',
-              backgroundColor: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '7px 10px',
-              cursor: 'pointer'
-            }}
-          >
-            <Download size={13} />
-            CSV
-          </button>
-          <button 
-            onClick={() => handleExport('xlsx')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: '#fff',
-              backgroundColor: 'var(--accent-blue)',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '7px 12px',
-              cursor: 'pointer'
-            }}
-          >
-            <FileSpreadsheet size={13} />
-            Excel
-          </button>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main style={{ maxWidth: '1440px', margin: '0 auto', padding: '20px 28px' }}>
-
-        {/* Upload Success Notice */}
-        {uploadNotice && (
-          <div style={{
-            backgroundColor: 'rgba(16, 185, 129, 0.15)',
-            border: '1px solid var(--accent-green)',
-            color: 'var(--accent-green)',
-            borderRadius: '10px',
-            padding: '12px 18px',
-            marginBottom: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            fontSize: '13px',
-            fontWeight: 600
-          }}>
-            <CheckCircle2 size={18} />
-            {uploadNotice}
-          </div>
-        )}
-
-        {/* Interactive Demo Day Walkthrough Guide */}
-        {showDemoGuide && (
-          <div style={{
-            backgroundColor: 'rgba(30, 41, 59, 0.95)',
-            border: '1px solid rgba(59, 130, 246, 0.4)',
-            borderRadius: '12px',
-            padding: '16px 20px',
-            marginBottom: '20px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--accent-blue)', color: '#fff' }}>
-                  DEMO DAY SCRIPT
-                </span>
-                <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)' }}>
-                  8-Step Live Walkthrough Flow (100% Rubric Compliant)
-                </span>
-              </div>
-              <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
-                Target: 3 Minutes Live &bull; Judged on Landmark Criteria
-              </span>
+      <main className="page">
+        {status === "loading" || !takeoff ? (
+          <>
+            <div className="card skeleton" style={{ height: 240 }} />
+            <div className="card skeleton" style={{ height: 180 }} />
+            <div className="card skeleton" style={{ height: 420 }} />
+          </>
+        ) : (
+          <>
+            <div className="hero-grid">
+              <Hero carbon={carbon} takeoff={takeoff} coverage={coverage} />
+              <TitleBlock takeoff={takeoff} carbon={carbon} coverage={coverage} />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '12px' }}>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: 'var(--accent-blue)', marginBottom: '4px' }}>1. Unseen Blueprint Intake</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Upload blueprint PDF. Toolchain signatures auto-detected; live takeoff timer runs in &lt;15s.</div>
-              </div>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: 'var(--accent-amber)', marginBottom: '4px' }}>2. Gap Report First</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Lead with honesty: report what was unreadable rather than guessing silently.</div>
-              </div>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: 'var(--accent-green)', marginBottom: '4px' }}>3. Click-to-Trace BoQ</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Click any BoQ line to inspect glowing cyan bounding box overlaid on original sheet.</div>
-              </div>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: '#38BDF8', marginBottom: '4px' }}>4. Live Quantity Override</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Edit wall/slab quantity in table cell; whole-building carbon recomputes in &lt;1s.</div>
-              </div>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: '#C084FC', marginBottom: '4px' }}>5. Scope Reconciliation</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>EN 15978 Scope Guard isolates A1-A3 upfront emissions beside published BPR totals.</div>
-              </div>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: 'var(--accent-green)', marginBottom: '4px' }}>6. Ranked Material Swaps</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>1-click swap low-carbon concrete or insulation; sorted by &Delta;kg CO₂e impact.</div>
-              </div>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: '#F472B6', marginBottom: '4px' }}>7. Benchmark & Uncertainty</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Open 100% pass-rate benchmark matrix across Revit & AutoCAD + 95% CI bands.</div>
-              </div>
-              <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ fontWeight: 700, color: '#FBBF24', marginBottom: '4px' }}>8. Landmark Beta Roadmap</div>
-                <div style={{ color: 'var(--text-dim)', fontSize: '11px' }}>Close on the 3-phase pilot plan to calibrate on 3 Landmark sets + 98% gross margin.</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Project Facts Bar */}
-        <div style={{ 
-          backgroundColor: 'var(--bg-card)', 
-          border: '1px solid var(--border)', 
-          borderRadius: '12px', 
-          padding: '16px 20px', 
-          marginBottom: '20px',
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
-            <div>
-              <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Plan Set</span>
-              <p style={{ fontSize: '15px', fontWeight: 700 }}>{project.name}</p>
-            </div>
-            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Jurisdiction & Code</span>
-              <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>{project.jurisdiction || 'Alberta NBC(AE) CZ 7A'}</p>
-            </div>
-            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Gross Floor Area</span>
-              <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>{project.gfa_m2 || 306} m² ({project.gfa_basis})</p>
-            </div>
-            <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Source File</span>
-              <p style={{ fontSize: '14px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{takeoff?.source_file}</p>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => setShowReconciliation(!showReconciliation)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '12px',
-                fontWeight: 600,
-                padding: '6px 12px',
-                borderRadius: '20px',
-                backgroundColor: 'var(--accent-green-bg)',
-                color: 'var(--accent-green)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                cursor: 'pointer'
-              }}
-            >
-              <ShieldCheck size={14} />
-              A1-A3 Module Scope Verified &bull; {showReconciliation ? 'Hide Audit' : 'Compare Scopes'}
-            </button>
-          </div>
-        </div>
-
-        {/* Step 22 Module-Scope Reconciliation View */}
-        {showReconciliation && reconciliation && (
-          <div style={{ 
-            backgroundColor: 'var(--bg-card)', 
-            border: '2px solid var(--accent-blue)', 
-            borderRadius: '12px', 
-            padding: '20px', 
-            marginBottom: '24px' 
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff' }}>Step 22 Module-Scope Reconciliation & Boundary Guard</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>EN 15978 / ISO 21930 Standards Discipline: Cradle-to-gate upfront emissions segregated from operational lifecycles.</p>
-              </div>
-              <button 
-                onClick={() => setShowReconciliation(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.08)', borderLeft: '4px solid var(--accent-blue)', padding: '12px 16px', borderRadius: '4px', marginBottom: '16px', fontSize: '13px' }}>
-              <span style={{ fontWeight: 700, color: 'var(--accent-blue)' }}>Scope Guard Rule: </span>
-              {reconciliation.guard_statement}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '16px' }}>
-              <div style={{ backgroundColor: 'var(--bg-subtle)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                <div style={{ fontSize: '12px', color: 'var(--accent-green)', fontWeight: 700, textTransform: 'uppercase' }}>Our Takeoff Scope (A1–A3)</div>
-                <div style={{ fontSize: '26px', fontWeight: 800, marginTop: '6px' }}>{reconciliation.our_a1_a3_kg_co2e?.toLocaleString()} <span style="font-size: 14px;">kg CO₂e</span></div>
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Intensity: <b>{reconciliation.our_intensity_kg_co2e_per_m2} kg/m²</b></div>
-                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '8px' }}>Range: {reconciliation.our_range_low_kg_co2e?.toLocaleString()} – {reconciliation.our_range_high_kg_co2e?.toLocaleString()} kg</div>
-              </div>
-
-              <div style={{ backgroundColor: 'var(--bg-subtle)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: '12px', color: 'var(--text-dim)', fontWeight: 700, textTransform: 'uppercase' }}>CMHC Published BPR (A1–A5, B4–B5, C2–C4)</div>
-                <div style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-muted)', marginTop: '6px' }}>{reconciliation.bpr_total_kg_co2e?.toLocaleString()} <span style="font-size: 14px;">kg CO₂e</span></div>
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>Intensity: <b>{reconciliation.bpr_intensity_kg_co2e_per_m2} kg/m²</b></div>
-                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '8px' }}>A1–A5: {reconciliation.a1_a5_t_co2e} t | B4–B5: {reconciliation.b4_b5_t_co2e} t | C2–C4: {reconciliation.c2_c4_t_co2e} t</div>
-              </div>
-            </div>
-
-            <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
-                  <th style={{ padding: '8px' }}>Lifecycle Stage</th>
-                  <th style={{ padding: '8px' }}>In Our Boundary?</th>
-                  <th style={{ padding: '8px' }}>Audit Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reconciliation.variance_breakdown?.map((v, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <td style={{ padding: '8px', fontWeight: 600 }}>{v.module}</td>
-                    <td style={{ padding: '8px', color: v.our_share_pct > 0 ? 'var(--accent-green)' : 'var(--text-dim)' }}>
-                      {v.our_share_pct > 0 ? 'YES (100% Calculated)' : 'NO (Out of Scope)'}
-                    </td>
-                    <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{v.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Stage 1 Gap Report Accordion */}
-        {intake && (
-          <div style={{ 
-            backgroundColor: 'var(--bg-card)', 
-            border: '1px solid var(--border)', 
-            borderRadius: '12px', 
-            marginBottom: '24px',
-            overflow: 'hidden'
-          }}>
-            <div 
-              onClick={() => setShowGaps(!showGaps)}
-              style={{ 
-                padding: '14px 20px', 
-                backgroundColor: 'rgba(23, 32, 48, 0.6)', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'space-between',
-                cursor: 'pointer'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <AlertTriangle size={18} color="var(--accent-amber)" />
-                <h3 style={{ fontSize: '14px', fontWeight: 700 }}>Stage 1 Drawing Intake & Gap Report</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  ({intake.n_readable} of {intake.n_sheets} sheets readable &bull; {intake.gaps.length} caveats reported)
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>Criterion 1 "Reports what it cannot read"</span>
-                {showGaps ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </div>
-            </div>
-
-            {showGaps && (
-              <div style={{ padding: '18px 20px', borderTop: '1px solid var(--border)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-                  <div style={{ backgroundColor: 'var(--bg-subtle)', padding: '12px 14px', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Detected Exporters</span>
-                    <p style={{ fontSize: '13px', fontWeight: 600, marginTop: '4px' }}>
-                      {Object.entries(intake.toolchains).map(([k, v]) => `${k} (${v})`).join(', ')}
-                    </p>
-                  </div>
-                  <div style={{ backgroundColor: 'var(--bg-subtle)', padding: '12px 14px', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Scale Calibration</span>
-                    <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-green)', marginTop: '4px' }}>
-                      1:50 Metric (0.2% chain spread)
-                    </p>
-                  </div>
-                  <div style={{ backgroundColor: 'var(--bg-subtle)', padding: '12px 14px', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Unreadable Pages</span>
-                    <p style={{ fontSize: '13px', fontWeight: 600, marginTop: '4px' }}>
-                      {intake.n_sheets - intake.n_readable} pages (Textless Distiller)
-                    </p>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {intake.gaps.map((g, idx) => (
-                    <div key={idx} style={{ 
-                      display: 'flex', 
-                      alignItems: 'flex-start', 
-                      gap: '10px', 
-                      fontSize: '13px',
-                      padding: '10px 12px',
-                      borderRadius: '6px',
-                      backgroundColor: g.severity === 'blocking' ? 'var(--accent-rose-bg)' : 'rgba(245, 158, 11, 0.08)',
-                      border: `1px solid ${g.severity === 'blocking' ? 'rgba(244, 63, 94, 0.3)' : 'rgba(245, 158, 11, 0.25)'}`
-                    }}>
-                      <Info size={15} color={g.severity === 'blocking' ? 'var(--accent-rose)' : 'var(--accent-amber)'} style={{ marginTop: '2px', flexShrink: 0 }} />
-                      <div>
-                        <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', marginRight: '8px' }}>[{g.code}]</span>
-                        <span>{g.message}</span>
-                        {g.sheet_no && <span style={{ marginLeft: '6px', color: 'var(--text-dim)' }}>({g.sheet_no})</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Headline KPI Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-          
-          {/* Card 1: Total Embodied Carbon */}
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Total Embodied Carbon (A1-A3)</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px' }}>
-              <span style={{ fontSize: '30px', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
-                {carbon?.total_kg_co2e ? Number(carbon.total_kg_co2e).toLocaleString() : '—'}
-              </span>
-              <span style={{ fontSize: '14px', color: 'var(--text-dim)', fontWeight: 600 }}>kg CO₂e</span>
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>Range: <span className="mono">{Number(carbon?.range_low_kg_co2e || 0).toLocaleString()} – {Number(carbon?.range_high_kg_co2e || 0).toLocaleString()}</span></span>
-              <button 
-                onClick={openUncertainty}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--accent-blue)',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: 0,
-                  textDecoration: 'underline'
-                }}
-              >
-                Sensitivity Drivers &rarr;
-              </button>
-            </div>
-          </div>
-
-          {/* Card 2: Carbon Intensity */}
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Carbon Intensity</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px' }}>
-              <span style={{ fontSize: '30px', fontWeight: 800, color: 'var(--accent-blue)', letterSpacing: '-0.02em' }}>
-                {carbon?.intensity_kg_co2e_per_m2 || '—'}
-              </span>
-              <span style={{ fontSize: '14px', color: 'var(--text-dim)', fontWeight: 600 }}>kg CO₂e / m² GFA</span>
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '8px' }}>
-              Canadian benchmark band: 141 – 731 kgCO₂e/m²
-            </div>
-          </div>
-
-          {/* Card 3: Factor Coverage */}
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Factor Coverage</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px' }}>
-              <span style={{ fontSize: '30px', fontWeight: 800, color: 'var(--accent-green)', letterSpacing: '-0.02em' }}>
-                {carbon ? `${Math.round(carbon.coverage_pct)}%` : '—'}
-              </span>
-              <span style={{ fontSize: '14px', color: 'var(--text-dim)', fontWeight: 600 }}>
-                ({lines.length - (carbon?.uncounted_lines?.length || 0)}/{lines.length} items)
-              </span>
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '8px' }}>
-              {carbon?.uncounted_lines?.length || 0} items with visible "no factor found"
-            </div>
-          </div>
-
-          {/* Card 4: Module Reconciliation */}
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>Published Baseline (Whole Life)</span>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px' }}>
-              <span style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
-                {reconciliation?.bpr_total_kg_co2e?.toLocaleString() || '213,073'}
-              </span>
-              <span style={{ fontSize: '14px', color: 'var(--text-dim)', fontWeight: 600 }}>kg CO₂e</span>
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '8px' }}>
-              Whole-life (A1-A5, B4-B5, C2-C4) &bull; Not comparable to A1-A3
-            </div>
-          </div>
-
-        </div>
-
-        {/* Split Grid: BoQ Table (Left 70%) & Contribution / Substitutions (Right 30%) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(0, 1.2fr)', gap: '24px' }}>
-          
-          {/* Left Column: Bill of Quantities Table */}
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-            
-            {/* Table Header & Filter Tabs */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Traceable Bill of Quantities (BoQ)</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Click quantity to edit &bull; Click "Trace" to inspect drawing bbox</p>
-              </div>
-
-              {/* Class Tabs */}
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {classes.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => setSelectedClass(c)}
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      backgroundColor: selectedClass === c ? 'var(--accent-blue)' : 'var(--bg-subtle)',
-                      color: selectedClass === c ? '#fff' : 'var(--text-muted)',
-                      textTransform: 'capitalize',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {c.replace('_', ' ')}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Table */}
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)', fontSize: '11px', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '12px 16px' }}>Element & Tag</th>
-                    <th style={{ padding: '12px 14px' }}>Material</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>Quantity</th>
-                    <th style={{ padding: '12px 14px' }}>Unit</th>
-                    <th style={{ padding: '12px 14px' }}>Confidence</th>
-                    <th style={{ padding: '12px 14px' }}>Provenance</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Embodied Carbon</th>
-                    <th style={{ padding: '12px 12px', textAlign: 'center' }}>Trace</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLines.map(ln => {
-                    const cInfo = carbonMap[ln.id];
-                    const isEditing = editingLineId === ln.id;
-                    const confidenceColor = ln.confidence === 'measured' ? 'var(--accent-green)' : (ln.confidence === 'inferred' ? 'var(--accent-amber)' : 'var(--accent-blue)');
-
-                    return (
-                      <tr 
-                        key={ln.id} 
-                        style={{ 
-                          borderBottom: '1px solid var(--border)',
-                          backgroundColor: ln.is_overridden ? 'rgba(59, 130, 246, 0.05)' : 'transparent',
-                          transition: 'background-color 0.15s'
-                        }}
-                      >
-                        {/* Element & Tag */}
-                        <td style={{ padding: '12px 16px' }}>
-                          <div style={{ fontWeight: 700 }}>{ln.description || ln.element_class.replace('_', ' ')}</div>
-                          {ln.assembly_tag && (
-                            <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--accent-blue)', backgroundColor: 'var(--accent-blue-bg)', padding: '1px 6px', borderRadius: '4px' }}>
-                              Tag: {ln.assembly_tag}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Material */}
-                        <td style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>
-                          <div>{ln.material || cInfo?.factor?.name || '—'}</div>
-                          {cInfo?.factor && (
-                            <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-                              EPD: {cInfo.factor.declared_unit} @ {cInfo.factor.gwp_value} kgCO₂e
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Quantity (Editable) */}
-                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                          {isEditing ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
-                              <input 
-                                type="number" 
-                                value={editQty}
-                                onChange={e => setEditQty(e.target.value)}
-                                style={{
-                                  width: '80px',
-                                  padding: '4px 6px',
-                                  borderRadius: '4px',
-                                  backgroundColor: 'var(--bg-main)',
-                                  border: '1px solid var(--accent-blue)',
-                                  color: '#fff',
-                                  fontSize: '13px',
-                                  textAlign: 'right'
-                                }}
-                                autoFocus
-                              />
-                              <button 
-                                onClick={() => handleOverrideQuantity(ln.id, editQty)}
-                                style={{ backgroundColor: 'var(--accent-green)', color: '#fff', padding: '4px 6px', borderRadius: '4px', cursor: 'pointer' }}
-                              >
-                                <Check size={12} />
-                              </button>
-                            </div>
-                          ) : (
-                            <div 
-                              onClick={() => { setEditingLineId(ln.id); setEditQty(ln.effective_quantity); }}
-                              style={{ cursor: 'pointer', display: 'inline-block' }}
-                              title="Click to edit quantity"
-                            >
-                              <span style={{ fontWeight: 700, textDecoration: 'underline dotted var(--border-light)' }}>
-                                {ln.effective_quantity}
-                              </span>
-                              {ln.is_overridden && (
-                                <span style={{ marginLeft: '4px', fontSize: '10px', color: 'var(--accent-blue)' }}>(edited)</span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Unit */}
-                        <td style={{ padding: '12px 14px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                          {ln.unit}
-                        </td>
-
-                        {/* Confidence */}
-                        <td style={{ padding: '12px 14px' }}>
-                          <span style={{ 
-                            fontSize: '11px', 
-                            fontWeight: 700, 
-                            padding: '3px 8px', 
-                            borderRadius: '12px',
-                            backgroundColor: `${confidenceColor}22`,
-                            color: confidenceColor,
-                            textTransform: 'uppercase'
-                          }}>
-                            {ln.confidence}
-                          </span>
-                        </td>
-
-                        {/* Provenance */}
-                        <td style={{ padding: '12px 14px', fontSize: '12px', color: 'var(--text-dim)' }}>
-                          <div>Sheet: {ln.provenance.sheet_no || `p.${ln.provenance.page}`}</div>
-                          {ln.provenance.detail && <div>Det: {ln.provenance.detail}</div>}
-                        </td>
-
-                        {/* Embodied Carbon */}
-                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                          {cInfo?.is_counted ? (
-                            <div>
-                              <span style={{ fontWeight: 800, color: 'var(--text-main)' }}>
-                                {Number(cInfo.kg_co2e).toLocaleString()}
-                              </span>
-                              <span style={{ fontSize: '11px', color: 'var(--text-dim)', marginLeft: '4px' }}>kg</span>
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: '11px', color: 'var(--accent-amber)', fontStyle: 'italic' }}>
-                              No factor found
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Step 20 Click-to-Trace Button */}
-                        <td style={{ padding: '12px 12px', textAlign: 'center' }}>
-                          <button
-                            onClick={() => setTracingLine(ln)}
-                            title="Click to view highlighted drawing sheet"
-                            style={{
-                              background: 'rgba(59, 130, 246, 0.15)',
-                              border: '1px solid rgba(59, 130, 246, 0.4)',
-                              color: 'var(--accent-blue)',
-                              borderRadius: '6px',
-                              padding: '4px 8px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <Eye size={12} />
-                            Trace
-                          </button>
-                        </td>
-
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Right Column: Contribution Analysis & Stage 4 Substitutions */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            
-            {/* Contribution Breakdown */}
-            <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                <BarChart3 size={18} color="var(--accent-blue)" />
-                <h3 style={{ fontSize: '15px', fontWeight: 800 }}>Carbon Contribution Breakdown</h3>
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase' }}>By Assembly</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                  {carbon?.by_assembly?.map(a => (
-                    <div key={a.key}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: 600 }}>{a.key}</span>
-                        <span style={{ color: 'var(--text-muted)' }}>{Number(a.kg_co2e).toLocaleString()} kg ({a.pct_of_total}%)</span>
-                      </div>
-                      <div style={{ width: '100%', height: '6px', backgroundColor: 'var(--bg-subtle)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ width: `${a.pct_of_total}%`, height: '100%', backgroundColor: 'var(--accent-blue)' }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase' }}>By Material Category</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                  {carbon?.by_material_category?.slice(0, 4).map(m => (
-                    <div key={m.key}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: 600 }}>{m.key}</span>
-                        <span style={{ color: 'var(--text-muted)' }}>{Number(m.kg_co2e).toLocaleString()} kg ({m.pct_of_total}%)</span>
-                      </div>
-                      <div style={{ width: '100%', height: '6px', backgroundColor: 'var(--bg-subtle)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ width: `${m.pct_of_total}%`, height: '100%', backgroundColor: 'var(--accent-green)' }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Stage 4: Ranked Substitutions Panel */}
-            <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Sliders size={18} color="var(--accent-green)" />
-                  <h3 style={{ fontSize: '15px', fontWeight: 800 }}>Low-Carbon Material Swaps</h3>
-                </div>
-                <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Ranked by computed Δ kgCO₂e</span>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {substitutions.map((sub, i) => (
-                  <div 
-                    key={i}
-                    style={{ 
-                      backgroundColor: 'var(--bg-subtle)', 
-                      border: '1px solid var(--border)', 
-                      borderRadius: '8px', 
-                      padding: '14px' 
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 700 }}>{sub.to_material}</span>
-                      <span style={{ 
-                        fontSize: '13px', 
-                        fontWeight: 800, 
-                        color: sub.delta_kg_co2e < 0 ? 'var(--accent-green)' : 'var(--accent-rose)' 
-                      }}>
-                        {sub.delta_kg_co2e.toLocaleString()} kg ({sub.pct_of_total}%)
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                      <span>Replaces:</span>
-                      <span style={{ textDecoration: 'line-through', color: 'var(--text-dim)' }}>{sub.from_material}</span>
-                    </div>
-
-                    <button 
-                      onClick={() => alert(`Substitution applied! Swapped to ${sub.to_material}. Saved ${Math.abs(sub.delta_kg_co2e)} kg CO2e.`)}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        backgroundColor: 'var(--accent-green-bg)',
-                        color: 'var(--accent-green)',
-                        border: '1px solid var(--accent-green)',
-                        borderRadius: '6px',
-                        padding: '6px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <CheckCircle2 size={13} />
-                      Simulate Swap ({sub.delta_kg_co2e.toLocaleString()} kg)
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-      </main>
-
-      {/* Step 20 Click-to-Trace Modal */}
-      {tracingLine && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(5, 8, 15, 0.85)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 100,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-card)',
-            border: '2px solid var(--accent-blue)',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '1100px',
-            maxHeight: '90vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
-          }}>
-            {/* Modal Header */}
-            <div style={{
-              padding: '16px 24px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: 'rgba(23, 32, 48, 0.7)'
-            }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Eye size={18} color="var(--accent-blue)" />
-                  <h3 style={{ fontSize: '16px', fontWeight: 800 }}>Click-to-Trace Drawing Verification</h3>
-                  <span style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                    color: 'var(--accent-blue)'
-                  }}>
-                    Sheet {tracingLine.provenance.sheet_no || `Page ${tracingLine.provenance.page}`}
+            {massing && (
+              <section className="card">
+                <div className="card-head">
+                  <h2>What we understood from the drawings</h2>
+                  <span className="card-note">
+                    measured footprint, section datums and counted partitions
                   </span>
                 </div>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Item: <b>{tracingLine.description || tracingLine.element_class}</b> &bull; Quantity: <b>{tracingLine.effective_quantity} {tracingLine.unit}</b> &bull; Confidence: <b>{tracingLine.confidence}</b>
-                </p>
-              </div>
-              <button
-                onClick={() => setTracingLine(null)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer',
-                  padding: '4px'
-                }}
-              >
-                <X size={20} />
-              </button>
-            </div>
+                <Massing massing={massing} />
+              </section>
+            )}
 
-            {/* Blueprint Image Preview */}
-            <div style={{
-              flex: 1,
-              backgroundColor: '#111827',
-              padding: '16px',
-              overflow: 'auto',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <img 
-                src={`${API_BASE}/projects/${projectId}/trace/${tracingLine.id}`}
-                alt="Blueprint Trace Preview"
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '62vh',
-                  objectFit: 'contain',
-                  borderRadius: '8px',
-                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
-                }}
+            <section className="card">
+              <div className="card-head">
+                <h2>Every sheet in the set</h2>
+                <span className="card-note">
+                  what each page turned out to be, and which ones the number
+                  rests on
+                </span>
+              </div>
+              <SheetStrip takeoff={takeoff} />
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h2>What we could not read</h2>
+                <span className="card-note">
+                  {takeoff.gaps?.length || 0} notices · shown before the number
+                </span>
+              </div>
+              {takeoff.gaps?.length ? (
+                <Notices gaps={takeoff.gaps} />
+              ) : (
+                <div className="notices muted">
+                  Every sheet this takeoff needed was readable.
+                </div>
+              )}
+            </section>
+
+            {carbon?.by_material_category?.length ? (
+              <section className="card">
+                <div className="card-head">
+                  <h2>Where the carbon is</h2>
+                  <span className="card-note">by material category</span>
+                </div>
+                <Contribution
+                  carbon={carbon}
+                  focus={focus}
+                  onFocus={setFocus}
+                  filter={filter}
+                  onFilter={setFilter}
+                />
+              </section>
+            ) : null}
+
+            <section className="card">
+              <div className="card-head">
+                <h2>Bill of quantities</h2>
+                <span className="card-note">
+                  {filter ? (
+                    <button className="filter-clear" onClick={() => setFilter(null)}>
+                      showing {filter} · show everything
+                    </button>
+                  ) : (
+                    "press a sheet tag to see where a number came from"
+                  )}
+                </span>
+              </div>
+              <BillOfQuantities
+                takeoff={takeoff}
+                carbon={carbon}
+                onOverride={override}
+                onTrace={showTrace}
+                focus={focus}
+                onFocus={setFocus}
+                filter={filter}
               />
-            </div>
+            </section>
 
-            {/* Modal Footer / Provenance details */}
-            <div style={{
-              padding: '14px 24px',
-              borderTop: '1px solid var(--border)',
-              backgroundColor: 'var(--bg-subtle)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: '12px',
-              color: 'var(--text-muted)'
-            }}>
-              <div>
-                <span>Detail Callout: <b>{tracingLine.provenance.detail || 'Standard Plan Viewport'}</b></span>
-                <span style={{ marginLeft: '16px' }}>Basis: <b>{tracingLine.basis.sources.join(', ')}</b></span>
-                {tracingLine.basis.note && <span style={{ marginLeft: '16px', fontStyle: 'italic' }}>({tracingLine.basis.note})</span>}
-              </div>
-              <button
-                onClick={() => setTracingLine(null)}
-                style={{
-                  backgroundColor: 'var(--accent-blue)',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '6px 14px',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                Close Trace
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 26 Published Benchmark Matrix Modal */}
-      {showBenchmark && benchmarkData && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(5, 8, 15, 0.85)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '24px'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-card)',
-            border: '2px solid var(--accent-green)',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '1000px',
-            maxHeight: '90vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
-          }}>
-            <div style={{
-              padding: '16px 24px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              backgroundColor: 'rgba(23, 32, 48, 0.7)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Scale size={20} color="var(--accent-green)" />
-                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Published Accuracy Benchmark vs 3D IFC Ground Truth</h3>
-                <span style={{
-                  fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
-                  backgroundColor: 'rgba(16, 185, 129, 0.2)', color: 'var(--accent-green)'
-                }}>
-                  {benchmarkData.actual_pass_rate_pct}% Pass Rate (Target: &ge;80%)
-                </span>
-              </div>
-              <button onClick={() => setShowBenchmark(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                {Object.values(benchmarkData.headline_metrics).map((m, i) => (
-                  <div key={i} style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>{m.metric}</div>
-                    <div style={{ fontSize: '26px', fontWeight: 800, color: 'var(--accent-green)', marginTop: '4px' }}>
-                      {m.median_error_pct}% <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-muted)' }}>median err</span>
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                      Worst Case: <b>{m.worst_case_error_pct}%</b> &bull; Target: &le;10%
-                    </div>
+            <div className="two-col">
+              {decisions.length > 0 && (
+                <section className="card">
+                  <div className="card-head">
+                    <h2>Decisions still open</h2>
+                    <span className="card-note">not counted · priced as a range</span>
                   </div>
-                ))}
-              </div>
-
-              <div>
-                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Toolchain Performance Breakdown</h4>
-                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
-                      <th style={{ padding: '8px' }}>Toolchain Group</th>
-                      <th style={{ padding: '8px' }}>Sample Sets</th>
-                      <th style={{ padding: '8px' }}>Wall Med. Err</th>
-                      <th style={{ padding: '8px' }}>Slab Med. Err</th>
-                      <th style={{ padding: '8px' }}>Window Med. Err</th>
-                      <th style={{ padding: '8px' }}>Avg Runtime</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {benchmarkData.toolchain_breakdown.map((tc, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <td style={{ padding: '8px', fontWeight: 600 }}>{tc.toolchain}</td>
-                        <td style={{ padding: '8px' }}>{tc.samples} designs</td>
-                        <td style={{ padding: '8px', color: 'var(--accent-green)' }}>{tc.wall_median_err}%</td>
-                        <td style={{ padding: '8px', color: 'var(--accent-green)' }}>{tc.slab_median_err}%</td>
-                        <td style={{ padding: '8px', color: 'var(--accent-green)' }}>{tc.window_median_err}%</td>
-                        <td style={{ padding: '8px', fontFamily: 'var(--font-mono)' }}>{tc.speed_s}s</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div>
-                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Individual Evaluation Designs vs 3D IFC Truth</h4>
-                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
-                      <th style={{ padding: '8px' }}>Design Package</th>
-                      <th style={{ padding: '8px' }}>Typology</th>
-                      <th style={{ padding: '8px' }}>Wall TO / IFC</th>
-                      <th style={{ padding: '8px' }}>Wall Err</th>
-                      <th style={{ padding: '8px' }}>Slab TO / IFC</th>
-                      <th style={{ padding: '8px' }}>Slab Err</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>A1–A3 kgCO₂e</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {benchmarkData.eval_designs.map((d, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <td style={{ padding: '8px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{d.design}</td>
-                        <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{d.typology}</td>
-                        <td style={{ padding: '8px' }}>{d.wall_to_m2} / {d.wall_ifc_m2} m²</td>
-                        <td style={{ padding: '8px', color: d.wall_err_pct <= 10.0 ? 'var(--accent-green)' : 'var(--accent-amber)', fontWeight: 700 }}>
-                          {d.wall_err_pct}%
-                        </td>
-                        <td style={{ padding: '8px' }}>{d.slab_to_m2} / {d.slab_ifc_m2} m²</td>
-                        <td style={{ padding: '8px', color: d.slab_err_pct <= 10.0 ? 'var(--accent-green)' : 'var(--accent-amber)', fontWeight: 700 }}>
-                          {d.slab_err_pct}%
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700 }}>{d.carbon_kg.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '8px', padding: '12px 16px', fontSize: '12px', color: '#A7F3D0' }}>
-                <b>Methodological Philosophy:</b> {benchmarkData.stance}
-              </div>
-            </div>
-
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-subtle)', textAlign: 'right' }}>
-              <button onClick={() => setShowBenchmark(false)} style={{ backgroundColor: 'var(--accent-green)', color: '#042F2E', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
-                Close Benchmark
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 21 Statistical Uncertainty & Sensitivity Modal */}
-      {showUncertainty && uncertaintyData && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(5, 8, 15, 0.85)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '24px'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-card)',
-            border: '2px solid var(--accent-blue)',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '1000px',
-            maxHeight: '90vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
-          }}>
-            <div style={{
-              padding: '16px 24px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              backgroundColor: 'rgba(23, 32, 48, 0.7)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <TrendingDown size={20} color="var(--accent-blue)" />
-                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Statistical Uncertainty & Sensitivity Ranking</h3>
-                <span style={{
-                  fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
-                  backgroundColor: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent-blue)'
-                }}>
-                  &plusmn;{(uncertaintyData.relative_uncertainty_pct * 1.96).toFixed(1)}% (95% CI)
-                </span>
-              </div>
-              <button onClick={() => setShowUncertainty(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Expected A1–A3 Total</div>
-                  <div style={{ fontSize: '24px', fontWeight: 800, marginTop: '4px' }}>
-                    {uncertaintyData.total_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>kg CO₂e</span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                    Standard Error &sigma;: <b>{uncertaintyData.std_err_sigma_kg_co2e.toLocaleString()} kg</b>
-                  </div>
-                </div>
-
-                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>68% Confidence Band (1&sigma;)</div>
-                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-blue)', marginTop: '4px' }}>
-                    {uncertaintyData.range_68_low_kg_co2e.toLocaleString()} – {uncertaintyData.range_68_high_kg_co2e.toLocaleString()}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                    &plusmn;{uncertaintyData.relative_uncertainty_pct.toFixed(1)}% typical deviation
-                  </div>
-                </div>
-
-                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>95% Confidence Band (1.96&sigma;)</div>
-                  <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--accent-green)', marginTop: '4px' }}>
-                    {uncertaintyData.range_95_low_kg_co2e.toLocaleString()} – {uncertaintyData.range_95_high_kg_co2e.toLocaleString()}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                    Regulatory compliance reporting interval
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>Sensitivity Drivers: Which Assumptions Move the Total Most?</h4>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                  Ranked by share of total variance. Reflects compound effect of factor uncertainty (EPD statistical distribution) and measurement confidence.
-                </p>
-
-                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
-                      <th style={{ padding: '8px' }}>Rank</th>
-                      <th style={{ padding: '8px' }}>Material / Assembly</th>
-                      <th style={{ padding: '8px' }}>Quantity</th>
-                      <th style={{ padding: '8px' }}>Confidence</th>
-                      <th style={{ padding: '8px' }}>Factor &plusmn;%</th>
-                      <th style={{ padding: '8px' }}>Qty &plusmn;%</th>
-                      <th style={{ padding: '8px' }}>Combined &sigma;</th>
-                      <th style={{ padding: '8px' }}>Variance Share</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {uncertaintyData.top_drivers.map((d) => (
-                      <tr key={d.rank} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <td style={{ padding: '8px', fontWeight: 700 }}>#{d.rank}</td>
-                        <td style={{ padding: '8px', fontWeight: 600 }}>
-                          <div>{d.material}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{d.element_class} &bull; {d.assumption}</div>
-                        </td>
-                        <td style={{ padding: '8px' }}>{d.quantity} {d.unit}</td>
-                        <td style={{ padding: '8px' }}>
-                          <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', backgroundColor: d.confidence === 'measured' ? '#DCFCE7' : '#DBEAFE', color: d.confidence === 'measured' ? '#166534' : '#1E40AF' }}>
-                            {d.confidence}
-                          </span>
-                        </td>
-                        <td style={{ padding: '8px', color: 'var(--text-muted)' }}>&plusmn;{d.factor_uncertainty_pct}%</td>
-                        <td style={{ padding: '8px', color: 'var(--text-muted)' }}>&plusmn;{d.quantity_uncertainty_pct}%</td>
-                        <td style={{ padding: '8px', fontFamily: 'var(--font-mono)' }}>{d.combined_sigma_kg_co2e.toLocaleString()} kg</td>
-                        <td style={{ padding: '8px', fontWeight: 700, color: 'var(--accent-blue)' }}>{d.variance_contribution_pct}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-subtle)', textAlign: 'right' }}>
-              <button onClick={() => setShowUncertainty(false)} style={{ backgroundColor: 'var(--accent-blue)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-                Close Analysis
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 23 Variant Delta Comparison Modal */}
-      {showVariants && variantData && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(5, 8, 15, 0.85)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '24px'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-card)',
-            border: '2px solid var(--accent-blue)',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '1050px',
-            maxHeight: '90vh',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
-          }}>
-            <div style={{
-              padding: '16px 24px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              backgroundColor: 'rgba(23, 32, 48, 0.7)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <GitCompare size={20} color="var(--accent-blue)" />
-                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Variant Delta: {variantData.variant_project_name} vs {variantData.base_project_name}</h3>
-                <span style={{
-                  fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
-                  backgroundColor: variantData.net_carbon_delta_kg_co2e > 0 ? 'rgba(244, 63, 94, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                  color: variantData.net_carbon_delta_kg_co2e > 0 ? 'var(--accent-rose)' : 'var(--accent-green)'
-                }}>
-                  {variantData.net_carbon_delta_kg_co2e > 0 ? '+' : ''}{variantData.net_carbon_delta_kg_co2e.toLocaleString()} kg CO₂e ({variantData.net_carbon_pct_change > 0 ? '+' : ''}{variantData.net_carbon_pct_change}%)
-                </span>
-              </div>
-              <button onClick={() => setShowVariants(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
-                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Base Design Carbon</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '4px' }}>{variantData.base_total_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>kg</span></div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{variantData.base_intensity_kg_per_m2} kg/m²</div>
-                </div>
-
-                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Variant Plan Carbon</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '4px' }}>{variantData.variant_total_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>kg</span></div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{variantData.variant_intensity_kg_per_m2} kg/m²</div>
-                </div>
-
-                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Net Differential</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: variantData.net_carbon_delta_kg_co2e > 0 ? 'var(--accent-rose)' : 'var(--accent-green)', marginTop: '4px' }}>
-                    {variantData.net_carbon_delta_kg_co2e > 0 ? '+' : ''}{variantData.net_carbon_delta_kg_co2e.toLocaleString()} <span style={{ fontSize: '12px' }}>kg</span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>{variantData.delta_intensity_kg_per_m2 > 0 ? '+' : ''}{variantData.delta_intensity_kg_per_m2} kg/m²</div>
-                </div>
-
-                <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>Line Delta Counts</div>
-                  <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '6px' }}>
-                    <span style={{ color: 'var(--accent-blue)' }}>{variantData.modified_lines_count} mod</span> &bull; <span style={{ color: 'var(--accent-green)' }}>{variantData.added_lines_count} add</span> &bull; <span style={{ color: 'var(--text-muted)' }}>{variantData.unchanged_lines_count} same</span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h4 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '10px' }}>Line-by-Line Quantity & Carbon Deltas</h4>
-                <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-dim)' }}>
-                      <th style={{ padding: '8px' }}>Status</th>
-                      <th style={{ padding: '8px' }}>Line ID & Material</th>
-                      <th style={{ padding: '8px' }}>Base Qty</th>
-                      <th style={{ padding: '8px' }}>Variant Qty</th>
-                      <th style={{ padding: '8px' }}>Delta Qty</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>Base kg</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>Variant kg</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>Carbon &Delta;</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {variantData.lines.map((l) => (
-                      <tr key={l.line_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', backgroundColor: l.change_type === 'modified' ? 'rgba(59, 130, 246, 0.05)' : l.change_type === 'added' ? 'rgba(16, 185, 129, 0.05)' : 'transparent' }}>
-                        <td style={{ padding: '8px' }}>
-                          <span style={{
-                            fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase',
-                            backgroundColor: l.change_type === 'modified' ? '#DBEAFE' : l.change_type === 'added' ? '#DCFCE7' : l.change_type === 'removed' ? '#FEE2E2' : 'rgba(255,255,255,0.1)',
-                            color: l.change_type === 'modified' ? '#1E40AF' : l.change_type === 'added' ? '#166534' : l.change_type === 'removed' ? '#991B1B' : 'var(--text-dim)'
-                          }}>
-                            {l.change_type}
-                          </span>
-                        </td>
-                        <td style={{ padding: '8px' }}>
-                          <div style={{ fontWeight: 600 }}>{l.description}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{l.material} ({l.element_class})</div>
-                        </td>
-                        <td style={{ padding: '8px' }}>{l.base_quantity !== null ? `${l.base_quantity} ${l.unit}` : '—'}</td>
-                        <td style={{ padding: '8px' }}>{l.variant_quantity !== null ? `${l.variant_quantity} ${l.unit}` : '—'}</td>
-                        <td style={{ padding: '8px', fontWeight: 600, color: l.quantity_delta !== 0 ? 'var(--text-main)' : 'var(--text-dim)' }}>
-                          {l.quantity_delta > 0 ? `+${l.quantity_delta}` : l.quantity_delta} {l.unit}
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>{l.base_kg_co2e !== null ? l.base_kg_co2e.toLocaleString() : '—'}</td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>{l.variant_kg_co2e !== null ? l.variant_kg_co2e.toLocaleString() : '—'}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: l.carbon_delta_kg_co2e > 0 ? 'var(--accent-rose)' : l.carbon_delta_kg_co2e < 0 ? 'var(--accent-green)' : 'var(--text-dim)' }}>
-                          {l.carbon_delta_kg_co2e > 0 ? `+${l.carbon_delta_kg_co2e.toLocaleString()}` : l.carbon_delta_kg_co2e.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-subtle)', textAlign: 'right' }}>
-              <button onClick={() => setShowVariants(false)} style={{ backgroundColor: 'var(--accent-blue)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-                Close Variant Delta
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Presentation & Pitch Modal */}
-      {showPitchModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.75)',
-          backdropFilter: 'blur(5px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 100, padding: '20px'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-            borderRadius: '16px',
-            width: '100%', maxWidth: '1050px', maxHeight: '90vh',
-            display: 'flex', flexDirection: 'column',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
-          }}>
-            {/* Header */}
-            <div style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              backgroundColor: 'var(--bg-subtle)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{
-                  padding: '8px', borderRadius: '8px',
-                  backgroundColor: 'rgba(139, 92, 246, 0.2)',
-                  border: '1px solid rgba(139, 92, 246, 0.5)'
-                }}>
-                  <Sparkles size={20} color="#A78BFA" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Executive Presentation & Submission Hub</h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Landmark Homes Built World Tech Challenge &bull; Submission & Demo Day Deliverables</p>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {/* Tabs */}
-                <div style={{ display: 'flex', backgroundColor: 'var(--bg-main)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <button
-                    onClick={() => setPitchTab('script')}
-                    style={{
-                      padding: '6px 12px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: 'pointer',
-                      backgroundColor: pitchTab === 'script' ? 'var(--accent-blue)' : 'transparent',
-                      color: pitchTab === 'script' ? '#fff' : 'var(--text-dim)'
-                    }}
-                  >
-                    3-Min Pitch Script
-                  </button>
-                  <button
-                    onClick={() => setPitchTab('rubric')}
-                    style={{
-                      padding: '6px 12px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: 'pointer',
-                      backgroundColor: pitchTab === 'rubric' ? 'var(--accent-blue)' : 'transparent',
-                      color: pitchTab === 'rubric' ? '#fff' : 'var(--text-dim)'
-                    }}
-                  >
-                    Rubric Matrix (1–8)
-                  </button>
-                  <button
-                    onClick={() => setPitchTab('landmark')}
-                    style={{
-                      padding: '6px 12px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: 'pointer',
-                      backgroundColor: pitchTab === 'landmark' ? 'var(--accent-blue)' : 'transparent',
-                      color: pitchTab === 'landmark' ? '#fff' : 'var(--text-dim)'
-                    }}
-                  >
-                    Landmark Beta Plan
-                  </button>
-                  <button
-                    onClick={() => setPitchTab('business')}
-                    style={{
-                      padding: '6px 12px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: 'pointer',
-                      backgroundColor: pitchTab === 'business' ? 'var(--accent-blue)' : 'transparent',
-                      color: pitchTab === 'business' ? '#fff' : 'var(--text-dim)'
-                    }}
-                  >
-                    Business Model
-                  </button>
-                </div>
-
-                <button onClick={() => setShowPitchModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              
-              {/* TAB 1: 3-Min Demo Day Pitch Script */}
-              {pitchTab === 'script' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '10px', padding: '14px 18px' }}>
-                    <div style={{ fontWeight: 700, color: 'var(--accent-blue)', fontSize: '13px' }}>Demo Day Narrative Architecture</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                      Paced strictly for a 3-minute live pitch with synchronized UI actions. Designed to hit every single scoring criterion in order.
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', lineHeight: 1.6 }}>
-                    <div style={{ borderLeft: '3px solid var(--accent-blue)', paddingLeft: '12px' }}>
-                      <b style={{ color: 'var(--accent-blue)' }}>0:00 – 0:30 | The Production Builder Problem:</b>
-                      <p style={{ margin: '4px 0 0', color: 'var(--text-dim)' }}>
-                        "By September 2025, federal and municipal embodied carbon caps take effect across Canadian housing. Yet today, a whole-building LCA takes 3 to 6 weeks and costs upwards of $10,000 from external consultants. Builders like Landmark build on standardized plans—they don't need a 50-page consultant PDF 6 weeks late; they need an instant, traceable baseline during takeoff. That is why we built <b>eCarbon</b>."
-                      </p>
-                    </div>
-
-                    <div style={{ borderLeft: '3px solid var(--accent-amber)', paddingLeft: '12px' }}>
-                      <b style={{ color: 'var(--accent-amber)' }}>0:30 – 1:00 | Live Blueprint Intake & The Honesty Gap Report:</b>
-                      <p style={{ margin: '4px 0 0', color: 'var(--text-dim)' }}>
-                        "I upload an unseen vector blueprint set right now. In less than 15 seconds, our pipeline extracts the complete geometric footprint and structural schedule. But notice what we show first: <b>The Gap Report</b>. Unlike black-box AI tools that hallucinate missing details, eCarbon explicitly flags unreadable text, missing schedules, and uncalibrated viewports. Our philosophy: <i>we tell estimators what we cannot read rather than assuming silently</i>."
-                      </p>
-                    </div>
-
-                    <div style={{ borderLeft: '3px solid var(--accent-green)', paddingLeft: '12px' }}>
-                      <b style={{ color: 'var(--accent-green)' }}>1:00 – 1:45 | Click-to-Trace BoQ & Live Override Recomputation:</b>
-                      <p style={{ margin: '4px 0 0', color: 'var(--text-dim)' }}>
-                        "Every single quantity carries page, sheet number, and detail callout. Watch what happens when I click any line: the original blueprint sheet instantly renders with a glowing cyan bounding box pinpointing the exact wall assembly. And if an estimator updates a quantity, our engine recalculates the whole-building carbon total in under 1 second."
-                      </p>
-                    </div>
-
-                    <div style={{ borderLeft: '3px solid #C084FC', paddingLeft: '12px' }}>
-                      <b style={{ color: '#C084FC' }}>1:45 – 2:20 | Scope Guard Reconciliation & Ranked Material Swaps:</b>
-                      <p style={{ margin: '4px 0 0', color: 'var(--text-dim)' }}>
-                        "In compliance with EN 15978 / ISO 21930, our <b>Scope Guard</b> isolates upfront cradle-to-gate emissions (A1–A3) from future operational or end-of-life stages. Next, we open the substitution engine: materials are automatically ranked by computed &Delta;kg CO₂e savings—allowing Landmark to swap low-carbon GUL concrete and eliminate 18.5 tonnes of upfront carbon with a single click."
-                      </p>
-                    </div>
-
-                    <div style={{ borderLeft: '3px solid var(--accent-green)', paddingLeft: '12px' }}>
-                      <b style={{ color: 'var(--accent-green)' }}>2:20 – 3:00 | Multi-Toolchain Benchmark & Landmark Beta Roadmap:</b>
-                      <p style={{ margin: '4px 0 0', color: 'var(--text-dim)' }}>
-                        "We validated eCarbon against 3D IFC truth across 39 national designs: achieving a <b>4.1% median error on walls, 0.5% on slabs, and a 100% pass rate</b>. Our commercial pilot with Landmark requires just 3 plan sets and 2 hours/week to integrate directly into Landmark's estimating workflow. Thank you."
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                  <OpenDecisions choices={decisions} />
+                </section>
               )}
-
-              {/* TAB 2: Rubric Alignment Matrix */}
-              {pitchTab === 'rubric' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <table style={{ width: '100%', fontSize: '12px', textAlign: 'left', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid var(--border)', color: 'var(--text-dim)' }}>
-                        <th style={{ padding: '8px' }}>Criterion</th>
-                        <th style={{ padding: '8px' }}>Weight</th>
-                        <th style={{ padding: '8px' }}>Requirement</th>
-                        <th style={{ padding: '8px' }}>eCarbon Implementation & Evidence</th>
-                        <th style={{ padding: '8px', textAlign: 'right' }}>Score Bar</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>1. Drawing Intake</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>10%</td>
-                        <td style={{ padding: '10px 8px' }}>Handles diverse vector sets, identifies sheet types, emits gap report.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>5 toolchains detected across 53 sets; 0 crashes; gap report lists unreadable pages & missing schedules.</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>10/10</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>2. Quantity Extraction</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>30%</td>
-                        <td style={{ padding: '10px 8px' }}>&ge;8 classes, sheet provenance, confidence labels, &le;10% error vs IFC.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>8 classes; 100% provenance bboxes; 4.1% median wall err, 0.5% slab err; click-to-trace viewer; live override in &lt;1s.</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>30/30</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>3. Carbon & Traceability</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>15%</td>
-                        <td style={{ padding: '10px 8px' }}>Zero hardcoded factors, declared units, A1-A3 scope guard, intensity.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>SQLite/DuckDB factor store with BEAM/EC3 attribution; zero hardcoded numbers; strict ISO 21930 Scope Guard.</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>15/15</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>4. Interactive Config</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>10%</td>
-                        <td style={{ padding: '10px 8px' }}>&ge;6 swaps, live update, ranked by computed &Delta;kg CO₂e.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>6 swaps across concrete, insulation, cladding, windows; sorted strictly by &Delta;kg CO₂e saving.</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>10/10</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>5. Usability & Automation</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>10%</td>
-                        <td style={{ padding: '10px 8px' }}>Unseen set &lt;2 min; exportable BoQ (CSV/XLSX); builder-facing report.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>Automated run in &lt;15s; 1-click Excel/CSV BoQ exports; printable compliance HTML audit report.</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>10/10</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>6. Implementation Plan</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>10%</td>
-                        <td style={{ padding: '10px 8px' }}>2-page path to beta with Landmark: scope, timeline, integration, asks.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>Detailed 3-phase pilot on 3 Landmark sets; 2-week calibration; integration with BuilderTrend/Procore.</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>10/10</td>
-                      </tr>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>7. Business Plan</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>10%</td>
-                        <td style={{ padding: '10px 8px' }}>Buyer, willingness to pay, unit economics, competitive wedge.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>Targeting residential volume builders (100–800 starts/yr); $1.5k/plan vs $10k consultant; &lt;$0.25 compute (98% margin).</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>10/10</td>
-                      </tr>
-                      <tr>
-                        <td style={{ padding: '10px 8px', fontWeight: 700 }}>8. The X Factor</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--accent-blue)', fontWeight: 700 }}>5%</td>
-                        <td style={{ padding: '10px 8px' }}>Published benchmark page + explicit honesty stance.</td>
-                        <td style={{ padding: '10px 8px', color: 'var(--text-dim)' }}>Published benchmark page across 3 toolchains; 95% statistical CI propagation; variant delta engine in &lt;35s.</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--accent-green)', fontWeight: 700 }}>5/5</td>
-                      </tr>
-                    </tbody>
-                  </table>
+              <section className="card">
+                <div className="card-head">
+                  <h2>Material substitutions</h2>
+                  <span className="card-note">ranked by what they save</span>
                 </div>
-              )}
-
-              {/* TAB 3: Landmark Beta Plan */}
-              {pitchTab === 'landmark' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '13px', lineHeight: 1.6 }}>
-                  <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                    <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-blue)', marginBottom: '8px' }}>Pilot Objective & Scope</h4>
-                    <p style={{ color: 'var(--text-dim)', margin: 0 }}>
-                      A 6-week commercial pilot executed with Landmark Homes Edmonton on three active, standardized plan models (single-family detached, duplex, and multi-unit townhome) to validate automated takeoff accuracy against Landmark's human historical takeoffs and generate municipal carbon compliance certificates.
-                    </p>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                    <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--accent-blue)', marginBottom: '4px' }}>Phase 1 (Weeks 1–2)</div>
-                      <div style={{ fontWeight: 600, fontSize: '12px' }}>Ingestion & Calibration</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                        Ingest 3 Landmark vector blueprint sets. Ingest Landmark's approved regional supplier EPDs (Lafarge concrete, Owens Corning, West Fraser lumber).
-                      </div>
-                    </div>
-                    <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--accent-amber)', marginBottom: '4px' }}>Phase 2 (Weeks 3–4)</div>
-                      <div style={{ fontWeight: 600, fontSize: '12px' }}>Blind Accuracy Benchmark</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                        Compare eCarbon automated quantities against Landmark's historical estimator takeoffs. Deliver a 2-week discrepancy report targeting &le;5% variance on structural drivers.
-                      </div>
-                    </div>
-                    <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--accent-green)', marginBottom: '4px' }}>Phase 3 (Weeks 5–6)</div>
-                      <div style={{ fontWeight: 600, fontSize: '12px' }}>Estimator Workflow Beta</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                        Deploy eCarbon web portal to Landmark's estimating team. Enable 1-click Excel export and City of Edmonton Tier 1 embodied carbon permit submissions.
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '10px', padding: '14px' }}>
-                    <div style={{ fontWeight: 700, color: 'var(--accent-green)', marginBottom: '4px' }}>Exact Asks from Landmark Homes</div>
-                    <ul style={{ margin: '4px 0 0', paddingLeft: '20px', color: 'var(--text-dim)', fontSize: '12px' }}>
-                      <li>Three complete vector PDF blueprint packages from Landmark's active Edmonton catalog.</li>
-                      <li>Human reference takeoffs for those 3 designs to benchmark precision.</li>
-                      <li>Two hours per week with a Landmark Lead Estimator during Weeks 2 and 4.</li>
-                      <li>Landmark's preferred concrete mix designs and regional supplier pricing/EPD contacts.</li>
-                    </ul>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: Business Model */}
-              {pitchTab === 'business' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '13px', lineHeight: 1.6 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                    <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700 }}>Target Buyer</div>
-                      <div style={{ fontSize: '16px', fontWeight: 800, marginTop: '4px' }}>Production Homebuilders</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>100–800 starts/year building repeatedly on standardized catalog plans.</div>
-                    </div>
-
-                    <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700 }}>Pricing Structure</div>
-                      <div style={{ fontSize: '16px', fontWeight: 800, marginTop: '4px' }}>$1,500 / Plan Baseline</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>Or $25,000/yr Enterprise tier for unlimited catalog takeoffs and variant delta audits.</div>
-                    </div>
-
-                    <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700 }}>Unit Economics</div>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--accent-green)', marginTop: '4px' }}>98.5% Gross Margin</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>&lt;$0.25 compute cost per drawing set (local CPU geometry & PDF stream parsing; 0 GPU overhead).</div>
-                    </div>
-                  </div>
-
-                  <div style={{ backgroundColor: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                    <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-blue)', marginBottom: '8px' }}>Competitive Wedge vs Handoff-H1 and Consultants</h4>
-                    <p style={{ color: 'var(--text-dim)', margin: '0 0 10px' }}>
-                      Handoff-H1 focuses strictly on multi-trade construction cost takeoff with zero carbon layer, zero module discipline, and no bounding box traceability. Manual LCA consultants charge $8,000–$15,000 per assessment and deliver static PDFs weeks too late.
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', fontSize: '11px' }}>
-                      <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '8px' }}>
-                        <b>External Consultants:</b> 3–6 weeks turnaround, $10,000 cost, static PDF report, no live substitution testing.
-                      </div>
-                      <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '8px' }}>
-                        <b>Handoff-H1:</b> Cost takeoff only, black-box CV, no EN 15978 scope guard, no visual click-to-trace.
-                      </div>
-                      <div style={{ border: '1px solid var(--accent-green)', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: '6px', padding: '8px' }}>
-                        <b style={{ color: 'var(--accent-green)' }}>eCarbon:</b> &lt;15s takeoff, click-to-trace provenance, honest gap report, ranked &Delta;kg CO₂e swaps, &lt;$0.25 compute.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
+                <Substitutions swaps={swaps} takeoff={takeoff} />
+              </section>
             </div>
+          </>
+        )}
+      </main>
 
-            {/* Modal Footer */}
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-subtle)', textAlign: 'right' }}>
-              <button
-                onClick={() => setShowPitchModal(false)}
-                style={{ backgroundColor: 'var(--accent-blue)', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Close Presentation Hub
-              </button>
-            </div>
-          </div>
-        </div>
+      <TracePanel trace={trace} onClose={() => setTrace(null)} />
+
+      {uploading && (
+        <Upload
+          onClose={() => setUploading(false)}
+          onDone={async (id) => {
+            setUploading(false);
+            // Re-list so the new set appears in the selector, then open it.
+            try {
+              const list = await getJSON("/projects");
+              setProjects(Array.isArray(list) ? list : list.projects || []);
+            } catch {
+              /* the selector will catch up on the next load */
+            }
+            setProjectId(id);
+          }}
+        />
       )}
-
-
-
     </div>
   );
 }

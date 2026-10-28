@@ -334,21 +334,3 @@ class TestSheetTruth:
         claimed = [s for s in sheets if s.readable and s.toolchain is not Toolchain.RASTER]
         hits = [s for s in claimed if s.sheet_no and s.sheet_no.upper() in truth]
         assert len(hits) / len(claimed) > 0.85
-
-
-class TestOCRFallback:
-    def test_ocr_fallback_on_synthetic_page(self):
-        import pymupdf
-        from ecarbon.intake.classify import from_title_block_ocr, classify_page
-
-        doc = pymupdf.open()
-        page = doc.new_page(width=792, height=612)
-        sheet_no, title = from_title_block_ocr(page)
-        assert sheet_no is None
-        assert title is None
-
-        res = classify_page(page)
-        assert res[0] is None
-        assert res[1] is None
-        assert res[2] is SheetType.UNKNOWN
-

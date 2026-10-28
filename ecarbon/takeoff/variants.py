@@ -7,13 +7,11 @@ bill of quantities and embodied carbon differential.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from dataclasses import asdict, dataclass
 
 from ecarbon.carbon.calculate import calculate_carbon
 from ecarbon.carbon.store import FactorProvider, LocalSnapshotProvider
-from ecarbon.models import CarbonResult, Confidence, ElementClass, TakeoffLine, TakeoffResult, Unit
-from ecarbon.takeoff.builder import generate_takeoff
+from ecarbon.models import Confidence, ElementClass, TakeoffLine, TakeoffResult, Unit
 
 
 @dataclass
@@ -68,8 +66,8 @@ def compute_variant_delta(
     base_carbon = calculate_carbon(base_takeoff, prov)
     variant_carbon = calculate_carbon(variant_takeoff, prov)
 
-    base_lines_map: dict[str, TakeoffLine] = {l.id: l for l in base_takeoff.lines}
-    var_lines_map: dict[str, TakeoffLine] = {l.id: l for l in variant_takeoff.lines}
+    base_lines_map: dict[str, TakeoffLine] = {ln.id: ln for ln in base_takeoff.lines}
+    var_lines_map: dict[str, TakeoffLine] = {ln.id: ln for ln in variant_takeoff.lines}
 
     base_c_map: dict[str, float] = {
         cl.line_id: (cl.kg_co2e or 0.0) for cl in base_carbon.lines
@@ -197,13 +195,3 @@ def compute_variant_delta(
         summary=summary,
     )
 
-
-def compare_variant_pdfs(
-    base_pdf: str | Path,
-    variant_pdf: str | Path,
-    provider: FactorProvider | None = None,
-) -> VariantDeltaResult:
-    """Generate both takeoffs and produce variant delta in <30 seconds."""
-    base_to = generate_takeoff(base_pdf)
-    var_to = generate_takeoff(variant_pdf)
-    return compute_variant_delta(base_to, var_to, provider)

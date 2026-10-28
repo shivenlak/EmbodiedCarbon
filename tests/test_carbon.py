@@ -23,7 +23,6 @@ from ecarbon.models import (
     FactorRef,
     Provenance,
     TakeoffLine,
-    TakeoffResult,
     Unit,
 )
 
@@ -127,7 +126,7 @@ class TestCarbonCalculation:
 
         result = calculate_carbon(takeoff, provider=store)
         assert "ln-exotic-aerogel" in result.uncounted_lines
-        cline = next(l for l in result.lines if l.line_id == "ln-exotic-aerogel")
+        cline = next(c for c in result.lines if c.line_id == "ln-exotic-aerogel")
         assert cline.missing_reason is not None
         assert cline.kg_co2e is None
 
@@ -150,3 +149,191 @@ class TestCarbonCalculation:
         expected_intensity = round(result.total_kg_co2e / takeoff.project.gfa_m2, 2)
         assert result.intensity_kg_co2e_per_m2 == expected_intensity
         assert result.range_low_kg_co2e < result.total_kg_co2e < result.range_high_kg_co2e
+
+
+class TestTheSeedIsTheSourceOfTruth:
+    """The database is a cache of seed_factors.json, not a second opinion.
+
+    It used to seed only into an empty table, which pinned every database to
+    whatever the seed said the first time it was built. Two corrections --
+    GUL + 40% fly ash from 142 to 175 kgCO2e/m3, and the withdrawal of a
+    fabricated "GU 20 MPa" record -- sat in the JSON without ever reaching the
+    runtime. A tool whose claim is that every factor is a sourced record was
+    serving an invented one.
+    """
+
+    def _provider(self, tmp_path, factors, subs=()):
+        import json
+
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        seed = tmp_path / "seed.json"
+        seed.write_text(
+            json.dumps({"factors": factors, "substitutions": list(subs)})
+        )
+        return (
+            LocalSnapshotProvider(db_path=tmp_path / "f.sqlite3", seed_path=seed),
+            seed,
+        )
+
+    def _factor(self, fid, gwp):
+        return {
+            "factor_id": fid,
+            "name": f"test {fid}",
+            "source": "test",
+            "declared_unit": "m3",
+            "gwp_value": gwp,
+            "gwp_unit": "kgCO2e",
+            "modules": ["A1", "A2", "A3"],
+            "geography": "CA-AB",
+            "data_type": "industry_avg",
+        }
+
+    def test_a_corrected_value_reaches_an_existing_database(self, tmp_path):
+        import json
+
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider, seed = self._provider(tmp_path, [self._factor("x", 142.0)])
+        assert provider.get_factor("x").gwp_value == 142.0
+
+        seed.write_text(
+            json.dumps({"factors": [self._factor("x", 175.0)], "substitutions": []})
+        )
+        reopened = LocalSnapshotProvider(
+            db_path=tmp_path / "f.sqlite3", seed_path=seed
+        )
+        assert reopened.get_factor("x").gwp_value == 175.0
+
+    def test_a_withdrawn_factor_does_not_outlive_its_correction(self, tmp_path):
+        import json
+
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider, seed = self._provider(
+            tmp_path, [self._factor("real", 200.0), self._factor("invented", 220.0)]
+        )
+        assert provider.get_factor("invented") is not None
+
+        seed.write_text(
+            json.dumps({"factors": [self._factor("real", 200.0)], "substitutions": []})
+        )
+        reopened = LocalSnapshotProvider(
+            db_path=tmp_path / "f.sqlite3", seed_path=seed
+        )
+        assert reopened.get_factor("invented") is None
+        assert reopened.get_factor("real").gwp_value == 200.0
+
+    def test_an_unchanged_seed_is_not_reloaded_needlessly(self, tmp_path):
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        _, seed = self._provider(tmp_path, [self._factor("x", 1.0)])
+        again = LocalSnapshotProvider(db_path=tmp_path / "f.sqlite3", seed_path=seed)
+        assert again.get_factor("x").gwp_value == 1.0
+
+    def test_the_shipped_seed_has_no_fabricated_concrete_record(self):
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider = LocalSnapshotProvider()
+        assert provider.get_factor("koot-concrete-gu-20") is None
+        assert provider.get_factor("koot-concrete-gul40-25").gwp_value == 175.0
+
+    def test_every_substitution_names_factors_that_exist(self):
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        provider = LocalSnapshotProvider()
+        swaps = provider.list_substitutions()
+        assert len(swaps) >= 6
+        for swap in swaps:
+            src = provider.get_factor(swap["from_factor_id"])
+            dst = provider.get_factor(swap["to_factor_id"])
+            assert src is not None, f"{swap['swap_id']} has no source factor"
+            assert dst is not None, f"{swap['swap_id']} has no replacement"
+            # Only like-for-like module scopes can be compared, for the same
+            # reason they cannot be summed.
+            assert src.modules == dst.modules
+            assert src.source and dst.source
+
+
+class TestUnspecifiedChoices:
+    """A layer the drawings decline to specify is a decision, not a gap.
+
+    AB_Fourplex_01's W2 carries "NON-COMBUSTIBLE LIGHT-WEIGHT CLADDING PLACE
+    HOLDER" and its R2 carries "ROOFING PLACEHOLDER". A default mapping to
+    vinyl siding exists in the store, so the failure mode this guards is a
+    silent pick, not a crash.
+    """
+
+    @pytest.fixture(scope="class")
+    def choices(self):
+        pytest.importorskip("ifcopenshell")
+        try:
+            from ecarbon.config import discover, get_design
+        except Exception:
+            pytest.skip("$EC_DATA catalogue not present")
+        if len(discover()) < 52:
+            pytest.skip("$EC_DATA catalogue not present")
+
+        from ecarbon.bench.bpr import parse_bpr
+        from ecarbon.carbon.store import LocalSnapshotProvider
+        from ecarbon.carbon.unspecified import unspecified_choices
+        from ecarbon.extract.assemblies import assemblies_for
+        from ecarbon.models import ProjectFacts
+        from ecarbon.takeoff.builder import build_takeoff
+
+        design = get_design("AB_Fourplex_01")
+        bpr = parse_bpr(str(design.bpr[0]))
+        takeoff = build_takeoff(
+            design,
+            ProjectFacts(
+                name="AB_Fourplex_01",
+                gfa_m2=bpr.best_gfa_m2,
+                gfa_basis="gross",
+                storeys=bpr.storeys,
+                units=bpr.units,
+            ),
+        )
+        kept, _ = assemblies_for(design)
+        return unspecified_choices(takeoff, kept, LocalSnapshotProvider()), takeoff
+
+    def test_the_open_decisions_are_found(self, choices):
+        found, _ = choices
+        assert {c.category for c in found} == {"Cladding", "Roofing"}
+
+    def test_the_area_matches_the_rest_of_the_bill(self, choices):
+        """Quoting a range over a different surface than the takeoff used
+        would make the two sets of numbers quietly incomparable."""
+        found, takeoff = choices
+        cladding = next(c for c in found if c.category == "Cladding")
+        wall = takeoff.line("ln-exterior-wall")
+        assert cladding.area_m2 == pytest.approx(wall.quantity, rel=0.01)
+
+    def test_each_option_is_a_real_sourced_record(self, choices):
+        found, _ = choices
+        for choice in found:
+            assert len(choice.options) >= 2, "a range needs at least two options"
+            for option in choice.options:
+                assert option.factor.source
+                assert option.factor.modules == ["A1", "A2", "A3"]
+                assert option.kg_co2e > 0
+
+    def test_the_options_are_ordered_and_the_spread_is_real(self, choices):
+        found, _ = choices
+        for choice in found:
+            values = [o.kg_co2e for o in choice.options]
+            assert values == sorted(values)
+            assert choice.spread_kg_co2e > 0
+            assert choice.high_kg_co2e > choice.low_kg_co2e
+
+    def test_the_note_quotes_the_drawing_rather_than_choosing(self, choices):
+        found, _ = choices
+        for choice in found:
+            assert choice.drawing_says.upper() in choice.note.upper()
+            assert "until one is chosen" in choice.note
+
+    def test_nothing_unspecified_is_counted_in_the_total(self, choices):
+        """The point of the range is that the total does not include it."""
+        found, takeoff = choices
+        placeholders = {c.drawing_says.upper() for c in found}
+        for line in takeoff.lines:
+            assert (line.material or "").upper() not in placeholders

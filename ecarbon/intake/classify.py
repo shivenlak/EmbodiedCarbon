@@ -153,6 +153,12 @@ def sheet_type_of(title: str | None, discipline: Discipline = Discipline.UNKNOWN
             matched = kind
             break
 
+    if matched is SheetType.UNKNOWN:
+        # Word order varies between firms: BC titles its foundation plan
+        # "PLAN FOUNDATION / MAIN FLOOR" and QC uses "STRUCTURAL PLANS", so
+        # the phrase rules above miss both. Fall back to co-occurring words.
+        matched = _by_cooccurrence(up)
+
     # A mechanical/electrical sheet is only useful to us as MEP, except that a
     # cover or schedule sheet keeps its own type so coverage checks still work.
     if discipline in _MEP_OVERRIDE and matched not in {
@@ -166,6 +172,29 @@ def sheet_type_of(title: str | None, discipline: Discipline = Discipline.UNKNOWN
     if matched is SheetType.UNKNOWN and discipline in _MEP_OVERRIDE:
         return _MEP_OVERRIDE[discipline]
     return matched
+
+
+# (required words, type). Order matters: the most specific set first.
+_COOCCURRENCE_RULES: tuple[tuple[tuple[str, ...], SheetType], ...] = (
+    (("FOUNDATION", "PLAN"), SheetType.FOUNDATION_PLAN),
+    (("FOOTING", "PLAN"), SheetType.FOUNDATION_PLAN),
+    (("ROOF", "PLAN"), SheetType.ROOF_PLAN),
+    (("FRAMING", "PLAN"), SheetType.FRAMING_PLAN),
+    (("SITE", "PLAN"), SheetType.SITE_PLAN),
+    (("ASSEMBL", "SCHED"), SheetType.ASSEMBLY_SCHEDULE),
+    (("WINDOW", "SCHED"), SheetType.OPENING_SCHEDULE),
+    (("DOOR", "SCHED"), SheetType.OPENING_SCHEDULE),
+    (("FLOOR", "PLAN"), SheetType.FLOOR_PLAN),
+    (("STRUCTURAL", "PLAN"), SheetType.FRAMING_PLAN),
+)
+
+
+def _by_cooccurrence(up: str) -> SheetType:
+    """Type a title by which words appear in it, ignoring their order."""
+    for words, kind in _COOCCURRENCE_RULES:
+        if all(w in up for w in words):
+            return kind
+    return SheetType.UNKNOWN
 
 
 def _is_noise(text: str) -> bool:
@@ -228,43 +257,6 @@ def from_title_block(
     return sheet_no, title or None
 
 
-def from_title_block_ocr(page: pymupdf.Page) -> tuple[str | None, str | None]:
-    """Step 24: OCR fallback for textless or distiller-outlined blueprint sets.
-
-    When direct vector text extraction yields no sheet number, renders the page
-    and uses Tesseract OCR to recover sheet number and title from the title block.
-    """
-    try:
-        tp = page.get_textpage_ocr(language="eng", dpi=90, full=False)
-        text = tp.extractText()
-        if not text:
-            return None, None
-
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
-        cand_no = None
-        cand_title = None
-        for i, line in enumerate(lines):
-            tokens = line.split()
-            for tok in tokens:
-                clean_tok = tok.strip(".,;:()[]{}# ")
-                if SHEET_NO_RE.match(clean_tok.upper()):
-                    cand_no = clean_tok.upper()
-                    # Nearby line may be the title
-                    for offset in (-1, -2, 1, 2):
-                        idx = i + offset
-                        if 0 <= idx < len(lines):
-                            pot_title = lines[idx].strip()
-                            if not _is_noise(pot_title) and len(pot_title) > 3 and not SHEET_NO_RE.match(pot_title.upper()):
-                                cand_title = pot_title
-                                break
-                    break
-            if cand_no:
-                break
-        return cand_no, cand_title
-    except Exception:
-        return None, None
-
-
 def classify_page(
     page: pymupdf.Page,
     revit_sheet_no: str | None = None,
@@ -277,11 +269,6 @@ def classify_page(
     else:
         sheet_no, title = from_title_block(page, repair)
         src = BasisSource.VECTOR_PATH if sheet_no else None
-        # Step 24: If text is missing or unreadable, invoke OCR fallback rung
-        if not sheet_no and len(page.get_text("text").strip()) < 40:
-            ocr_no, ocr_title = from_title_block_ocr(page)
-            if ocr_no:
-                sheet_no, title, src = ocr_no, ocr_title, BasisSource.VECTOR_PATH
 
     disc = discipline_of(sheet_no)
     return sheet_no, title, sheet_type_of(title, disc), disc, src

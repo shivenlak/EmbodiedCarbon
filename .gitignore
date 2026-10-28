@@ -90,3 +90,7 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# Deployment build context: plan sets are copied here at deploy time and
+# baked into the image. Never committed — the repo is public.
+deploy/data/

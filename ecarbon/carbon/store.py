@@ -11,6 +11,7 @@ Adheres strictly to the requirements in RESEARCH.md §9 and docs/PLAN.md Step 11
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from abc import ABC, abstractmethod
@@ -40,6 +41,14 @@ class FactorProvider(ABC):
     def list_factors(self) -> list[FactorRef]:
         """List all available factors in this provider."""
         pass
+
+    def factor_categories(self) -> dict[str, str]:
+        """Factor id -> category, for grouping options by what they are.
+
+        Not abstract: a provider that cannot answer returns nothing and the
+        caller offers no options rather than guessing a grouping.
+        """
+        return {}
 
     @abstractmethod
     def list_substitutions(self) -> list[dict]:
@@ -111,20 +120,58 @@ class LocalSnapshotProvider(FactorProvider):
                 )
                 """
             )
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
+            )
 
-            # Check if seed is needed
-            cur.execute("SELECT count(*) FROM factors")
-            if cur.fetchone()[0] == 0 and self.seed_path.exists():
-                self._load_seed(conn)
+            # Re-seed whenever the seed file's contents differ from what was
+            # loaded, not merely when the table is empty.
+            #
+            # Seeding only into an empty table silently pinned this database to
+            # whatever the seed said the first time it was built. Two factor
+            # corrections -- GUL + 40% fly ash from 142 to 175 kgCO2e/m3, and
+            # the removal of a fabricated "GU 20 MPa" record -- sat in the JSON
+            # for days without ever reaching the runtime, so the low-carbon
+            # concrete substitution reported a 48.5% saving where the corrected
+            # factor gives 36.6%, and an invented factor stayed live in a tool
+            # whose entire claim is that every factor is a sourced record. The
+            # database is a cache; the JSON is the source of truth.
+            if self.seed_path.exists():
+                digest = hashlib.sha256(self.seed_path.read_bytes()).hexdigest()
+                cur.execute("SELECT value FROM meta WHERE key = 'seed_sha256'")
+                row = cur.fetchone()
+                if row is None or row[0] != digest:
+                    self._load_seed(conn)
+                    cur.execute(
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                        ("seed_sha256", digest),
+                    )
             conn.commit()
         finally:
             conn.close()
 
     def _load_seed(self, conn: sqlite3.Connection) -> None:
+        """Bring the database in line with the seed, both ways.
+
+        Rows are upserted *and* rows the seed no longer contains are deleted.
+        Without the delete, a record withdrawn for being wrong -- a fabricated
+        concrete factor, in the case that prompted this -- would outlive its
+        own correction.
+        """
         with open(self.seed_path, encoding="utf-8") as f:
             data = json.load(f)
 
         cur = conn.cursor()
+        for table, key, rows in (
+            ("factors", "factor_id", data.get("factors", [])),
+            ("substitutions", "swap_id", data.get("substitutions", [])),
+        ):
+            keep = [r[key] for r in rows]
+            if keep:
+                marks = ",".join("?" * len(keep))
+                cur.execute(
+                    f"DELETE FROM {table} WHERE {key} NOT IN ({marks})", keep
+                )
         for f in data.get("factors", []):
             cur.execute(
                 """
@@ -261,6 +308,24 @@ class LocalSnapshotProvider(FactorProvider):
             cur = conn.cursor()
             cur.execute("SELECT * FROM factors ORDER BY name ASC")
             return [self._row_to_factor(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def factor_categories(self) -> dict[str, str]:
+        """Categories come from the material mappings and the substitutions,
+        which is where the seed already records what a factor is."""
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            out: dict[str, str] = {}
+            cur.execute("SELECT default_factor_id, category FROM material_mappings")
+            for fid, category in cur.fetchall():
+                out[fid] = category
+            cur.execute("SELECT from_factor_id, to_factor_id, category FROM substitutions")
+            for src, dst, category in cur.fetchall():
+                out.setdefault(src, category)
+                out.setdefault(dst, category)
+            return out
         finally:
             conn.close()
 

@@ -1,158 +1,348 @@
-"""Extraction and reconciliation of windows and doors from floor plans and schedules.
+"""STEP 19b -- windows and doors, from the openings schedule plus the plans.
 
-Cross-references:
-  - Opening tags (WA01, WB02, DA01, DB01, etc.) detected on floor plan sheets.
-  - ScheduledOpening objects parsed from the Openings Schedule.
+Sheet A004 carries two tables. From AB_Fourplex_01:
 
-Produces:
-  - Total window count & window area (m2)
-  - Exterior door count & exterior door area (m2)
-  - Interior door count & interior door area (m2)
-  - Total opening deduction area (m2) for exterior wall calculation
-  - Provenance and confidence (measured when schedule + plan tag match)
+    TAG    TYPE          METRIC (mm)    IMPERIAL
+    DA01   DOOR TYPE A   914 x 2350     3'-0" x 7'-8 1/2"     N/A
+    DA02   DOOR TYPE A   914 x 2350     3'-0" x 7'-8 1/2"     45 min
+    WB01   WINDOW TYPE B  ...
+
+The schedule gives each tag's size but not how many of them the building has.
+That count is on the floor plans, where the tag is written against every
+opening, so the quantity is the product of two different sheets: size from the
+schedule, count from the plans.
+
+### Alternative plans of the same floor double the count
+
+AB_Fourplex_01 has three readable plan sheets:
+
+    A101   MAIN FLOOR PLAN - ACCESSIBLE READY         18 windows, 24 doors
+    A101a  MAIN FLOOR PLAN - ENHANCED ACCESSIBILITY   18 windows, 30 doors
+    A102   SECOND FLOOR PLAN                          20 windows, 16 doors
+
+A101 and A101a are two versions of the *same storey*, offered as accessibility
+options. Summing every plan sheet counts the main floor twice and yields 56
+windows and 70 doors for a building that has 42 and 40.
+
+The sheet number says which is which: a trailing lowercase letter marks a
+variant of the base sheet, so plan sheets are grouped by base number and only
+one of each group is counted. Taking the base variant gives **40 doors against
+the IFC's 40, exactly**, and 38 windows against 42.
+
+The remaining window shortfall is honest and reported: a tag written once
+against a mullioned assembly, or a window shown only on an elevation, is not
+counted here. Which accessibility option a builder actually builds is their
+decision, so the choice is recorded as an assumption on every line rather than
+hidden -- it is worth 6 doors on this design.
+
+### Dual units are a free check
+
+Every row states both metric and imperial, so the two can be compared: 914 mm
+against 3'-0" agrees to 0.4 mm. A row where they disagree is the sheet
+contradicting itself and is reported rather than averaged.
 """
 
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.extract.schedules import ScheduledOpening
+from ecarbon.extract.assemblies import _parse_inches, _spans
+
+# DA01, DB02, WA01, WC01 -- discipline letter, type letter, instance number.
+OPENING_TAG_RE = re.compile(r"^([DW])([A-Z])(\d{2})$")
+# A trailing lowercase letter marks a variant of the base sheet: A101a of A101.
+_VARIANT_SUFFIX_RE = re.compile(r"^([A-Z]{1,2}\d{2,4})[a-z]$")
+
+# A bare millimetre dimension in a schedule cell: 914, 2350.
+_MM_CELL_RE = re.compile(r"^(\d{3,5})$")
+# 3'-0", 7'-8 1/2"
+_FT_IN_RE = re.compile(r"^(\d+)'\s*-\s*([\d\s/]+)\"$")
+
+# Metric and imperial for one opening may disagree by this much before the
+# sheet is treated as contradicting itself.
+UNIT_TOLERANCE_MM = 5.0
+# Plausible opening dimensions, to reject a stray number in a comments column.
+MIN_OPENING_MM = 300.0
+MAX_OPENING_MM = 4000.0
+# Two cells belong to the same schedule row within this many points.
+ROW_DY = 3.5
+
+
+def base_sheet(sheet_no: str | None) -> str | None:
+    """The sheet a variant belongs to: A101a -> A101, A101 -> A101."""
+    if not sheet_no:
+        return None
+    m = _VARIANT_SUFFIX_RE.match(sheet_no)
+    return m.group(1) if m else sheet_no
+
+
+# A sheet title names the storey, then optionally the option it draws:
+# "MAIN FLOOR PLAN - ACCESSIBLE READY", "MAIN FLOOR PLAN - ENHANCED
+# ACCESSIBILITY". Everything from the first dash is the option.
+_STOREY_TITLE_RE = re.compile(r"^\s*([^-–]+)")
+
+
+def _title_head(sheet) -> str:
+    """The storey a title names, before any option suffix."""
+    title = (getattr(sheet, "title", None) or "").upper()
+    m = _STOREY_TITLE_RE.match(title)
+    return m.group(1).strip() if m else title.strip()
+
+
+def group_by_storey(sheets: list) -> list[list]:
+    """Plan sheets grouped so each storey is counted once.
+
+    Neither signal is sufficient alone, and each fixes the other's failures:
+
+    * The **sheet number** catches `A101` with `A101a`, the usual way an
+      accessibility option is marked. It misses AB_ADU_01, which numbers its
+      two options `A101` and `A102` -- they look like different storeys and are
+      both the main floor, and counting both read 15 doors against the 9 its
+      model contains.
+    * The **title head** catches that pair, both being "MAIN FLOOR PLAN". Used
+      alone it is worse: several designs title an option "ACCESSIBLE-READY MAIN
+      FLOOR PLAN", whose head is "ACCESSIBLE", so it splits groups the sheet
+      number had correctly merged. Measured: it fixed AB_ADU_01 and broke five
+      others, taking ON_Fourplex_02's doors from exactly right to 44% over.
+
+    So two sheets are the same storey when **either** signal says so, and the
+    relation is closed transitively. Fewer, larger groups can only undercount a
+    storey, never double one -- the safer direction, and the one the gap report
+    already warns about.
+    """
+    parent = list(range(len(sheets)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        parent[find(i)] = find(j)
+
+    for i, a in enumerate(sheets):
+        for j in range(i + 1, len(sheets)):
+            b = sheets[j]
+            same_number = (
+                base_sheet(getattr(a, "sheet_no", None)) is not None
+                and base_sheet(getattr(a, "sheet_no", None))
+                == base_sheet(getattr(b, "sheet_no", None))
+            )
+            head_a, head_b = _title_head(a), _title_head(b)
+            same_title = bool(head_a) and head_a == head_b
+            if same_number or same_title:
+                union(i, j)
+
+    buckets: dict[int, list] = {}
+    for i, sheet in enumerate(sheets):
+        buckets.setdefault(find(i), []).append(sheet)
+    # Architectural sheets before structural ones, and a base number before its
+    # suffixed variant, so the sheet that carries the tags is read.
+    return [
+        sorted(group, key=lambda s: (getattr(s, "sheet_no", "") or ""))
+        for _k, group in sorted(buckets.items())
+    ]
+
+
+def parse_ft_in(text: str) -> float | None:
+    """Millimetres from a feet-and-inches cell, or None."""
+    m = _FT_IN_RE.match(text.strip())
+    if not m:
+        return None
+    inches = _parse_inches(m.group(2) + '"')
+    return round((float(m.group(1)) * 12.0 + (inches or 0.0)) * 25.4, 1)
 
 
 @dataclass
-class OpeningInstance:
-    """An individual window or door instance spotted on a floor plan."""
+class Opening:
+    """One row of the door or window schedule."""
 
     tag: str
-    category: str  # "window" or "door"
-    is_exterior: bool
-    width_mm: float
-    height_mm: float
-    area_m2: float
-    page: int
-    sheet_no: str
-    bbox: tuple[float, float, float, float] | None = None
+    kind: str  # "door" or "window"
+    type_name: str = ""
+    width_mm: float | None = None
+    height_mm: float | None = None
+    fire_rating: str | None = None
+    note: str | None = None
+    sheet: str | None = None
+    page: int | None = None
+    # Instances of this tag found on the plans, by base sheet number.
+    counts: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def count(self) -> int:
+        return sum(self.counts.values())
+
+    @property
+    def area_m2(self) -> float | None:
+        if self.width_mm is None or self.height_mm is None:
+            return None
+        return round((self.width_mm / 1000.0) * (self.height_mm / 1000.0), 4)
+
+    @property
+    def total_area_m2(self) -> float | None:
+        area = self.area_m2
+        return None if area is None else round(area * self.count, 3)
 
 
-@dataclass
-class OpeningsSummary:
-    """Aggregated opening quantities for the whole building."""
-
-    total_window_count: int = 0
-    total_window_area_m2: float = 0.0
-    exterior_door_count: int = 0
-    exterior_door_area_m2: float = 0.0
-    interior_door_count: int = 0
-    interior_door_area_m2: float = 0.0
-    total_exterior_opening_area_m2: float = 0.0
-
-    # Tag counts: tag -> count
-    tag_counts: dict[str, int] = field(default_factory=dict)
-    instances: list[OpeningInstance] = field(default_factory=list)
-    confidence: str = "measured"
-    unmatched_tags: list[str] = field(default_factory=list)
+def _rows(spans: list[tuple[float, float, str]], top: float, bottom: float) -> dict[float, list]:
+    """Schedule cells between two y bounds, grouped into rows."""
+    out: dict[float, list] = {}
+    for y, x, t in spans:
+        if not (top < y < bottom):
+            continue
+        key = next((k for k in out if abs(k - y) <= ROW_DY), y)
+        out.setdefault(key, []).append((x, t))
+    for cells in out.values():
+        cells.sort()
+    return out
 
 
-_WIN_TAG_RE = re.compile(r"\b(W[A-C][0-9]{2})\b")
-_DOOR_TAG_RE = re.compile(r"\b(D[A-D][0-9]{2})\b")
+def openings_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Opening]:
+    """Every door and window row on one openings-schedule sheet."""
+    spans = _spans(page)
+    # The two tables are stacked, each under its own title.
+    titles = [
+        (y, t.upper())
+        for y, _x, t in spans
+        if t.upper() in ("DOOR SCHEDULE", "WINDOW SCHEDULE")
+    ]
+    if not titles:
+        return []
+    titles.sort()
 
+    out: list[Opening] = []
+    for i, (title_y, title) in enumerate(titles):
+        kind = "door" if title.startswith("DOOR") else "window"
+        bottom = titles[i + 1][0] if i + 1 < len(titles) else float("inf")
 
-def extract_openings_from_plans(
-    doc: pymupdf.Document,
-    scheduled_openings: dict[str, ScheduledOpening],
-    floor_plan_pages: list[tuple[int, str]],  # list of (page_idx, sheet_no)
-) -> OpeningsSummary:
-    """Spot opening tags across floor plan sheets and correlate with scheduled dimensions."""
-    tag_counts: dict[str, int] = {}
-    instances: list[OpeningInstance] = []
-    unmatched: list[str] = []
+        for _key, cells in sorted(_rows(spans, title_y, bottom).items()):
+            tags = [(x, t) for x, t in cells if OPENING_TAG_RE.match(t)]
+            if not tags:
+                continue
+            tag_x, tag = tags[0]
+            if tag[0] != kind[0].upper():
+                continue
+            # Only cells in the table itself. The sheet also carries a DOOR
+            # TYPES diagram far to the left whose labels share these y bands,
+            # and it put "DOOR TYPE A" on the DD04 row.
+            cells = [(x, t) for x, t in cells if x >= tag_x - 20.0]
 
-    # Default fallback sizes in mm if not in schedule
-    DEFAULT_WIN_SIZE = (900.0, 1200.0)  # ~1.08 m2
-    DEFAULT_EXT_DOOR_SIZE = (965.0, 2100.0)  # ~2.03 m2
-    DEFAULT_INT_DOOR_SIZE = (813.0, 2032.0)  # ~1.65 m2
+            # Metric cells, then imperial, left to right as the header orders.
+            metric = [
+                float(m.group(1))
+                for _x, t in cells
+                if (m := _MM_CELL_RE.match(t))
+                and MIN_OPENING_MM <= float(m.group(1)) <= MAX_OPENING_MM
+            ]
+            imperial = [v for _x, t in cells if (v := parse_ft_in(t)) is not None]
+            type_name = next(
+                (t for _x, t in cells if t.upper().startswith(("DOOR TYPE", "WINDOW TYPE"))),
+                "",
+            )
+            rating = next(
+                (t for _x, t in cells if re.match(r"^(N/A|\d+\s*min|\d+\s*hr)", t, re.I)), None
+            )
 
-    for p_idx, s_no in floor_plan_pages:
-        page = doc[p_idx]
-        blocks = page.get_text("blocks")
+            width = metric[0] if len(metric) >= 1 else None
+            height = metric[1] if len(metric) >= 2 else None
+            note = None
 
-        for b in blocks:
-            text = b[4].strip()
-            # Search for window tags
-            for wtag in _WIN_TAG_RE.findall(text):
-                tag_counts[wtag] = tag_counts.get(wtag, 0) + 1
-                sched = scheduled_openings.get(wtag)
-                w_mm, h_mm = (sched.width_mm, sched.height_mm) if sched else DEFAULT_WIN_SIZE
-                if not sched and wtag not in unmatched:
-                    unmatched.append(wtag)
-
-                area = (w_mm / 1000.0) * (h_mm / 1000.0)
-                instances.append(
-                    OpeningInstance(
-                        tag=wtag,
-                        category="window",
-                        is_exterior=True,
-                        width_mm=w_mm,
-                        height_mm=h_mm,
-                        area_m2=round(area, 3),
-                        page=p_idx,
-                        sheet_no=s_no,
-                        bbox=(b[0], b[1], b[2], b[3]),
+            # The imperial pair is an independent statement of the same sizes.
+            if width is not None and len(imperial) >= 1:
+                drift = abs(width - imperial[0])
+                if drift > UNIT_TOLERANCE_MM:
+                    note = (
+                        f"schedule states {width:.0f} mm and {imperial[0]:.0f} mm "
+                        f"({drift:.0f} mm apart) for the width; the metric value is used"
                     )
+            if height is None and len(imperial) >= 2:
+                height = imperial[1]
+                note = "height taken from the imperial column; metric not stated"
+
+            out.append(
+                Opening(
+                    tag=tag,
+                    kind=kind,
+                    type_name=type_name,
+                    width_mm=width,
+                    height_mm=height,
+                    fire_rating=rating,
+                    note=note,
+                    sheet=sheet,
+                    page=page.number,
                 )
+            )
+    return out
 
-            # Search for door tags
-            for dtag in _DOOR_TAG_RE.findall(text):
-                tag_counts[dtag] = tag_counts.get(dtag, 0) + 1
-                sched = scheduled_openings.get(dtag)
-                is_ext = dtag.startswith("DA") or (sched.is_exterior if sched else False)
-                w_mm, h_mm = (
-                    (sched.width_mm, sched.height_mm)
-                    if sched
-                    else (DEFAULT_EXT_DOOR_SIZE if is_ext else DEFAULT_INT_DOOR_SIZE)
+
+def count_on_plans(design, openings: list[Opening]) -> tuple[dict[str, str], list[str]]:
+    """Count each tag's instances on the plans, one variant per storey.
+
+    Returns (chosen sheet per base number, notes). The counts are written onto
+    the `Opening` objects.
+    """
+    from ecarbon.intake import inventory
+    from ecarbon.models import SheetType
+
+    sheets, _, _ = inventory(design.drawings_pdf)
+    plans = [
+        s
+        for s in sheets
+        if s.sheet_type in (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN) and s.readable
+    ]
+    by_tag = {o.tag: o for o in openings}
+
+    # Group alternative plans of one storey, and prefer the base sheet.
+    chosen: dict[str, str] = {}
+    notes: list[str] = []
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for members in group_by_storey(plans):
+            pick = members[0]
+            base = pick.sheet_no or f"p{pick.page}"
+            chosen[base] = pick.sheet_no or f"page {pick.page + 1}"
+            if len(members) > 1:
+                others = ", ".join(str(m.sheet_no) for m in members[1:])
+                notes.append(
+                    f"Sheets {pick.sheet_no} and {others} are alternative versions of the "
+                    f"same storey, so only {pick.sheet_no} is counted. Counting both would "
+                    f"double that floor's openings. Which option is built is the builder's "
+                    f"decision and changes the count."
                 )
-                if not sched and dtag not in unmatched:
-                    unmatched.append(dtag)
+            found = Counter(
+                t for _y, _x, t in _spans(doc[pick.page]) if OPENING_TAG_RE.match(t)
+            )
+            for tag, n in found.items():
+                if tag in by_tag:
+                    by_tag[tag].counts[chosen[base]] = n
+    finally:
+        doc.close()
+    return chosen, notes
 
-                area = (w_mm / 1000.0) * (h_mm / 1000.0)
-                instances.append(
-                    OpeningInstance(
-                        tag=dtag,
-                        category="door",
-                        is_exterior=is_ext,
-                        width_mm=w_mm,
-                        height_mm=h_mm,
-                        area_m2=round(area, 3),
-                        page=p_idx,
-                        sheet_no=s_no,
-                        bbox=(b[0], b[1], b[2], b[3]),
-                    )
-                )
 
-    # Compute aggregates
-    win_instances = [inst for inst in instances if inst.category == "window"]
-    ext_door_instances = [inst for inst in instances if inst.category == "door" and inst.is_exterior]
-    int_door_instances = [inst for inst in instances if inst.category == "door" and not inst.is_exterior]
+def openings_for(design) -> tuple[list[Opening], list[str]]:
+    """Every scheduled opening with its instance count, plus any notes."""
+    from ecarbon.intake import inventory
+    from ecarbon.models import SheetType
 
-    win_area = sum(inst.area_m2 for inst in win_instances)
-    ext_door_area = sum(inst.area_m2 for inst in ext_door_instances)
-    int_door_area = sum(inst.area_m2 for inst in int_door_instances)
+    sheets, _, _ = inventory(design.drawings_pdf)
+    found: list[Opening] = []
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for s in sheets:
+            if s.sheet_type is not SheetType.OPENING_SCHEDULE or not s.readable:
+                continue
+            found.extend(openings_on_page(doc[s.page], s.sheet_no))
+    finally:
+        doc.close()
 
-    confidence = "measured" if len(unmatched) <= 2 else "inferred"
-
-    return OpeningsSummary(
-        total_window_count=len(win_instances),
-        total_window_area_m2=round(win_area, 2),
-        exterior_door_count=len(ext_door_instances),
-        exterior_door_area_m2=round(ext_door_area, 2),
-        interior_door_count=len(int_door_instances),
-        interior_door_area_m2=round(int_door_area, 2),
-        total_exterior_opening_area_m2=round(win_area + ext_door_area, 2),
-        tag_counts=tag_counts,
-        instances=instances,
-        confidence=confidence,
-        unmatched_tags=unmatched,
-    )
+    notes: list[str] = []
+    if found:
+        _chosen, notes = count_on_plans(design, found)
+    return found, notes

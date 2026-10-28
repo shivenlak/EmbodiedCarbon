@@ -1,6 +1,5 @@
 """Unit tests for Step 21: Uncertainty ranges and sensitivity ranking."""
 
-import pytest
 
 from ecarbon.carbon.calculate import calculate_carbon
 from ecarbon.carbon.store import LocalSnapshotProvider

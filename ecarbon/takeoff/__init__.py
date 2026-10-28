@@ -1,5 +1,1 @@
-"""Takeoff generation package."""
-
-from ecarbon.takeoff.builder import generate_takeoff
-
-__all__ = ["generate_takeoff"]
+"""Stage 2 -- bill of quantities assembly and confidence labelling."""
