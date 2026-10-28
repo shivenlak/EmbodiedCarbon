@@ -1070,3 +1070,33 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 }
 .heat-row span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .heat-row b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11.5px; font-weight: 500; }
+
+/* The legend carries intensity and total together: colour is the way in, the
+   figures are the evidence. */
+.heat-row b { display: flex; align-items: baseline; gap: 7px; }
+.heat-row b em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--faint);
+  font-weight: 400;
+}
+.heat-row.is-undrawn span,
+.heat-row.is-undrawn b { color: var(--faint); }
+
+/* Drag to turn the building. grab/grabbing is the whole affordance, plus a
+   hint that fades once the view has been moved. */
+.massing-view { position: relative; }
+.massing-svg { cursor: grab; touch-action: none; }
+.massing-svg.is-dragging { cursor: grabbing; }
+
+.massing-hint {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  pointer-events: none;
+}

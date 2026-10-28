@@ -1045,18 +1045,30 @@ function SignIn({ onDone }) {
 // shape -- on AB_ADU_02, where partitions over-detect by 92%, you can see
 // walls standing where no walls are.
 
-// A sequential heat ramp. The legend carries the actual kgCO2e beside every
-// swatch, so colour is never the only channel a reader has -- which matters
-// here because the difference between 12,305 and 11,078 is not a difference
-// anybody should be asked to judge by hue.
-const HEAT = ["#dbeafe", "#93c5fd", "#fcd34d", "#fb923c", "#dc2626"];
+// A sequential ramp, cool to warm. The legend carries the figures beside
+// every swatch, so colour is a way in rather than the evidence.
+//
+// It is driven by carbon per square metre of surface, not by totals. Totals
+// made almost the whole drawing red: exterior wall, partitions and slab come
+// to 12,305, 11,078 and 10,909 kgCO2e -- within 13% of each other -- and they
+// happen to be the three most visible surfaces, so a ramp scaled to the
+// largest painted everything at the top of it. Intensity is also the more
+// honest thing to show spatially: it says this surface is carbon-dense, not
+// that there is a lot of this surface.
+// Blue through yellow to red, with no green in it. Green at the midpoint
+// reads as "fine", and nothing here is making that judgement -- the ramp
+// says denser or lighter, not better or worse.
+const HEAT = ["#bfdbfe", "#7dd3fc", "#fde047", "#fbbf24", "#f97316", "#dc2626"];
 
-function heatColour(value, max) {
+function heatColour(value, max, min = 0) {
   if (!max || value == null) return "#e2e8f0";
-  const t = Math.max(0, Math.min(1, value / max));
-  const span = (HEAT.length - 1) * t;
-  const i = Math.min(HEAT.length - 2, Math.floor(span));
-  const f = span - i;
+  // Scaled across the observed range rather than from zero, so the coolest
+  // surface is visibly cool instead of merely less red than the rest.
+  const span = max - min || max;
+  const t = Math.max(0, Math.min(1, (value - min) / span));
+  const step = (HEAT.length - 1) * t;
+  const i = Math.min(HEAT.length - 2, Math.floor(step));
+  const f = step - i;
   const lerp = (a, b) => Math.round(a + (b - a) * f);
   const hex = (c) => [1, 3, 5].map((k) => parseInt(c.slice(k, k + 2), 16));
   const [r1, g1, b1] = hex(HEAT[i]);
@@ -1075,11 +1087,29 @@ const CLASS_LABEL = {
   window: "Windows",
 };
 
-const ISO_X = Math.cos(Math.PI / 6);
-const ISO_Y = Math.sin(Math.PI / 6);
+// A general axonometric rather than a fixed isometric, so the view can turn.
+// Azimuth spins about the vertical axis; elevation is how far above the
+// building the viewer sits. Both are plain angles, which keeps the depth sort
+// below honest -- it uses the same rotated coordinate the projection does,
+// rather than a constant that only held at 45 degrees.
+const ELEVATION = Math.sin(Math.PI / 6);
 
-function project(x, y, z, s) {
-  return [(x - y) * ISO_X * s, ((x + y) * ISO_Y - z) * s];
+function rotate(x, y, azimuth) {
+  const c = Math.cos(azimuth);
+  const sn = Math.sin(azimuth);
+  return [x * c - y * sn, x * sn + y * c];
+}
+
+function project(x, y, z, s, azimuth = Math.PI / 4) {
+  const [rx, ry] = rotate(x, y, azimuth);
+  return [rx * s, (ry * ELEVATION - z) * s];
+}
+
+// How far into the scene a point sits, for the painter's algorithm. Larger is
+// nearer the viewer, so faces sort ascending and the near ones land last.
+function depthOf(x, y, z, azimuth) {
+  const [, ry] = rotate(x, y, azimuth);
+  return ry + z * 0.001;
 }
 
 function face(points, fill, stroke, key, opacity = 1) {
@@ -1098,6 +1128,16 @@ function face(points, fill, stroke, key, opacity = 1) {
 
 function Massing({ massing }) {
   const [storey, setStorey] = useState(null); // null = every storey
+  // Dragging turns the building. Held in a ref as well as state so the
+  // pointer handlers do not need to be rebound on every frame of a drag.
+  // `?turn=<degrees>` sets the opening angle, so a demo can link to a
+  // viewpoint and so the rotation can be reviewed in a screenshot at all.
+  const [azimuth, setAzimuth] = useState(() => {
+    const turn = new URLSearchParams(window.location.search).get("turn");
+    const deg = turn == null ? null : Number(turn);
+    return Number.isFinite(deg) ? (deg * Math.PI) / 180 : Math.PI / 4;
+  });
+  const drag = useRef(null);
   const [mode, setMode] = useState(
     // `?view=carbon` opens on the heat map, so the demo can link to it and so
     // it can be reviewed in a screenshot at all.
@@ -1121,13 +1161,10 @@ function Massing({ massing }) {
   const s = 15;
   const WALL_H = 0.82;
   const heat = mode === "carbon";
-  const maxCarbon = Math.max(1, ...Object.values(carbon));
-  // In carbon mode a surface takes the colour of the element class it is; in
-  // structure mode it takes the colour that makes the building readable.
-  const tone = (cls, fallback) =>
-    heat ? heatColour(carbon[cls], maxCarbon) : fallback;
 
-  const shapes = [];
+  // Storey datums first: the surface areas below are computed from the
+  // building's height, and a const read above its declaration is a temporal
+  // dead zone error that blanks the entire page rather than warning.
   let z = 0;
   const datums = [0];
   for (const h of heights) {
@@ -1135,11 +1172,62 @@ function Massing({ massing }) {
     datums.push(z);
   }
   const total = z;
-  const p3 = (X, Y, Z) => project(X, Y, Z, s);
+
+  // Carbon per square metre of the surface we actually draw for each class.
+  // Totals answer "how much of this is there"; intensity answers "how heavy
+  // is this surface", which is the question a picture of a building can
+  // usefully show.
+  const wallFace = walls.reduce(
+    (sum, w) =>
+      sum + 2 * Math.max(w.w, w.d) * (heights[w.storey] ?? 3) * WALL_H,
+    0,
+  );
+  const floorArea = W * D;
+  const area = {
+    slab_on_grade: floorArea,
+    exterior_wall: 2 * (W + D) * total,
+    interior_partition: wallFace,
+    roof_assembly: floorArea,
+    floor_assembly: floorArea * Math.max(1, heights.length - 1),
+  };
+  const intensity = {};
+  for (const [cls, kg] of Object.entries(carbon)) {
+    if (area[cls]) intensity[cls] = kg / area[cls];
+  }
+  const values = Object.values(intensity);
+  const hotI = values.length ? Math.max(...values) : 1;
+  const coolI = values.length ? Math.min(...values) : 0;
+
+  // In carbon mode a surface takes the colour of its intensity; in structure
+  // mode the colour that makes the building readable.
+  const tone = (cls, fallback) =>
+    heat && intensity[cls] != null
+      ? heatColour(intensity[cls], hotI, coolI)
+      : heat
+        ? "#e2e8f0"
+        : fallback;
+
+  const shapes = [];
+  const p3 = (X, Y, Z) => project(X, Y, Z, s, azimuth);
+
+  const onPointerDown = (e) => {
+    drag.current = { x: e.clientX, from: azimuth };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e) => {
+    if (!drag.current) return;
+    // A full turn across roughly the width of the view, so a short drag is a
+    // small adjustment rather than a spin.
+    setAzimuth(drag.current.from + (e.clientX - drag.current.x) * 0.012);
+  };
+  const endDrag = (e) => {
+    drag.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
 
   // Ground slab.
   shapes.push({
-    depth: -2,
+    depth: -1e6,
     el: face(
       [p3(0, 0, 0), p3(W, 0, 0), p3(W, D, 0), p3(0, D, 0)],
       tone("slab_on_grade", "#e2e8f0"),
@@ -1152,7 +1240,7 @@ function Massing({ massing }) {
   // inside stay visible. Drawing all four would make a closed box, which is
   // a worse drawing and hides every quantity that matters.
   shapes.push({
-    depth: -1.5,
+    depth: -1e5,
     el: (
       <g key="envelope">
         {face(
@@ -1183,7 +1271,7 @@ function Massing({ massing }) {
     const side = tone("interior_partition", "#6f98ea");
     const cap = tone("interior_partition", "#c3d6fb");
     shapes.push({
-      depth: x + y + base,
+      depth: depthOf(x + ww / 2, y + dd / 2, base, azimuth),
       el: (
         <g key={`w${i}`}>
           {face(
@@ -1217,11 +1305,11 @@ function Massing({ massing }) {
     const isRoof = i === datums.length - 2;
     if (isRoof && storey == null) return;
     shapes.push({
-      depth: W + D + d - 0.01,
+      depth: 1e6 + d,
       el: face(
         [p3(0, 0, d), p3(W, 0, d), p3(W, D, d), p3(0, D, d)],
         heat
-          ? heatColour(carbon[isRoof ? "roof_assembly" : "floor_assembly"], maxCarbon)
+          ? tone(isRoof ? "roof_assembly" : "floor_assembly", null)
           : "rgba(148,163,184,0.30)",
         "#64748b",
         `slab${i + 1}`,
@@ -1246,13 +1334,23 @@ function Massing({ massing }) {
     Math.max(...ys) - Math.min(...ys) + pad * 2,
   ];
 
-  const ranked = Object.entries(carbon).sort((a, b) => b[1] - a[1]);
+  // Ranked by intensity where we have it, because that is what the drawing
+  // is coloured by; classes with no drawn surface follow, greyed.
+  const ranked = Object.entries(carbon)
+    .map(([cls, kg]) => [cls, kg, intensity[cls] ?? null])
+    .sort((a, b) => (b[2] ?? -1) - (a[2] ?? -1));
 
   return (
     <div className="massing">
       <div className="massing-view">
+        <span className="massing-hint">drag to turn</span>
         <svg
+          className={`massing-svg${drag.current ? " is-dragging" : ""}`}
           viewBox={vb.join(" ")}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
           role="img"
           aria-label={`Axonometric of the measured building: ${W} by ${D} metres, ${heights.length} storeys, ${walls.length} measured partition walls`}
         >
@@ -1279,19 +1377,38 @@ function Massing({ massing }) {
         {heat ? (
           <>
             <p className="massing-note">
-              Each surface takes the colour of what its element class carries.
-              The figures are beside the swatches, because the difference
-              between the top two is not one anybody should judge by hue.
+              Coloured by carbon per square metre of surface, not by total —
+              totals would paint almost all of it red, because the three
+              largest are within 13% of each other and happen to be the three
+              biggest surfaces.
             </p>
             <div className="heat-key">
-              {ranked.map(([cls, value]) => (
-                <div className="heat-row" key={cls}>
-                  <i style={{ background: heatColour(value, maxCarbon) }} />
+              {ranked.map(([cls, kg, dens]) => (
+                <div
+                  className={`heat-row${dens == null ? " is-undrawn" : ""}`}
+                  key={cls}
+                >
+                  <i
+                    style={{
+                      background:
+                        dens == null
+                          ? "#e2e8f0"
+                          : heatColour(dens, hotI, coolI),
+                    }}
+                  />
                   <span>{CLASS_LABEL[cls] || titleCase(cls)}</span>
-                  <b>{int(value)}</b>
+                  <b>
+                    {dens == null ? "—" : dec(dens, 1)}
+                    <em>{int(kg)}</em>
+                  </b>
                 </div>
               ))}
             </div>
+            <p className="massing-caveat">
+              kgCO₂e per m² of surface, with the element's total beside it.
+              Doors and windows carry no surface in this drawing, so they are
+              listed without a colour rather than coloured arbitrarily.
+            </p>
           </>
         ) : (
           <p className="massing-note">{note}</p>
