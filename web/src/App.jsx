@@ -150,10 +150,12 @@ const dec = (n, p = 1) => (n == null ? "—" : Number(n).toFixed(p));
 // silently marked every line uncounted -- which read as "0 of 20 counted" and
 // quietly suppressed the without-partitions total.
 const isCounted = (line) => line.kg_co2e != null;
-const titleCase = (s) =>
-  String(s || "")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+// Sentence case, to match every other label: "Slab on grade", not "Slab On
+// Grade".
+const titleCase = (s) => {
+  const t = String(s || "").replace(/_/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
 
 // Which plan set to open on. `?plan=` wins so a demo or a bug report can
 // deep-link an exact design; otherwise prefer a multi-storey set over an ADU,
@@ -495,7 +497,7 @@ function Contribution({ carbon, focus, onFocus, filter, onFilter }) {
           </svg>
           <div className="donut-centre">
             <b>{active ? `${dec(active.pct_of_total, 1)}%` : int(total)}</b>
-            <span>{active ? active.key : "kg CO₂e counted"}</span>
+            <span>{active ? active.key : "kgCO₂e counted"}</span>
           </div>
         </div>
       </div>
@@ -576,7 +578,7 @@ function Notices({ gaps }) {
                   {" · "}
                   {(gap.code || "").replace(/_/g, " ")}
                 </div>
-                <div className="notice-body">{gap.message}</div>
+                <NoticeBody text={gap.message} />
               </div>
             ))}
             {hidden > 0 && (
@@ -591,6 +593,24 @@ function Notices({ gaps }) {
           </Fragment>
         );
       })}
+    </div>
+  );
+}
+
+// A few notices run to a paragraph. They fold to three lines with the rest one
+// press away: folded, not dropped.
+const NOTICE_FOLD = 320;
+function NoticeBody({ text }) {
+  const [open, setOpen] = useState(false);
+  const long = String(text || "").length > NOTICE_FOLD;
+  return (
+    <div className="notice-body">
+      <div className={long && !open ? "is-folded" : undefined}>{text}</div>
+      {long && (
+        <button className="notice-toggle" onClick={() => setOpen((o) => !o)}>
+          {open ? "Show less" : "Show the full note"}
+        </button>
+      )}
     </div>
   );
 }
@@ -639,7 +659,7 @@ function BillOfQuantities({
             <th className="r">Quantity</th>
             <th>Basis</th>
             <th>Source</th>
-            <th className="r">kg CO₂e</th>
+            <th className="r">kgCO₂e</th>
           </tr>
         </thead>
         <tbody>
@@ -717,7 +737,7 @@ function BillOfQuantities({
                         className="qty-btn"
                         title={
                           edited
-                            ? `Your figure. We read ${dec(line.quantity, 2)} ${line.unit}.`
+                            ? `Your figure. We read ${dec(line.quantity, 2)} ${UNIT_LABEL[line.unit] || line.unit}.`
                             : "Correct this quantity"
                         }
                         onClick={() => {
@@ -731,7 +751,7 @@ function BillOfQuantities({
                             number the reader typed. */}
                         {dec(edited ? line.user_override : line.quantity, 2)}
                       </button>
-                      <span className="qty-unit">{line.unit}</span>
+                      <span className="qty-unit">{UNIT_LABEL[line.unit] || line.unit}</span>
                       {edited && (
                         <span className="qty-was">
                           we read {dec(line.quantity, 2)}
@@ -2238,7 +2258,7 @@ export default function App() {
           reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
         />
 
-      <main className={`page page-${page}`}>
+      <main className={`page page-${page}`} key={page}>
         {status === "loading" || !takeoff ? (
           <div className="model-layout">
             <div className="stage skeleton" />
