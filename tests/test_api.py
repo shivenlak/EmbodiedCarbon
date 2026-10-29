@@ -233,3 +233,16 @@ class TestSidecarsAreNotPlanSets:
 
         keys = [d.key for d in discover(tmp_path)]
         assert keys == ["AB_Thing_Technical_Design_Package"]
+
+
+def test_the_fixture_is_not_listed_beside_real_plan_sets(client, monkeypatch):
+    """Named after AB_Fourplex_01, the fixture read as a second copy of it at
+    a third of the real total. With real data present it is hidden from the
+    list, and still answers directly for anything that asks for it by id."""
+    import ecarbon.api.main as api
+
+    monkeypatch.setattr(api, "_catalogue", lambda: {"AB_Fourplex_01": object()})
+    monkeypatch.setattr(api, "_PROJECTS", {api.DEMO_ID: api._PROJECTS[api.DEMO_ID]})
+    ids = [row["id"] for row in client.get("/projects").json()]
+    assert api.DEMO_ID not in ids
+    assert client.get(f"/projects/{api.DEMO_ID}/carbon").status_code == 200
