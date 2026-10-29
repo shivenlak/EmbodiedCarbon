@@ -340,6 +340,12 @@ def list_projects() -> list[dict[str, object]]:
             }
         )
     for pid, p in _PROJECTS.items():
+        # The fixture is a four-line stand-in named after AB_Fourplex_01. Beside
+        # the real design it read as a second AB_Fourplex_01 at a third of the
+        # real total, so it is listed only when there is no real data to show.
+        # /projects/demo still answers either way; the API tests depend on it.
+        if pid == DEMO_ID and _catalogue():
+            continue
         if pid not in _catalogue():
             out.append(
                 {

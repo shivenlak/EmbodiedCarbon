@@ -45,7 +45,7 @@ see that number, and `docs/FOR_JUDGES.md` explains the difference.
 2. `fly deploy --remote-only --ha=false`, then `deploy/warm.sh`. **The warm
    is not optional** — it builds the massing and every trace, and without it
    the demo's key press takes 16 seconds instead of 0.2.
-3. Have a plan set on the desktop that is **not** one of the five bundled.
+3. Have a plan set on the desktop that is **not** one of the two bundled.
    `AB_Rowhouse_01` is the best choice if you have it: it exercises the
    floor-area correction live, where the stated 74 m² is replaced by the
    286 m² the drawings depict. Otherwise `AB_Rowhouse_02_Drawings.pdf`
@@ -194,12 +194,14 @@ Open `/docs` briefly, then show **Download takeoff**.
 
 ## 4:25 — Show range: a second plan set
 
-Switch the selector to **QC Sixplex** or **BC Fourplex 01**.
+Switch the selector to **AB Sixplex**.
 
-> "Different province, different firm, different drafting conventions. Quebec
-> reaches seventy-four percent of the building, British Columbia sixty-seven —
-> and where coverage is partial the interface says so before you read the
-> total."
+> "A second building: three storeys, six units, a hundred percent of its
+> elements read, and its own bill traced to its own sheets."
+
+Only Alberta sets are preloaded. Do not say it reads every plan set fully:
+the catalogue median is 52%, and FOR_JUDGES.md says so. If asked, Alberta is
+the region we built against and the one Landmark builds in.
 
 Then press **Upload a plan set** and drag in a set that is **not** bundled.
 
