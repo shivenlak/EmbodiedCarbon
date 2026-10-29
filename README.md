@@ -7,8 +7,10 @@ Built for the Edmonton Unlimited **Built World Tech — Venture Pilots 2026**
 challenge *"Automated Embodied Carbon Accounting for Residential Builders"*
 (sponsor: Landmark Homes).
 
+**Live: https://ecarbon.fly.dev** — no sign-in, nothing to enter.
+
 - **[docs/HANDOFF.md](docs/HANDOFF.md)** — picking this up? Start here. The constraints, the state, and what is deliberately unfinished.
-- **[docs/FOR_JUDGES.md](docs/FOR_JUDGES.md)** — the live service, credentials, what to click, and where the numbers are weak. Start here if you are reviewing this.
+- **[docs/FOR_JUDGES.md](docs/FOR_JUDGES.md)** — the live service, what to click, and where the numbers are weak. Start here if you are reviewing this.
 - **[docs/benchmark.md](docs/benchmark.md)** — every accuracy figure, with the worst cases and the regressions.
 - **[RESEARCH.md](RESEARCH.md)** — what the data actually contains. Read this first; every number in it was measured.
 - **[docs/PLAN.md](docs/PLAN.md)** — the build plan, quality bars per rubric criterion, checkpoints and cut lines.
@@ -53,7 +55,7 @@ ecarbon/
   bench/        ground truth (IFC / HOT2000 / Building Performance Reports) + scoring
   api/          FastAPI
 web/            React (Vite)
-scripts/        env_check.py, fetch_data.py, inventory_all.py, run_bench.py
+scripts/        env_check.py, fetch_data.py, run_pipeline.py, audit_discards.py, score_*.py
 ```
 
 ## The one interface that matters

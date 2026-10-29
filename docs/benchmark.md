@@ -391,6 +391,21 @@ segment length from the second attempt had deleted them, because that group
 holds 297 segments under 250 mm — partition faces break at every door, jamb and
 intersection.
 
+**A correction, 28 October: run length was right, area was not.** The run
+above is summed over every storey's plan, and it was then multiplied by the
+building's summed wall height, so each partition stood as tall as the whole
+building and was counted once per storey. The run-length benchmark could not
+see it, because it scores length. Against the IFC models' P-tagged wall area:
+
+| Design | Storeys | Before | IFC | After |
+|---|---|---|---|---|
+| AB_Rowhouse_02 | 2 | 1,203 m² | 576 m² | 602 m² (+4.5%) |
+| AB_Sixplex | 3 | 2,029 m² | 738 m² | 676 m² (−8.4%) |
+
+Partitions now stand one storey tall. AB_Fourplex_01 moves from 48,613 to
+43,075 kgCO₂e; its total without partitions is unchanged at 37,536.
+`tests/test_partitions.py::test_partitions_stand_one_storey_tall` pins it.
+
 **Known weakness, unresolved.** AB_Fourplex_01's `W1` exterior wall is 235 mm
 and its `P3` demising wall is also 235 mm, so depth alone cannot separate an
 exterior run from a partition. A perimeter-exclusion filter was written and
