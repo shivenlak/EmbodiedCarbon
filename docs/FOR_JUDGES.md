@@ -3,6 +3,17 @@
 **Live:** https://ecarbon.fly.dev — **no sign-in, nothing to enter.** Open the
 link and it works.
 
+> **A correction, found 28 October.** Interior partition *area* was being
+> multiplied by the height of the whole building rather than of one storey, so
+> every partition was counted once per storey. The IFC models caught it:
+> AB_Rowhouse_02 read 1,203 m² of partition against the model's 576 (now 602),
+> AB_Sixplex 2,029 against 738 (now 676). Every figure on this page is the
+> corrected one. AB_Fourplex_01 moves from 48,613 to **43,075 kgCO₂e**, and the
+> figure without partitions stays at exactly **37,536**, which is how we know
+> nothing else moved. If the live site still shows 48,613, it is serving the
+> build from before the fix, which differs only in the partition lines.
+> ([the fix and its evidence](https://github.com/shivenlak/EmbodiedCarbon/pull/3))
+
 A vector PDF plan set goes in. A traceable bill of quantities and an A1–A3
 embodied carbon figure come out, with every quantity linked back to the sheet
 it was read from.
@@ -126,8 +137,8 @@ exists — the steel screw piles — the line appears, uncounted, with the reaso
 
 **6. The massing, in carbon.** Press **Carbon** on "What we understood from
 the drawings" to colour every surface by what its element class carries. The
-figures sit beside the swatches, because the top three classes are 12,305,
-11,078 and 10,909 kgCO₂e and no one should be asked to separate those by hue.
+figures sit beside the swatches, because the top two classes are 12,305 and
+10,909 kgCO₂e and no one should be asked to separate those by hue.
 
 ---
 
@@ -135,5 +146,5 @@ figures sit beside the swatches, because the top three classes are 12,305,
 
 The plan sets bundled here are from the public
 [CMHC Housing Design Catalogue](https://www.cmhc-schl.gc.ca/housing-design-catalogue).
-They are licence-restricted, which is why this service is behind credentials
-and why the drawings are not in the public repository.
+They are licence-restricted, which is why the drawings are not in the public
+repository.

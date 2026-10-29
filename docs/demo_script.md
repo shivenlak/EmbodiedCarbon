@@ -22,6 +22,22 @@ Their other three asks, each answered by a beat below:
 takeoff tool that is the addressable data and the export, not a database
 screen.
 
+**Say the figures the live site shows.** Open
+https://ecarbon.fly.dev/?plan=AB_Fourplex_01 before the take and read the
+headline. The partition fix of 28 October changes five numbers in this script
+and nothing else; the beats below quote the corrected column.
+
+| Beat | Headline reads **43,075** (fix deployed) | Headline reads **48,613** (not yet deployed) |
+|---|---|---|
+| 2:35 total | 43,075 kgCO₂e | 48,613 kgCO₂e |
+| 2:35 without partitions | 37,536 | 37,536 |
+| intensity, if quoted | 140.8 kg/m² | 158.9 kg/m² |
+| 3:45 cellulose, wall + roof + floor | 14.6 percent | 12.9 percent |
+| 3:45 40% fly-ash mix, slab + footing | 8.0 percent | 7.1 percent |
+
+If it reads 48,613, do not mention the correction on camera: the judges will
+see that number, and `docs/FOR_JUDGES.md` explains the difference.
+
 **Before recording:**
 
 1. The Fly card must be on the account, or the machine stops five minutes
@@ -30,9 +46,13 @@ screen.
    is not optional** — it builds the massing and every trace, and without it
    the demo's key press takes 16 seconds instead of 0.2.
 3. Have a plan set on the desktop that is **not** one of the five bundled.
-   `AB_Rowhouse_01` is the right choice: it exercises the floor-area
-   correction live, where the stated 74 m² is replaced by the 286 m² the
-   drawings depict.
+   `AB_Rowhouse_01` is the best choice if you have it: it exercises the
+   floor-area correction live, where the stated 74 m² is replaced by the
+   286 m² the drawings depict. Otherwise `AB_Rowhouse_02_Drawings.pdf`
+   (10 MB, Alberta, so full coverage): rehearsed locally on 28 October, it
+   returns 20 lines and 22 notices in 13 s on a laptop. Upload it once
+   before the take — anything uploaded stays in every visitor's plan list
+   until the machine restarts, so one rehearsal upload is enough.
 
 Takeoffs are prebuilt into the image, so a bundled design answers in about
 half a second. The massing view is built on first request and cached, which
@@ -225,10 +245,9 @@ do not hold a static screen for ninety seconds of a five-minute video.
 
 The organisers asked for these explicitly:
 
-- **Open the link in a private window** and sign in as the judge. The app
-  holds credentials per tab, and a private window is the check that nothing
-  depends on your own session.
-- **The judge login is dedicated** — `judge`, not a personal account.
+- **Open the link in a private window.** There is no sign-in; the private
+  window is the check that nothing depends on your own session or cache.
+- **Platform credentials:** none. Say so in the form's credentials field.
 - **Keep it live.** Without a card on the Fly account the machine stops five
   minutes after each deploy, which fails "keep your solution live and
   accessible" on its own.
