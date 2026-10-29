@@ -45,7 +45,7 @@ see that number, and `docs/FOR_JUDGES.md` explains the difference.
 2. `fly deploy --remote-only --ha=false`, then `deploy/warm.sh`. **The warm
    is not optional** — it builds the massing and every trace, and without it
    the demo's key press takes 16 seconds instead of 0.2.
-3. Have a plan set on the desktop that is **not** one of the two bundled.
+3. Have a plan set on the desktop that is **not** one of the three bundled.
    `AB_Rowhouse_01` is the best choice if you have it: it exercises the
    floor-area correction live, where the stated 74 m² is replaced by the
    286 m² the drawings depict. Otherwise `AB_Rowhouse_02_Drawings.pdf`
