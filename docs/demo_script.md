@@ -82,7 +82,13 @@ the heaviest criterion on the sheet.
 
 ## 0:15 — Quantity extraction, which is what this round scores
 
-Go straight to the bill of quantities.
+The site opens on the 3D model. Drag to turn it once, slowly.
+
+> "This is the takeoff, drawn: the footprint we measured, the storeys at the
+> datums we read from the sections, and seventy-three partition walls counted
+> off the plans."
+
+Point at **Measured from the drawings** beside the model.
 
 > "Twenty lines off a forty-six page set. Slab, footings, exterior wall,
 > windows, doors, every assembly layer, interior partitions. Each one carries
@@ -97,13 +103,13 @@ Point at the basis chips.
 
 ## 0:50 — Traceability: press a sheet tag
 
-Click `S201` on the slab line.
+Press **Slab on grade · S201** in the panel beside the model.
 
 > "Every quantity traces to its sheet and detail. It opens zoomed to what was
 > read, because a thirty-six by twenty-four inch sheet scaled into a window is
 > a grey haze."
 
-Then click an **interior partition** line, and switch A101 / A102.
+Then press **Interior partitions · 73 walls**, and switch A101 / A102.
 
 > "A different claim, labelled differently. These outlines *are* the
 > measurement — one rectangle per wall counted, on each storey. Seventy-three
@@ -122,6 +128,8 @@ This is the strongest frame in the product. Do not rush it.
 
 ## 2:05 — What the tool does not know
 
+Press **Data gaps** in the sidebar.
+
 > "Nineteen notices, and they come before the number. The drawings say
 > 'cladding placeholder' — CMHC deliberately leaves it unspecified, so we do
 > not pick one. This design numbers its two accessibility options A101 and
@@ -130,7 +138,7 @@ This is the strongest frame in the product. Do not rush it.
 > are deciding whether to trust the least certain line you should know it was
 > hard to get."
 
-Scroll to **Decisions still open**.
+Press **Options** in the sidebar.
 
 > "Cladding and roofing carry no carbon at all. We price the range — 1,980 to
 > 3,774 — and hand the decision back rather than defaulting one and saying
@@ -147,28 +155,33 @@ Scroll to **Decisions still open**.
 > Summing across module scopes is the mistake this challenge tests for, so the
 > engine raises rather than adding them."
 
-## 3:00 — What we understood from the drawings
+## 3:00 — The model, in carbon
 
-> "The takeoff, drawn. The box is the footprint we measured. The floors sit at
-> the datums we read from the sections. These seventy-three walls are the
-> partitions we counted, where we counted them. So if we read it wrong you can
-> see that we read it wrong — on one of the ADUs our partitions over-count by
+Back to **3D model**, press **Carbon intensity**.
+
+> "Every surface coloured by what it carries per square metre. And because the
+> model is drawn from what we read, if we read it wrong you can see that we
+> read it wrong — on one of the ADUs our partitions over-count by
 > ninety-two percent, and you would see walls with no room between them."
 
 Toggle Storey 1 / Storey 2.
 
 ## 3:20 — Every sheet, and an edit
 
+On **Data gaps**, below the notices:
+
 > "Forty-six sheets, all opened and classified. Four carry a quantity. One had
 > no readable text and is drawn hatched rather than left out."
 
-Then edit a wall quantity.
+Then on **Bill of quantities**, edit a wall quantity.
 
 > "An estimator disagrees, types their figure, carbon recomputes in nine
 > milliseconds — and we keep ours beside it, struck through, so the correction
 > is visible rather than silent."
 
 ## 3:45 — Interactive configuration
+
+On **Options**:
 
 > "Substitutions ranked by what they actually save against these quantities.
 > Cellulose for mineral wool, across the wall, roof and floor together, 14.6
@@ -186,7 +199,8 @@ reviewer checks our work from, not a database screen.
 > carbon result, the trace with its bounding boxes, the overrides — same
 > credentials, same origin."
 
-Open `/docs` briefly, then show **Download takeoff**.
+Open `/docs` briefly, then show **Download CSV** and **Export report** (the
+whole takeoff as one printable report).
 
 > "The CSV carries every line with its sheet, detail, basis and confidence, so
 > a reviewer can check our work in their own spreadsheet. The interface is a

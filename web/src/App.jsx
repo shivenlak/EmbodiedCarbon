@@ -266,79 +266,168 @@ function TitleBlock({ takeoff, carbon, coverage }) {
   );
 }
 
-function Hero({ carbon, takeoff, coverage }) {
+const UNIT_LABEL = { m3: "m³", m2: "m²", m: "m", each: "each", kg: "kg" };
+
+// The quantities a reader can see in the model, in the order they would point
+// at them. Each one is the bill's own line, so pressing it opens the sheet it
+// was read from -- the model and the bill are one record, not two.
+const MODEL_LINES = [
+  "ln-slab-on-grade",
+  "ln-grade-beam",
+  "ln-exterior-wall",
+  "ln-windows",
+  "ln-doors",
+];
+
+// Everything the model view says beside the drawing: the figure, how sure it
+// is, what was measured to make it, and where the carbon sits.
+function ModelPanel({ carbon, takeoff, coverage, massing, onTrace, onPage }) {
   const shownTotal = useCountUp(carbon?.total_kg_co2e);
-  const counted = (carbon?.lines || []).filter(isCounted).length;
-  const measured = (takeoff?.lines || []).filter(
-    (l) => l.confidence === "measured",
-  ).length;
+  const lines = takeoff?.lines || [];
+  const carbonLines = carbon?.lines || [];
+  const kgOf = new Map(carbonLines.map((l) => [l.line_id, l.kg_co2e]));
 
   // Carbon carried by the interior-partition lines. Their run length is
   // measured off the drawing rather than stated by a schedule, so the total
   // is shown both ways instead of asking the reader to take one on trust.
-  const partitions = (carbon?.lines || [])
+  const partitions = carbonLines
     .filter((l) => isCounted(l) && String(l.line_id).startsWith(PARTITION_PREFIX))
     .reduce((sum, l) => sum + (l.kg_co2e || 0), 0);
 
+  const shown = [
+    ...MODEL_LINES.map((id) => lines.find((l) => l.id === id)),
+    lines.find((l) => l.id.startsWith(PARTITION_PREFIX)),
+  ].filter(Boolean);
+
+  // Carbon by element, from the bill, so the bars agree with it exactly.
+  const byClass = new Map();
+  for (const line of lines) {
+    const kg = kgOf.get(line.id);
+    if (kg) byClass.set(line.element_class, (byClass.get(line.element_class) || 0) + kg);
+  }
+  const classes = [...byClass.entries()].sort((a, b) => b[1] - a[1]);
+  const top = classes[0]?.[1] || 1;
+  const areaNote = floorAreaNote(takeoff?.gaps);
+  const p = takeoff?.project || {};
+
   return (
-    <section className="card hero">
-      <div className="hero-top">
-        <div>
-          <div className="figure">
-            {carbon?.total_kg_co2e == null ? "—" : int(shownTotal)}
-            <span className="figure-unit">kg CO₂e</span>
-          </div>
-          <div className="chips">
-            <span className="chip chip-scope">
-              {carbon?.modules?.length
-                ? `modules ${carbon.modules.join("–")} · product stage only`
-                : "module scope unknown"}
+    <aside className="model-panel">
+      <section className="mp-block">
+        <div className="mp-label">Embodied carbon, A1–A3</div>
+        <div className="mp-figure">
+          {carbon?.total_kg_co2e == null ? "—" : int(shownTotal)}
+          <span>kgCO₂e</span>
+        </div>
+        <div className="chips">
+          <span className="chip chip-scope">
+            {carbon?.modules?.length
+              ? `${carbon.modules.join("–")} · product stage only`
+              : "module scope unknown"}
+          </span>
+          {coverage != null && coverage < 1 && (
+            <span className="chip chip-danger">
+              partial · {Math.round(coverage * 100)}% of the building
             </span>
-            {coverage != null && coverage < 1 && (
-              <span className="chip chip-danger">
-                partial · {Math.round(coverage * 100)}% of the building
-              </span>
-            )}
+          )}
+        </div>
+        {partitions > 0 && (
+          <p className="mp-alt">
+            <b>{int(carbon.total_kg_co2e - partitions)}</b> without the inferred
+            interior partitions, the least certain quantity here. Both are given.
+          </p>
+        )}
+        <div className="mp-stats">
+          <div>
+            <span>Intensity</span>
+            <b>{dec(carbon?.intensity_kg_co2e_per_m2, 1)}</b>
+            <em>kg/m² {carbon?.intensity_basis || ""}</em>
+          </div>
+          <div>
+            <span>Floor area</span>
+            <b>{p.gfa_m2 ? dec(p.gfa_m2, 0) : "—"}</b>
+            <em>m² {p.gfa_basis || ""}</em>
+          </div>
+          <div>
+            <span>Coverage</span>
+            <b>{coverage == null ? "—" : `${Math.round(coverage * 100)}%`}</b>
+            <em>of the building</em>
           </div>
         </div>
-      </div>
+        {areaNote && <p className="mp-flag">Floor area {areaNote}.</p>}
+      </section>
 
-      {partitions > 0 && (
-        <div className="alt-total">
-          <span className="alt-total-figure">
-            {int(carbon.total_kg_co2e - partitions)}
-          </span>
-          <span className="alt-total-note">
-            without the inferred interior partitions, measured from the plan
-            linework rather than read from a schedule. Both are given because
-            that run is the least certain quantity here.
-          </span>
+      <section className="mp-block">
+        <div className="mp-head">
+          <h2>Measured from the drawings</h2>
+          <span>press for the source sheet</span>
         </div>
-      )}
+        <ul className="mp-lines">
+          {shown.map((line) => {
+            // A partition line is one layer of the build-up (16 mm of board),
+            // so its volume would misdescribe the partitions. What the model
+            // shows is the walls counted, so that is what is stated.
+            const isPartition = line.id.startsWith(PARTITION_PREFIX);
+            const walls = massing?.walls?.length;
+            const qty = isPartition && walls ? walls : line.user_override ?? line.quantity;
+            const unit = isPartition && walls ? "walls" : UNIT_LABEL[line.unit] || line.unit;
+            return (
+              <li key={line.id}>
+                <button onClick={() => onTrace(line.id, line.provenance)}>
+                  <span className="mp-line-name">
+                    {CLASS_LABEL[line.element_class] || titleCase(line.element_class)}
+                    <Confidence value={line.confidence} />
+                  </span>
+                  <span className="mp-line-qty">
+                    {dec(qty, line.unit === "each" || unit === "walls" ? 0 : 1)}
+                    <em>{unit}</em>
+                  </span>
+                  <span className="mp-line-src">
+                    {line.provenance?.sheet_no || "—"}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        <button className="mp-link" onClick={() => onPage("quantities")}>
+          All {lines.length} lines in the bill of quantities
+        </button>
+      </section>
 
-      <div className="kpis">
-        <div className="kpi" style={{ "--i": 0 }}>
-          <div className="kpi-label">Intensity</div>
-          <div className="kpi-value">{dec(carbon?.intensity_kg_co2e_per_m2, 1)}</div>
-          <div className="kpi-sub">kg/m² {carbon?.intensity_basis || ""}</div>
+      <section className="mp-block">
+        <div className="mp-head">
+          <h2>Where the carbon is</h2>
+          <span>kgCO₂e by element</span>
         </div>
-        <div className="kpi" style={{ "--i": 1 }}>
-          <div className="kpi-label">Counted</div>
-          <div className="kpi-value">{counted}</div>
-          <div className="kpi-sub">of {takeoff?.lines?.length ?? 0} lines</div>
+        <div className="mp-bars">
+          {classes.map(([cls, kg], i) => (
+            <div className="mp-bar" key={cls} style={{ "--i": i }}>
+              <span>{CLASS_LABEL[cls] || titleCase(cls)}</span>
+              <i>
+                <s style={{ width: `${(kg / top) * 100}%` }} />
+              </i>
+              <b>{int(kg)}</b>
+            </div>
+          ))}
         </div>
-        <div className="kpi" style={{ "--i": 2 }}>
-          <div className="kpi-label">Measured</div>
-          <div className="kpi-value">{measured}</div>
-          <div className="kpi-sub">from geometry</div>
-        </div>
-        <div className="kpi" style={{ "--i": 3 }}>
-          <div className="kpi-label">Notices</div>
-          <div className="kpi-value">{takeoff?.gaps?.length ?? 0}</div>
-          <div className="kpi-sub">things we could not read</div>
-        </div>
-      </div>
-    </section>
+      </section>
+
+      <section className="mp-block mp-gaps">
+        <button className="mp-gaps-btn" onClick={() => onPage("gaps")}>
+          <b>{takeoff?.gaps?.length ?? 0}</b>
+          <span>
+            things the drawings did not state, reported rather than guessed
+          </span>
+        </button>
+      </section>
+
+      <p className="mp-caveat">
+        A massing of what was read, not an architectural model: the measured
+        footprint, the storey datums from the sections, and the partitions where
+        they were counted. If the footprint were misread the box would be the
+        wrong shape, so a wrong reading is visible rather than buried.
+      </p>
+    </aside>
   );
 }
 
@@ -1340,26 +1429,25 @@ function Massing({ massing }) {
     .map(([cls, kg]) => [cls, kg, intensity[cls] ?? null])
     .sort((a, b) => (b[2] ?? -1) - (a[2] ?? -1));
 
+  // The model is the page: the drawing fills the stage and its controls sit
+  // on it, so nothing about reading it requires scrolling away from it.
   return (
-    <div className="massing">
-      <div className="massing-view">
-        <span className="massing-hint">drag to turn</span>
-        <svg
-          className={`massing-svg${drag.current ? " is-dragging" : ""}`}
-          viewBox={vb.join(" ")}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          role="img"
-          aria-label={`Axonometric of the measured building: ${W} by ${D} metres, ${heights.length} storeys, ${walls.length} measured partition walls`}
-        >
-          {shapes.map((sh) => sh.el)}
-        </svg>
-      </div>
+    <div className="stage">
+      <svg
+        className={`massing-svg${drag.current ? " is-dragging" : ""}`}
+        viewBox={vb.join(" ")}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        role="img"
+        aria-label={`Axonometric of the measured building: ${W} by ${D} metres, ${heights.length} storeys, ${walls.length} measured partition walls`}
+      >
+        {shapes.map((sh) => sh.el)}
+      </svg>
 
-      <div className="massing-side">
-        <div className="massing-modes">
+      <div className="stage-top">
+        <div className="segmented" role="group" aria-label="Colour the model by">
           <button
             className={mode === "structure" ? "is-on" : ""}
             onClick={() => setMode("structure")}
@@ -1370,76 +1458,53 @@ function Massing({ massing }) {
             className={mode === "carbon" ? "is-on" : ""}
             onClick={() => setMode("carbon")}
           >
-            Carbon
+            Carbon intensity
           </button>
         </div>
+        <span className="stage-hint">Drag to turn</span>
+      </div>
 
-        {heat ? (
-          <>
-            <p className="massing-note">
-              Coloured by carbon per square metre of surface, not by total —
-              totals would paint almost all of it red, because the three
-              largest are within 13% of each other and happen to be the three
-              biggest surfaces.
-            </p>
-            <div className="heat-key">
-              {ranked.map(([cls, kg, dens]) => (
-                <div
-                  className={`heat-row${dens == null ? " is-undrawn" : ""}`}
-                  key={cls}
-                >
-                  <i
-                    style={{
-                      background:
-                        dens == null
-                          ? "#e2e8f0"
-                          : heatColour(dens, hotI, coolI),
-                    }}
-                  />
-                  <span>{CLASS_LABEL[cls] || titleCase(cls)}</span>
-                  <b>
-                    {dens == null ? "—" : dec(dens, 1)}
-                    <em>{int(kg)}</em>
-                  </b>
-                </div>
-              ))}
-            </div>
-            <p className="massing-caveat">
-              kgCO₂e per m² of surface, with the element's total beside it.
-              Doors and windows carry no surface in this drawing, so they are
-              listed without a colour rather than coloured arbitrarily.
-            </p>
-          </>
-        ) : (
-          <p className="massing-note">{note}</p>
-        )}
-
-        <div className="massing-storeys">
+      <div className="stage-bottom">
+        <div className="segmented" role="group" aria-label="Storeys shown">
           <button
             className={storey == null ? "is-on" : ""}
             onClick={() => setStorey(null)}
           >
-            Every storey
+            All storeys
           </button>
           {heights.map((h, i) => (
             <button
               key={i}
               className={storey === i ? "is-on" : ""}
               onClick={() => setStorey(i)}
+              title={`${walls.filter((w) => w.storey === i).length} partition walls measured`}
             >
               Storey {i + 1}
-              <span>{walls.filter((w) => w.storey === i).length} walls</span>
             </button>
           ))}
         </div>
 
-        <p className="massing-caveat">
-          A massing of what was read, not an architectural model. The near two
-          walls are cut away so the partitions inside stay visible. If the
-          footprint were misread the box would be the wrong shape, and where
-          partitions over-detect you would see walls with no room between them.
-        </p>
+        {heat && (
+          <div className="stage-legend">
+            <div className="stage-legend-head">kgCO₂e per m² of surface</div>
+            {ranked
+              .filter(([, , dens]) => dens != null)
+              .map(([cls, , dens]) => (
+                <div className="heat-row" key={cls}>
+                  <i style={{ background: heatColour(dens, hotI, coolI) }} />
+                  <span>{CLASS_LABEL[cls] || titleCase(cls)}</span>
+                  <b>{dec(dens, 1)}</b>
+                </div>
+              ))}
+          </div>
+        )}
       </div>
+
+      <p className="stage-caption">
+        {heat
+          ? "Coloured by carbon per square metre of surface, not by total. Doors and windows have no surface here, so they carry no colour."
+          : note}
+      </p>
     </div>
   );
 }
@@ -1776,6 +1841,18 @@ function Topbar({ projects, projectId, onPick, exportHref, reportHref, onUpload 
 
 const REPO = "https://github.com/shivenlak/EmbodiedCarbon/blob/main";
 
+const PAGES = ["model", "quantities", "gaps", "options"];
+const PAGE_TITLE = {
+  model: "3D model",
+  quantities: "Bill of quantities",
+  gaps: "Data gaps",
+  options: "Options",
+};
+const pageFromHash = () => {
+  const id = window.location.hash.replace(/^#\/?/, "");
+  return PAGES.includes(id) ? id : "model";
+};
+
 const projectLabel = (p) =>
   String(p?.name || p?.id || p?.project_id || "")
     .replace(/_/g, " ")
@@ -1794,30 +1871,10 @@ function Mark({ size = 26 }) {
   );
 }
 
-// Navigation over the one page rather than across pages: every section is
-// still on screen for a reader who scrolls, and a judge who wants the bill
-// gets there in one press. The active link follows the scroll.
-function Sidebar({ projects, projectId, onPick, sections, watchKey }) {
-  const [active, setActive] = useState(sections[0]?.id ?? null);
-
-  useEffect(() => {
-    const nodes = sections
-      .map((s) => document.getElementById(s.id))
-      .filter(Boolean);
-    if (!nodes.length || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]) setActive(visible[0].target.id);
-      },
-      { rootMargin: "-15% 0px -70% 0px" },
-    );
-    nodes.forEach((n) => observer.observe(n));
-    return () => observer.disconnect();
-  }, [sections, watchKey]);
-
+// Four short pages rather than one long one: the model is what a reader came
+// to see, and the bill, the gaps and the options each get a page of their own
+// instead of stacking into a report. The full report is one export away.
+function Sidebar({ projects, projectId, onPick, pages, page, onPage }) {
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -1848,13 +1905,17 @@ function Sidebar({ projects, projectId, onPick, sections, watchKey }) {
         </div>
       )}
 
-      <nav className="side-nav" aria-label="Sections">
-        {sections.map((s) => (
+      <nav className="side-nav" aria-label="Pages">
+        {pages.map((s) => (
           <a
             key={s.id}
-            href={`#${s.id}`}
-            className={active === s.id ? "is-active" : undefined}
-            onClick={() => setActive(s.id)}
+            href={`#/${s.id}`}
+            className={page === s.id ? "is-active" : undefined}
+            aria-current={page === s.id ? "page" : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              onPage(s.id);
+            }}
           >
             <span>{s.label}</span>
             {s.count != null && <b>{s.count}</b>}
@@ -1878,7 +1939,7 @@ function Sidebar({ projects, projectId, onPick, sections, watchKey }) {
   );
 }
 
-function PageHeader({ takeoff, onUpload, exportHref, reportHref }) {
+function PageHeader({ takeoff, page, onUpload, exportHref, reportHref }) {
   const p = takeoff?.project || {};
   const facts = [
     p.jurisdiction,
@@ -1893,7 +1954,9 @@ function PageHeader({ takeoff, onUpload, exportHref, reportHref }) {
         <div className="crumbs">
           <span>Projects</span>
           <span aria-hidden="true">/</span>
-          <span className="crumb-here">{projectLabel(p) || "—"}</span>
+          <span>{projectLabel(p) || "—"}</span>
+          <span aria-hidden="true">/</span>
+          <span className="crumb-here">{PAGE_TITLE[page]}</span>
         </div>
         {facts.length > 0 && <div className="page-facts">{facts.join(" · ")}</div>}
       </div>
@@ -1901,10 +1964,10 @@ function PageHeader({ takeoff, onUpload, exportHref, reportHref }) {
         {exportHref && (
           <>
             <a className="btn" href={exportHref}>
-              Download takeoff
+              Download CSV
             </a>
             <a className="btn" href={reportHref} target="_blank" rel="noreferrer">
-              Open report
+              Export report
             </a>
           </>
         )}
@@ -2089,24 +2152,30 @@ export default function App() {
     return parseInt(gap.message.match(/covers roughly (\d+)%/)[1], 10) / 100;
   }, [takeoff]);
 
-  // The sidebar's links, in page order, for the sections this design has.
-  const sections = useMemo(() => {
-    if (!takeoff) return [];
-    return [
-      { id: "overview", label: "Overview" },
-      massing && { id: "model", label: "3D model" },
-      { id: "sheets", label: "Sheets", count: takeoff.sheets?.length ?? 0 },
-      { id: "gaps", label: "What we could not read", count: takeoff.gaps?.length ?? 0 },
-      carbon?.by_material_category?.length && { id: "carbon", label: "Carbon breakdown" },
-      { id: "bill", label: "Bill of quantities", count: takeoff.lines?.length ?? 0 },
-      decisions.length > 0 && {
-        id: "decisions",
-        label: "Decisions still open",
-        count: decisions.length,
-      },
-      { id: "substitutions", label: "Substitutions", count: swaps.length },
-    ].filter(Boolean);
-  }, [takeoff, carbon, decisions, swaps, massing]);
+  // Which page is open lives in the hash (#/model, #/quantities...), so the
+  // back button works and a page can be linked. Query parameters (?plan=,
+  // ?trace=, ?upload=) are untouched, so every existing deep link still lands.
+  const [page, setPageState] = useState(() => pageFromHash());
+  useEffect(() => {
+    const onHash = () => setPageState(pageFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const setPage = useCallback((next) => {
+    if (window.location.hash !== `#/${next}`) window.location.hash = `/${next}`;
+    setPageState(next);
+    window.scrollTo({ top: 0 });
+  }, []);
+
+  const pages = useMemo(
+    () => [
+      { id: "model", label: "3D model" },
+      { id: "quantities", label: "Bill of quantities", count: takeoff?.lines?.length },
+      { id: "gaps", label: "Data gaps", count: takeoff?.gaps?.length },
+      { id: "options", label: "Options", count: decisions.length + swaps.length || null },
+    ],
+    [takeoff, decisions, swaps],
+  );
 
   if (status === "locked") {
     return (
@@ -2149,88 +2218,59 @@ export default function App() {
       <Sidebar
         projects={projects}
         projectId={projectId}
-        onPick={setProjectId}
-        sections={sections}
-        watchKey={`${projectId}:${status}`}
+        onPick={(id) => {
+          setProjectId(id);
+          setPage("model");
+        }}
+        pages={pages}
+        page={page}
+        onPage={setPage}
       />
 
       <div className="shell-main">
         <PageHeader
           takeoff={status === "loading" ? null : takeoff}
+          page={page}
           onUpload={() => setUploading(true)}
           exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
           reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
         />
 
-      <main className="page">
+      <main className={`page page-${page}`}>
         {status === "loading" || !takeoff ? (
-          <>
-            <div className="card skeleton" style={{ height: 240 }} />
-            <div className="card skeleton" style={{ height: 180 }} />
-            <div className="card skeleton" style={{ height: 420 }} />
-          </>
-        ) : (
-          <>
-            <div className="hero-grid" id="overview">
-              <Hero carbon={carbon} takeoff={takeoff} coverage={coverage} />
-              <TitleBlock takeoff={takeoff} carbon={carbon} coverage={coverage} />
-            </div>
-
-            {massing && (
-              <section className="card" id="model">
-                <div className="card-head">
-                  <h2>What we understood from the drawings</h2>
-                  <span className="card-note">
-                    measured footprint, section datums and counted partitions
-                  </span>
+          <div className="model-layout">
+            <div className="stage skeleton" />
+            <div className="card skeleton" style={{ minHeight: 420 }} />
+          </div>
+        ) : page === "model" ? (
+          <div className="model-layout">
+            {massing ? (
+              <Massing massing={massing} />
+            ) : (
+              <div className="stage stage-empty">
+                <div>
+                  <h2>No model for this plan set</h2>
+                  <p>
+                    A model needs a measured footprint and at least two storey
+                    datums from the sections, and this set did not state both.
+                    Drawing a guess would be the one thing this view exists not
+                    to do. The bill of quantities still has every line that
+                    was read.
+                  </p>
                 </div>
-                <Massing massing={massing} />
-              </section>
+              </div>
             )}
-
-            <section className="card" id="sheets">
-              <div className="card-head">
-                <h2>Every sheet in the set</h2>
-                <span className="card-note">
-                  what each page turned out to be, and which ones the number
-                  rests on
-                </span>
-              </div>
-              <SheetStrip takeoff={takeoff} />
-            </section>
-
-            <section className="card" id="gaps">
-              <div className="card-head">
-                <h2>What we could not read</h2>
-                <span className="card-note">
-                  {takeoff.gaps?.length || 0} notices · shown before the number
-                </span>
-              </div>
-              {takeoff.gaps?.length ? (
-                <Notices gaps={takeoff.gaps} />
-              ) : (
-                <div className="notices muted">
-                  Every sheet this takeoff needed was readable.
-                </div>
-              )}
-            </section>
-
-            {carbon?.by_material_category?.length ? (
-              <section className="card" id="carbon">
-                <div className="card-head">
-                  <h2>Where the carbon is</h2>
-                  <span className="card-note">by material category</span>
-                </div>
-                <Contribution
-                  carbon={carbon}
-                  focus={focus}
-                  onFocus={setFocus}
-                  filter={filter}
-                  onFilter={setFilter}
-                />
-              </section>
-            ) : null}
-
+            <ModelPanel
+              carbon={carbon}
+              takeoff={takeoff}
+              coverage={coverage}
+              massing={massing}
+              onTrace={showTrace}
+              onPage={setPage}
+            />
+          </div>
+        ) : page === "quantities" ? (
+          <>
             <section className="card" id="bill">
               <div className="card-head">
                 <h2>Bill of quantities</h2>
@@ -2255,27 +2295,75 @@ export default function App() {
               />
             </section>
 
-            <div className="two-col">
-              {decisions.length > 0 && (
-                <section className="card" id="decisions">
+            <div className="split">
+              {carbon?.by_material_category?.length ? (
+                <section className="card" id="carbon">
                   <div className="card-head">
-                    <h2>Decisions still open</h2>
-                    <span className="card-note">not counted · priced as a range</span>
+                    <h2>Where the carbon is</h2>
+                    <span className="card-note">by material · press to filter the bill</span>
                   </div>
-                  <OpenDecisions choices={decisions} />
+                  <Contribution
+                    carbon={carbon}
+                    focus={focus}
+                    onFocus={setFocus}
+                    filter={filter}
+                    onFilter={setFilter}
+                  />
                 </section>
-              )}
-              <section className="card" id="substitutions">
-                <div className="card-head">
-                  <h2>Material substitutions</h2>
-                  <span className="card-note">ranked by what they save</span>
-                </div>
-                <Substitutions swaps={swaps} takeoff={takeoff} />
-              </section>
+              ) : null}
+              <TitleBlock takeoff={takeoff} carbon={carbon} coverage={coverage} />
             </div>
           </>
+        ) : page === "gaps" ? (
+          <>
+            <section className="card" id="gaps">
+              <div className="card-head">
+                <h2>What we could not read</h2>
+                <span className="card-note">
+                  {takeoff.gaps?.length || 0} notices · reported rather than guessed
+                </span>
+              </div>
+              {takeoff.gaps?.length ? (
+                <Notices gaps={takeoff.gaps} />
+              ) : (
+                <div className="notices muted">
+                  Every sheet this takeoff needed was readable.
+                </div>
+              )}
+            </section>
+
+            <section className="card" id="sheets">
+              <div className="card-head">
+                <h2>Every sheet in the set</h2>
+                <span className="card-note">
+                  what each page turned out to be, and which ones the number
+                  rests on
+                </span>
+              </div>
+              <SheetStrip takeoff={takeoff} />
+            </section>
+          </>
+        ) : (
+          <div className="two-col">
+            {decisions.length > 0 && (
+              <section className="card" id="decisions">
+                <div className="card-head">
+                  <h2>Decisions still open</h2>
+                  <span className="card-note">not counted · priced as a range</span>
+                </div>
+                <OpenDecisions choices={decisions} />
+              </section>
+            )}
+            <section className="card" id="substitutions">
+              <div className="card-head">
+                <h2>Material substitutions</h2>
+                <span className="card-note">ranked by what they save</span>
+              </div>
+              <Substitutions swaps={swaps} takeoff={takeoff} />
+            </section>
+          </div>
         )}
-        <AppFooter />
+        {page !== "model" && <AppFooter />}
       </main>
       </div>
 
@@ -2294,6 +2382,7 @@ export default function App() {
               /* the selector will catch up on the next load */
             }
             setProjectId(id);
+            setPage("model");
           }}
         />
       )}

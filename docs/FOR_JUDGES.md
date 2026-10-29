@@ -22,20 +22,25 @@ it was read from.
 
 ## Five minutes, in order
 
-**1. Read the gap report before the number.** The page leads with *"What we
-could not read"*, not the total. On `AB Fourplex 01` that is 19 notices: a
-cladding layer the drawings leave unspecified, a storey whose two accessibility
-options would double-count if both were read, four partition-measurement
-approaches that failed before the fifth worked. A low total that does not
-announce itself as partial is indistinguishable from a good one.
+**1. The model, and what it could not read.** The site opens on the takeoff
+drawn in 3D: the measured footprint, the storeys at the datums read from the
+sections, and every partition wall counted. Drag to turn it. Beside it are the
+quantities that made it, and the number of things the drawings did not state.
+Press that, or **Data gaps** in the sidebar: on `AB Fourplex 01` it is 19
+notices: a cladding layer the drawings leave unspecified, a storey whose two
+accessibility options would double-count if both were read, four
+partition-measurement approaches that failed before the fifth worked. A low
+total that does not announce itself as partial is indistinguishable from a
+good one.
 
 **2. The total is given twice.** 43,075 kgCO₂e, and 37,536 without the inferred
 interior partitions. That one run is measured off the plan linework rather than
 read from a schedule — it is the least certain quantity in the bill, so the
 figure without it sits beside the figure with it.
 
-**3. Click any sheet tag in the bill of quantities.** The source sheet opens
-with the region outlined, and the panel says how strong that trace is:
+**3. Press any quantity beside the model, or any sheet tag on the Bill of
+quantities page.** The source sheet opens with the region outlined, and the
+panel says how strong that trace is:
 
 - *Measured here* — the outlined rectangles **are** the measurement. Interior
   partitions keep one rectangle per wall counted.
@@ -43,7 +48,7 @@ with the region outlined, and the panel says how strong that trace is:
 - *Sheet only* — right sheet, region not located, and **nothing is
   highlighted** rather than pointing at a guess.
 
-**4. Decisions still open.** Cladding and roofing carry no carbon, because
+**4. Decisions still open, on the Options page.** Cladding and roofing carry no carbon, because
 CMHC's drawings say "cladding placeholder" and "roofing placeholder". We do not
 pick one. The range is priced — cladding 1,980–3,774 kgCO₂e, roofing
 1,371–2,433 — and the decision is handed back. This is kept separate from
@@ -135,8 +140,8 @@ exists — the steel screw piles — the line appears, uncounted, with the reaso
 
 ---
 
-**6. The massing, in carbon.** Press **Carbon** on "What we understood from
-the drawings" to colour every surface by what its element class carries. The
+**6. The model, in carbon.** Press **Carbon intensity** on the model to
+colour every surface by what its element class carries per square metre. The
 figures sit beside the swatches, because the top two classes are 12,305 and
 10,909 kgCO₂e and no one should be asked to separate those by hue.
 
