@@ -22,12 +22,12 @@ it was read from.
 
 ## Five minutes, in order
 
-**1. The model, and what it could not read.** The site opens on the takeoff
+**1. The model, and its review notes.** The site opens on the takeoff
 drawn in 3D: the measured footprint, the storeys at the datums read from the
 sections, and every partition wall counted. Drag to turn it. Beside it are the
-quantities that made it, and the number of things the drawings did not state.
-Press that, or **Data gaps** in the sidebar: on `AB Fourplex 01` it is 19
-notices: a cladding layer the drawings leave unspecified, a storey whose two
+quantities that made it, and a count of review notes: details the plan set
+leaves open, flagged instead of assumed. Press that, or **Review notes** in the
+sidebar: on `AB Fourplex 01` there are 19: a cladding layer the drawings leave unspecified, a storey whose two
 accessibility options would double-count if both were read, four
 partition-measurement approaches that failed before the fifth worked. A low
 total that does not announce itself as partial is indistinguishable from a

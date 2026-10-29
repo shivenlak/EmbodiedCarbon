@@ -1,9 +1,10 @@
 /* ecarbon — reading a drawing set into a carbon figure you can argue with.
  *
- * The ordering of this page is the argument: what we could not read comes
- * before the number, the number is given twice because one of its lines is
- * measured rather than stated, and every quantity carries the sheet it came
- * from as a control you can press.
+ * It opens on the model, because the takeoff drawn is the thing a reader can
+ * check at a glance. Beside it the number is given twice, because one of its
+ * lines is measured rather than stated; the review notes are counted next to
+ * it rather than left for a reader to find; and every quantity carries the
+ * sheet it came from as a control you can press.
  *
  * Styling lives in index.css as classes, where the type scale and the colour
  * meanings can be held in one place.
@@ -416,7 +417,8 @@ function ModelPanel({ carbon, takeoff, coverage, massing, onTrace, onPage }) {
         <button className="mp-gaps-btn" onClick={() => onPage("gaps")}>
           <b>{takeoff?.gaps?.length ?? 0}</b>
           <span>
-            things the drawings did not state, reported rather than guessed
+            review notes: details the plan set leaves open, flagged instead of
+            assumed
           </span>
         </button>
       </section>
@@ -1845,7 +1847,7 @@ const PAGES = ["model", "quantities", "gaps", "options"];
 const PAGE_TITLE = {
   model: "3D model",
   quantities: "Bill of quantities",
-  gaps: "Data gaps",
+  gaps: "Review notes",
   options: "Options",
 };
 const pageFromHash = () => {
@@ -2171,7 +2173,7 @@ export default function App() {
     () => [
       { id: "model", label: "3D model" },
       { id: "quantities", label: "Bill of quantities", count: takeoff?.lines?.length },
-      { id: "gaps", label: "Data gaps", count: takeoff?.gaps?.length },
+      { id: "gaps", label: "Review notes", count: takeoff?.gaps?.length },
       { id: "options", label: "Options", count: decisions.length + swaps.length || null },
     ],
     [takeoff, decisions, swaps],
@@ -2318,9 +2320,10 @@ export default function App() {
           <>
             <section className="card" id="gaps">
               <div className="card-head">
-                <h2>What we could not read</h2>
+                <h2>Review notes</h2>
                 <span className="card-note">
-                  {takeoff.gaps?.length || 0} notices · reported rather than guessed
+                  where the drawings leave a detail open, or a quantity deserves
+                  a second look
                 </span>
               </div>
               {takeoff.gaps?.length ? (

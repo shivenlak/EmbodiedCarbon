@@ -128,7 +128,7 @@ This is the strongest frame in the product. Do not rush it.
 
 ## 2:05 — What the tool does not know
 
-Press **Data gaps** in the sidebar.
+Press **Review notes** in the sidebar.
 
 > "Nineteen notices, and they come before the number. The drawings say
 > 'cladding placeholder' — CMHC deliberately leaves it unspecified, so we do
@@ -168,7 +168,7 @@ Toggle Storey 1 / Storey 2.
 
 ## 3:20 — Every sheet, and an edit
 
-On **Data gaps**, below the notices:
+On **Review notes**, below the notices:
 
 > "Forty-six sheets, all opened and classified. Four carry a quantity. One had
 > no readable text and is drawn hatched rather than left out."
