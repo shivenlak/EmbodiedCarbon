@@ -1772,6 +1772,166 @@ function Topbar({ projects, projectId, onPick, exportHref, reportHref, onUpload 
   );
 }
 
+/* ---------------------------------------------------------------- shell -- */
+
+const REPO = "https://github.com/shivenlak/EmbodiedCarbon/blob/main";
+
+const projectLabel = (p) =>
+  String(p?.name || p?.id || p?.project_id || "")
+    .replace(/_/g, " ")
+    .replace(/\s*Technical Design Package$/i, "");
+
+// Layers of an assembly, seen edge-on: the thing every line in the bill is
+// made of.
+function Mark({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="7" fill="#1e40af" />
+      <path d="M8 10.5h16l-3 3H5z" fill="#93c5fd" />
+      <path d="M10 15.5h16l-3 3H7z" fill="#bfdbfe" />
+      <path d="M12 20.5h16l-3 3H9z" fill="#ffffff" />
+    </svg>
+  );
+}
+
+// Navigation over the one page rather than across pages: every section is
+// still on screen for a reader who scrolls, and a judge who wants the bill
+// gets there in one press. The active link follows the scroll.
+function Sidebar({ projects, projectId, onPick, sections, watchKey }) {
+  const [active, setActive] = useState(sections[0]?.id ?? null);
+
+  useEffect(() => {
+    const nodes = sections
+      .map((s) => document.getElementById(s.id))
+      .filter(Boolean);
+    if (!nodes.length || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActive(visible[0].target.id);
+      },
+      { rootMargin: "-15% 0px -70% 0px" },
+    );
+    nodes.forEach((n) => observer.observe(n));
+    return () => observer.disconnect();
+  }, [sections, watchKey]);
+
+  return (
+    <aside className="sidebar">
+      <div className="brand">
+        <Mark />
+        <div>
+          <div className="brand-name">ecarbon</div>
+          <div className="brand-sub">Embodied carbon takeoff</div>
+        </div>
+      </div>
+
+      {projects?.length > 0 && (
+        <div className="side-project">
+          <label htmlFor="plan">Project</label>
+          <select
+            id="plan"
+            value={projectId || ""}
+            onChange={(e) => onPick(e.target.value)}
+          >
+            {projects.map((p) => {
+              const id = p.id ?? p.project_id;
+              return (
+                <option key={id} value={id}>
+                  {projectLabel(p)}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
+
+      <nav className="side-nav" aria-label="Sections">
+        {sections.map((s) => (
+          <a
+            key={s.id}
+            href={`#${s.id}`}
+            className={active === s.id ? "is-active" : undefined}
+            onClick={() => setActive(s.id)}
+          >
+            <span>{s.label}</span>
+            {s.count != null && <b>{s.count}</b>}
+          </a>
+        ))}
+      </nav>
+
+      <div className="side-foot">
+        <span className="side-foot-title">Resources</span>
+        <a href={`${REPO}/docs/FOR_JUDGES.md`} target="_blank" rel="noreferrer">
+          Methodology
+        </a>
+        <a href={`${REPO}/docs/benchmark.md`} target="_blank" rel="noreferrer">
+          Accuracy benchmark
+        </a>
+        <a href={`${API}/docs`} target="_blank" rel="noreferrer">
+          API reference
+        </a>
+      </div>
+    </aside>
+  );
+}
+
+function PageHeader({ takeoff, onUpload, exportHref, reportHref }) {
+  const p = takeoff?.project || {};
+  const facts = [
+    p.jurisdiction,
+    p.storeys ? `${p.storeys} storeys` : null,
+    p.units ? `${p.units} units` : null,
+    p.gfa_m2 ? `${dec(p.gfa_m2, 0)} m² ${p.gfa_basis || ""}`.trim() : null,
+  ].filter(Boolean);
+
+  return (
+    <header className="page-header">
+      <div className="page-header-text">
+        <div className="crumbs">
+          <span>Projects</span>
+          <span aria-hidden="true">/</span>
+          <span className="crumb-here">{projectLabel(p) || "—"}</span>
+        </div>
+        {facts.length > 0 && <div className="page-facts">{facts.join(" · ")}</div>}
+      </div>
+      <div className="page-actions">
+        {exportHref && (
+          <>
+            <a className="btn" href={exportHref}>
+              Download takeoff
+            </a>
+            <a className="btn" href={reportHref} target="_blank" rel="noreferrer">
+              Open report
+            </a>
+          </>
+        )}
+        {onUpload && (
+          <button className="btn btn-primary" onClick={onUpload}>
+            Upload a plan set
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function AppFooter() {
+  return (
+    <footer className="app-footer">
+      <span>A1–A3 product stage only</span>
+      <span>Factors: Kootenay · BEAM · EC3</span>
+      <span>
+        Design data adapted from the CMHC Housing Design Catalogue; this is not an
+        endorsement by CMHC
+      </span>
+      <span>ecarbon v0.1.0</span>
+    </footer>
+  );
+}
+
 /* ------------------------------------------------------------------ app -- */
 
 export default function App() {
@@ -1929,6 +2089,25 @@ export default function App() {
     return parseInt(gap.message.match(/covers roughly (\d+)%/)[1], 10) / 100;
   }, [takeoff]);
 
+  // The sidebar's links, in page order, for the sections this design has.
+  const sections = useMemo(() => {
+    if (!takeoff) return [];
+    return [
+      { id: "overview", label: "Overview" },
+      massing && { id: "model", label: "3D model" },
+      { id: "sheets", label: "Sheets", count: takeoff.sheets?.length ?? 0 },
+      { id: "gaps", label: "What we could not read", count: takeoff.gaps?.length ?? 0 },
+      carbon?.by_material_category?.length && { id: "carbon", label: "Carbon breakdown" },
+      { id: "bill", label: "Bill of quantities", count: takeoff.lines?.length ?? 0 },
+      decisions.length > 0 && {
+        id: "decisions",
+        label: "Decisions still open",
+        count: decisions.length,
+      },
+      { id: "substitutions", label: "Substitutions", count: swaps.length },
+    ].filter(Boolean);
+  }, [takeoff, carbon, decisions, swaps, massing]);
+
   if (status === "locked") {
     return (
       <div className="app">
@@ -1966,15 +2145,22 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <Topbar
+    <div className="app app-shell">
+      <Sidebar
         projects={projects}
         projectId={projectId}
         onPick={setProjectId}
-        onUpload={() => setUploading(true)}
-        exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
-        reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
+        sections={sections}
+        watchKey={`${projectId}:${status}`}
       />
+
+      <div className="shell-main">
+        <PageHeader
+          takeoff={status === "loading" ? null : takeoff}
+          onUpload={() => setUploading(true)}
+          exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
+          reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
+        />
 
       <main className="page">
         {status === "loading" || !takeoff ? (
@@ -1985,13 +2171,13 @@ export default function App() {
           </>
         ) : (
           <>
-            <div className="hero-grid">
+            <div className="hero-grid" id="overview">
               <Hero carbon={carbon} takeoff={takeoff} coverage={coverage} />
               <TitleBlock takeoff={takeoff} carbon={carbon} coverage={coverage} />
             </div>
 
             {massing && (
-              <section className="card">
+              <section className="card" id="model">
                 <div className="card-head">
                   <h2>What we understood from the drawings</h2>
                   <span className="card-note">
@@ -2002,7 +2188,7 @@ export default function App() {
               </section>
             )}
 
-            <section className="card">
+            <section className="card" id="sheets">
               <div className="card-head">
                 <h2>Every sheet in the set</h2>
                 <span className="card-note">
@@ -2013,7 +2199,7 @@ export default function App() {
               <SheetStrip takeoff={takeoff} />
             </section>
 
-            <section className="card">
+            <section className="card" id="gaps">
               <div className="card-head">
                 <h2>What we could not read</h2>
                 <span className="card-note">
@@ -2030,7 +2216,7 @@ export default function App() {
             </section>
 
             {carbon?.by_material_category?.length ? (
-              <section className="card">
+              <section className="card" id="carbon">
                 <div className="card-head">
                   <h2>Where the carbon is</h2>
                   <span className="card-note">by material category</span>
@@ -2045,7 +2231,7 @@ export default function App() {
               </section>
             ) : null}
 
-            <section className="card">
+            <section className="card" id="bill">
               <div className="card-head">
                 <h2>Bill of quantities</h2>
                 <span className="card-note">
@@ -2071,7 +2257,7 @@ export default function App() {
 
             <div className="two-col">
               {decisions.length > 0 && (
-                <section className="card">
+                <section className="card" id="decisions">
                   <div className="card-head">
                     <h2>Decisions still open</h2>
                     <span className="card-note">not counted · priced as a range</span>
@@ -2079,7 +2265,7 @@ export default function App() {
                   <OpenDecisions choices={decisions} />
                 </section>
               )}
-              <section className="card">
+              <section className="card" id="substitutions">
                 <div className="card-head">
                   <h2>Material substitutions</h2>
                   <span className="card-note">ranked by what they save</span>
@@ -2089,7 +2275,9 @@ export default function App() {
             </div>
           </>
         )}
+        <AppFooter />
       </main>
+      </div>
 
       <TracePanel trace={trace} onClose={() => setTrace(null)} />
 
