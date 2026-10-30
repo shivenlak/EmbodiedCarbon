@@ -1393,3 +1393,51 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 @media (prefers-reduced-motion: reduce) {
   .stage .massing-svg, .mp-bar { animation: none; }
 }
+
+/* -------------------------------------------------------- demo polish -- */
+
+/* A long notice folds to three lines; the button under it opens the rest. */
+.notice-body .is-folded {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.notice-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 12px var(--sans);
+  color: var(--primary);
+  cursor: pointer;
+}
+.notice-toggle:hover { text-decoration: underline; }
+
+/* Changing page settles the new one in rather than swapping it hard. */
+.page { animation: page-in 240ms var(--ease) both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* Every control shows where the keyboard is. */
+.btn:focus-visible, .segmented button:focus-visible, .side-nav a:focus-visible,
+.mp-lines button:focus-visible, .notice-toggle:focus-visible, .notice-more:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* On a phone the caption wraps to four lines and ran under the storey
+   picker, so the picker moves up under the colour toggle and the caption
+   sits in its own row at the foot of the drawing. */
+@media (max-width: 640px) {
+  .stage { grid-template-rows: minmax(0, 1fr) auto; place-items: stretch; }
+  .stage .massing-svg { padding: 110px 12px 12px; }
+  .stage-hint { display: none; }
+  .stage-bottom { top: 62px; bottom: auto; flex-direction: column; align-items: flex-start; }
+  .stage-legend { min-width: 0; }
+  .stage-caption { position: static; padding: 0 var(--s4) var(--s3); font-size: 11.5px; }
+  .page-actions .btn { padding-inline: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page { animation: none; }
+}
