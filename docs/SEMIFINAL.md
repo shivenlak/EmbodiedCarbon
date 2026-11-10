@@ -82,8 +82,10 @@ Drag to orbit, over the top and underneath to the grade beam. Pull the
 its carbon per m². Swipe the panel on the right to **Carbon** and the model
 turns into a heat map.
 
-If anything misbehaves, **Classic view** (top right) is the original app, and
-`?classic=1` opens it directly.
+The bill, the review notes and the options open as a sheet over the model:
+press "All 20 lines", "Every note" or "All 14 swaps" at the bottom of a panel,
+or open the `#quantities`, `#gaps` and `#options` links directly. **Back to
+the model** (or Esc) closes the sheet.
 
 > "This is the takeoff, drawn. The footprint is 7 by 22 metres, measured off
 > the linework. The two storeys are at the datums read from the sections, and
