@@ -28,8 +28,8 @@ Quantity extraction is 30% on its own, so spend the most time there.
 
 ## Before you walk in (T−60 min)
 
-1. **Open https://ecarbon.fly.dev/?plan=AB_Fourplex_01** and check the headline
-   reads **43,075**.
+1. **Open https://ecarbon.fly.dev/?plan=AB_Fourplex_01**, press **Continue as
+   a guest** (or sign in), and check the headline reads **43,075**.
 2. **Warm it.** Run `deploy/warm.sh`. Without the warm, the first sheet-tag
    press takes about 16 s instead of 0.2 s. Then press one sheet tag yourself
    to confirm it's fast.
@@ -53,9 +53,15 @@ Quantity extraction is 30% on its own, so spend the most time there.
    (48,613).
 6. Zoom the browser to about **125%** if the room uses a projector.
 
-**Don't leave a corrected quantity on the live server.** Corrections are held
-server-side and every visitor sees them. After the correction beat, press
-**undo** next to "we read …" and check the headline is back to 43,075.
+**Corrections are private to your workspace.** A correction you make on stage
+is seen by you alone, not by a judge on their own laptop, so there is nothing
+to clean up. Press **undo** anyway, to show the figure goes back to 43,075.
+If a rehearsal left your workspace messy, press **Leave** (top right) and
+**Continue as a guest** for a fresh one.
+
+> "Every visitor works in their own workspace: a correction or an upload is
+> yours, and nobody else sees it. Sign in and it's kept under your name."
+
 
 ---
 
@@ -317,5 +323,5 @@ into an estimating system rather than replacing it.
 |---|---|
 | Sheet tag takes 15 s+ | Not warmed. Keep talking; it caches after the first press. Run `deploy/warm.sh`. |
 | Page blank or "offline" | Switch to the local backup (step 5 above). |
-| Headline isn't 43,075 | Someone left a correction. Bill → find the blue quantity → **undo**. |
+| Headline isn't 43,075 | You left a correction in your workspace. Bill → the blue quantity → **undo**, or **Leave** and start a fresh guest workspace. |
 | Upload is slow | Say "it's parsing 46 sheets", carry on with the demo, and come back to it. |

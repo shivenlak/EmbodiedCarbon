@@ -1,6 +1,6 @@
 # For judges
 
-**Live:** https://ecarbon.fly.dev — **no sign-in, nothing to enter.** Open the
+**Live:** https://ecarbon.fly.dev. **Press *Continue as a guest*; no account needed.** Open the
 link and it works.
 
 > **A correction, found 28 October.** Interior partition *area* was being

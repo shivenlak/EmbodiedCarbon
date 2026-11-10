@@ -13,6 +13,9 @@ unacceptable for 53 designs at startup.
 from __future__ import annotations
 
 import base64
+import contextvars
+import hashlib
+import hmac
 import os
 import re
 import secrets
@@ -150,6 +153,106 @@ def _seed_demo() -> None:
 _seed_demo()
 
 
+# -- workspaces -------------------------------------------------------------
+#
+# Every visitor works in their own workspace: a signed-in account ("u:name")
+# or a guest ("g:<random>"). Requests without a token -- curl, the API docs --
+# share one "public" workspace. Before this, a quantity corrected by one
+# visitor was corrected for everyone, and an upload appeared in every
+# visitor's list.
+#
+# The bundled plan sets stay shared and cached, because building one costs
+# 20-200 s and they are the same for everybody. The first correction a
+# workspace makes forks its own copy of that project; uploads belong to the
+# workspace that uploaded them and do not exist for anyone else.
+#
+# All of it is held in memory, like every other cache here: a restart clears
+# accounts, corrections and uploads alike. The bundled sets come back on
+# their own, prebuilt into the image.
+
+_SECRET = (os.environ.get("ECARBON_SECRET") or secrets.token_hex(32)).encode()
+_WORKSPACE: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "ecarbon_workspace", default="public"
+)
+_USERS: dict[str, str] = {}  # username -> "salt_hex$hash_hex"
+_OWNER: dict[str, str] = {}  # upload id -> the workspace that uploaded it
+_FORKS: dict[tuple[str, str], Project] = {}  # (workspace, project) -> its copy
+_MAX_FORKS = 600  # a bound, so a stream of guests cannot grow memory forever
+
+
+def _sign(workspace: str) -> str:
+    mac = hmac.new(_SECRET, workspace.encode(), hashlib.sha256).hexdigest()[:40]
+    return f"{workspace}.{mac}"
+
+
+def _verify(token: str) -> str | None:
+    workspace, _, mac = token.rpartition(".")
+    if not workspace or not mac:
+        return None
+    expected = _sign(workspace).rpartition(".")[2]
+    return workspace if hmac.compare_digest(mac, expected) else None
+
+
+class _WorkspaceMiddleware:
+    """Reads the session token and sets the workspace for this request.
+
+    Pure ASGI rather than BaseHTTPMiddleware, so the context variable is set
+    in the same context the endpoint (and its worker thread) runs in. The
+    token may ride the query string, because an <img src> and a download link
+    cannot carry a header.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        token = ""
+        for name, value in scope.get("headers") or []:
+            if name == b"x-ecarbon-session":
+                token = value.decode("latin-1")
+                break
+        if not token:
+            from urllib.parse import parse_qs
+
+            qs = parse_qs((scope.get("query_string") or b"").decode("latin-1"))
+            token = (qs.get("session") or [""])[0]
+        workspace = (_verify(token) if token else None) or "public"
+        reset = _WORKSPACE.set(workspace)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _WORKSPACE.reset(reset)
+
+
+app.add_middleware(_WorkspaceMiddleware)
+
+
+def _visible(project_id: str) -> None:
+    """An upload exists only for the workspace that made it."""
+    owner = _OWNER.get(project_id)
+    if owner is not None and owner != _WORKSPACE.get():
+        raise HTTPException(404, f"no project {project_id!r}")
+
+
+def _own(project_id: str) -> Project:
+    """This workspace's copy of a project, made on its first change."""
+    p = _get(project_id)
+    if project_id in _OWNER:
+        return p  # an upload is already private to its owner
+    key = (_WORKSPACE.get(), project_id)
+    fork = _FORKS.get(key)
+    if fork is None:
+        if len(_FORKS) >= _MAX_FORKS:
+            _FORKS.pop(next(iter(_FORKS)))
+        fork = Project(
+            id=p.id, takeoff=p.takeoff.model_copy(deep=True), design=p.design
+        )
+        _FORKS[key] = fork
+    return fork
+
+
 def _data_root():
     from ecarbon.config import data_root
 
@@ -260,6 +363,10 @@ def _build(key: str, stated: CreateProject | None = None) -> Project:
 
 
 def _get(project_id: str) -> Project:
+    _visible(project_id)
+    fork = _FORKS.get((_WORKSPACE.get(), project_id))
+    if fork is not None:
+        return fork
     if project_id in _PROJECTS:
         return _PROJECTS[project_id]
     if project_id in _catalogue():
@@ -328,8 +435,9 @@ def list_projects() -> list[dict[str, object]]:
     whole catalogue would mean opening 53 PDFs to answer a list request.
     """
     out: list[dict[str, object]] = []
+    ws = _WORKSPACE.get()
     for key in sorted(_catalogue()):
-        p = _PROJECTS.get(key)
+        p = _FORKS.get((ws, key)) or _PROJECTS.get(key)
         out.append(
             {
                 "id": key,
@@ -345,6 +453,8 @@ def list_projects() -> list[dict[str, object]]:
         # real total, so it is listed only when there is no real data to show.
         # /projects/demo still answers either way; the API tests depend on it.
         if pid == DEMO_ID and _catalogue():
+            continue
+        if _OWNER.get(pid, ws) != ws:
             continue
         if pid not in _catalogue():
             out.append(
@@ -408,8 +518,12 @@ def get_carbon(project_id: str) -> CarbonResult:
 
 @app.post("/projects/{project_id}/lines/{line_id}", response_model=CarbonResult)
 def override_line(project_id: str, line_id: str, body: OverrideQuantity) -> CarbonResult:
-    """Correct a quantity and get the updated carbon back in one round trip."""
-    p = _get(project_id)
+    """Correct a quantity and get the updated carbon back in one round trip.
+
+    The correction lands in this workspace's own copy of the project, so it
+    is never a correction for every other visitor too.
+    """
+    p = _own(project_id)
     try:
         line = p.takeoff.line(line_id)
     except KeyError:
@@ -533,6 +647,7 @@ class TraceRegionOut(BaseModel):
 
 
 def _design_for(project_id: str):
+    _visible(project_id)
     held = _PROJECTS.get(project_id)
     design = getattr(held, "design", None) or _catalogue().get(project_id)
     if design is None:
@@ -816,6 +931,7 @@ async def upload_project(
 
     project = Project(id=project_id, takeoff=takeoff, design=design)
     _PROJECTS[project_id] = project
+    _OWNER[project_id] = _WORKSPACE.get()
     return {
         "id": project_id,
         "n_lines": len(takeoff.lines),
@@ -1010,6 +1126,82 @@ def get_massing(project_id: str) -> Massing | None:
     )
     _MASSING[project_id] = result
     return result
+
+
+# -- accounts ---------------------------------------------------------------
+
+
+class Credentials(BaseModel):
+    username: str
+    password: str
+
+
+class SessionOut(BaseModel):
+    token: str
+    name: str
+    guest: bool
+
+
+_USERNAME = re.compile(r"^[a-z0-9_-]{3,32}$")
+
+
+def _hash_password(password: str, salt: bytes) -> str:
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return f"{salt.hex()}${digest.hex()}"
+
+
+def _session(workspace: str) -> SessionOut:
+    guest = workspace.startswith("g:")
+    return SessionOut(
+        token=_sign(workspace),
+        name="Guest" if guest else workspace.split(":", 1)[1],
+        guest=guest,
+    )
+
+
+@app.post("/auth/signup", response_model=SessionOut, status_code=201)
+def signup(body: Credentials) -> SessionOut:
+    name = body.username.strip().lower()
+    if not _USERNAME.match(name):
+        raise HTTPException(
+            422, "Use 3 to 32 letters, numbers, dashes or underscores."
+        )
+    if len(body.password) < 6:
+        raise HTTPException(422, "Use a password of at least 6 characters.")
+    if name in _USERS:
+        raise HTTPException(409, "That name is taken. Sign in instead?")
+    _USERS[name] = _hash_password(body.password, secrets.token_bytes(16))
+    return _session(f"u:{name}")
+
+
+@app.post("/auth/login", response_model=SessionOut)
+def login(body: Credentials) -> SessionOut:
+    name = body.username.strip().lower()
+    stored = _USERS.get(name)
+    if stored is None:
+        # Accounts live in memory; say so rather than "wrong password".
+        raise HTTPException(
+            401,
+            "No account by that name on this server. Accounts clear when the "
+            "server restarts, so you may need to create it again.",
+        )
+    salt_hex, _, _ = stored.partition("$")
+    if not hmac.compare_digest(
+        _hash_password(body.password, bytes.fromhex(salt_hex)), stored
+    ):
+        raise HTTPException(401, "That password does not match.")
+    return _session(f"u:{name}")
+
+
+@app.post("/auth/guest", response_model=SessionOut)
+def guest() -> SessionOut:
+    return _session(f"g:{secrets.token_hex(8)}")
+
+
+@app.get("/auth/me", response_model=SessionOut | None)
+def me() -> SessionOut | None:
+    workspace = _WORKSPACE.get()
+    return None if workspace == "public" else _session(workspace)
 
 
 _COVER: dict[str, bytes | None] = {}
