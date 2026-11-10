@@ -60,7 +60,9 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   scene.fog = new THREE.Fog(0x0b1422, 60, 140);
 
   const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 500);
-  const span = Math.max(W, D, H * 2);
+  // Framed by the larger of plan and height; height weighs more, because a
+  // three-storey block framed by its plan alone runs into the headline.
+  const span = Math.max(W, D, H * 2.7);
   const HOME = [span * 1.25, span * 0.85, span * 1.4];
   camera.position.set(...HOME);
 
