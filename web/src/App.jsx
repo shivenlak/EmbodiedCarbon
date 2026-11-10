@@ -271,6 +271,17 @@ function TitleBlock({ takeoff, carbon, coverage }) {
 
 const UNIT_LABEL = { m3: "m³", m2: "m²", m: "m", each: "each", kg: "kg" };
 
+// "Kootenay Construction Material Impact Guide (2026)" does not fit beside a
+// figure; the full name stays in the tooltip and the derivation.
+function shortSource(source) {
+  const s = String(source || "");
+  if (/kootenay/i.test(s)) return "Kootenay";
+  if (/\bEC3\b/.test(s)) return "EC3";
+  if (/BEAM/.test(s)) return "BEAM";
+  if (/gypsum association/i.test(s)) return "Gypsum Assoc.";
+  return s.split(/[(/]/)[0].trim().split(/\s+/).slice(0, 2).join(" ");
+}
+
 // The quantities a reader can see in the model, in the order they would point
 // at them. Each one is the bill's own line, so pressing it opens the sheet it
 // was read from -- the model and the bill are one record, not two.
@@ -284,7 +295,7 @@ const MODEL_LINES = [
 
 // Everything the model view says beside the drawing: the figure, how sure it
 // is, what was measured to make it, and where the carbon sits.
-function ModelPanel({ carbon, takeoff, coverage, massing, onTrace, onPage }) {
+function ModelPanel({ carbon, takeoff, coverage, massing, swaps, onTrace, onPage }) {
   const shownTotal = useCountUp(carbon?.total_kg_co2e);
   const lines = takeoff?.lines || [];
   const carbonLines = carbon?.lines || [];
@@ -312,6 +323,16 @@ function ModelPanel({ carbon, takeoff, coverage, massing, onTrace, onPage }) {
   const top = classes[0]?.[1] || 1;
   const areaNote = floorAreaNote(takeoff?.gaps);
   const p = takeoff?.project || {};
+
+  // The best swap per line, summed: what applying the top of each line's
+  // ranking would save. Alternatives on one line are never added together.
+  const bestByLine = new Map();
+  for (const s of swaps || []) {
+    if ((s.delta_kg_co2e || 0) < (bestByLine.get(s.line_id) ?? 0))
+      bestByLine.set(s.line_id, s.delta_kg_co2e);
+  }
+  const bestSaving = [...bestByLine.values()].reduce((a, b) => a + b, 0);
+  const bestCount = bestByLine.size;
 
   return (
     <aside className="model-panel">
@@ -361,7 +382,7 @@ function ModelPanel({ carbon, takeoff, coverage, massing, onTrace, onPage }) {
 
       <section className="mp-block">
         <div className="mp-head">
-          <h2>Measured from the drawings</h2>
+          <h2>Read from the drawings</h2>
           <span>press for the source sheet</span>
         </div>
         <ul className="mp-lines">
@@ -414,6 +435,20 @@ function ModelPanel({ carbon, takeoff, coverage, massing, onTrace, onPage }) {
           ))}
         </div>
       </section>
+
+      {bestSaving < 0 && (
+        <section className="mp-block mp-gaps">
+          <button className="mp-gaps-btn mp-swaps-btn" onClick={() => onPage("options")}>
+            <b>{int(bestSaving)}</b>
+            <span>
+              kgCO₂e, up to{" "}
+              {dec((-bestSaving / (carbon?.total_kg_co2e || 1)) * 100, 0)}%, if
+              the top swap on each of {bestCount} lines were taken. Try them
+              before the spec is locked
+            </span>
+          </button>
+        </section>
+      )}
 
       <section className="mp-block mp-gaps">
         <button className="mp-gaps-btn" onClick={() => onPage("gaps")}>
@@ -576,7 +611,7 @@ function Notices({ gaps }) {
                 <div className="notice-head">
                   {gap.severity === "blocking" ? "Read this first" : "Worth knowing"}
                   {" · "}
-                  {(gap.code || "").replace(/_/g, " ")}
+                  {gapTopic(gap.code)}
                 </div>
                 <NoticeBody text={gap.message} />
               </div>
@@ -586,8 +621,7 @@ function Notices({ gaps }) {
                 className="notice-more"
                 onClick={() => setExpanded((e) => ({ ...e, [group.key]: true }))}
               >
-                + {hidden} more of the same kind (
-                {(group.code || "").replace(/_/g, " ")})
+                + {hidden} more of the same kind ({gapTopic(group.code).toLowerCase()})
               </button>
             )}
           </Fragment>
@@ -595,6 +629,31 @@ function Notices({ gaps }) {
       })}
     </div>
   );
+}
+
+// The pipeline files a note under the stage that raised it, so a cladding
+// *placeholder* the schedule does state arrives as "assembly schedule
+// missing". Printed raw, that claims a schedule is absent when it is not. The
+// heading names the topic instead; the message itself says what happened.
+// (The codes are fixed by models.py, which is a shared contract.)
+const GAP_TOPIC = {
+  page_text_unreadable: "Unreadable page",
+  sheet_title_unknown: "Sheet titles",
+  scale_not_found: "Drawing scale",
+  scale_sources_disagree: "Drawing scale",
+  sheet_type_missing: "What the set contains",
+  assembly_schedule_missing: "Assembly schedule",
+  opening_schedule_missing: "Windows and doors",
+  section_detail_missing: "Section details",
+  assembly_tag_unresolved: "Assembly tags",
+  storey_height_unknown: "Storey heights",
+  no_carbon_factor: "Carbon factors",
+  module_scope_mismatch: "Module scope",
+  project_fact_required: "Project facts",
+  geometry_ambiguous: "Measurement",
+};
+function gapTopic(code) {
+  return GAP_TOPIC[code] || String(code || "").replace(/_/g, " ");
 }
 
 // A few notices run to a paragraph. They fold to three lines with the rest one
@@ -646,7 +705,14 @@ function BillOfQuantities({
   const commit = async (line) => {
     const value = parseFloat(draft);
     setEditing(null);
-    if (!Number.isFinite(value) || value < 0 || value === line.quantity) return;
+    if (!Number.isFinite(value) || value < 0) return;
+    // Typing back the figure we read is an undo, not a no-op: an override is
+    // held on the server for every visitor, so it must be clearable here.
+    if (value === line.quantity) {
+      if (line.user_override != null) await onOverride(line.id, null);
+      return;
+    }
+    if (value === line.user_override) return;
     await onOverride(line.id, value);
   };
 
@@ -705,6 +771,34 @@ function BillOfQuantities({
                       {open[line.id] && (
                         <div className="derivation-body">
                           {line.basis?.note && <div>{line.basis.note}</div>}
+                          {result?.factor && isCounted(result) && (
+                            <div className="derivation-carbon">
+                              <b>Carbon:</b>{" "}
+                              {dec(edited ? line.user_override : line.quantity, 2)}{" "}
+                              {UNIT_LABEL[line.unit] || line.unit} ×{" "}
+                              {dec(result.factor.gwp_value, 1)} kgCO₂e/
+                              {UNIT_LABEL[result.factor.declared_unit] ||
+                                result.factor.declared_unit}{" "}
+                              = {int(result.kg_co2e)} kgCO₂e.{" "}
+                              {result.conversion_note &&
+                                !/directly matches/.test(result.conversion_note) &&
+                                `${result.conversion_note} `}
+                              Factor: {result.factor.name}, {result.factor.source}
+                              , {result.factor.geography},{" "}
+                              {(result.factor.modules || []).join("–")},{" "}
+                              {result.factor.data_type === "epd"
+                                ? "product EPD"
+                                : "industry average"}
+                              {result.factor.uncertainty_pct != null &&
+                                `, ±${result.factor.uncertainty_pct}%`}
+                              .
+                            </div>
+                          )}
+                          {result && !isCounted(result) && result.missing_reason && (
+                            <div className="derivation-carbon">
+                              <b>Not counted:</b> {result.missing_reason}.
+                            </div>
+                          )}
                           {line.assumptions?.length > 0 && (
                             <ul>
                               {line.assumptions.map((a, i) => (
@@ -754,7 +848,13 @@ function BillOfQuantities({
                       <span className="qty-unit">{UNIT_LABEL[line.unit] || line.unit}</span>
                       {edited && (
                         <span className="qty-was">
-                          we read {dec(line.quantity, 2)}
+                          we read {dec(line.quantity, 2)} ·{" "}
+                          <button
+                            className="qty-undo"
+                            onClick={() => onOverride(line.id, null)}
+                          >
+                            undo
+                          </button>
                         </span>
                       )}
                     </span>
@@ -773,7 +873,36 @@ function BillOfQuantities({
 
                 <td className="r">
                   {result && isCounted(result) ? (
-                    <span className="carbon">{int(result.kg_co2e)}</span>
+                    <>
+                      <span className="carbon">{int(result.kg_co2e)}</span>
+                      {result.factor && (
+                        // The factor beside the figure it made: rate, declared
+                        // unit, source, geography and module scope, so a carbon
+                        // number is traceable without opening anything.
+                        <span
+                          className="factor-cite"
+                          title={[
+                            result.factor.name,
+                            result.factor.source,
+                            result.conversion_note,
+                            result.factor.uncertainty_pct != null
+                              ? `±${result.factor.uncertainty_pct}% stated uncertainty`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join("\n")}
+                        >
+                          × {dec(result.factor.gwp_value, 0)} /
+                          {UNIT_LABEL[result.factor.declared_unit] ||
+                            result.factor.declared_unit}
+                          <em>
+                            {shortSource(result.factor.source)} ·{" "}
+                            {result.factor.geography} ·{" "}
+                            {(result.factor.modules || []).join("–")}
+                          </em>
+                        </span>
+                      )}
+                    </>
                   ) : (
                     <span
                       className="carbon-none"
@@ -807,65 +936,208 @@ function BillOfQuantities({
 // Not a substitution: a substitution replaces a material somebody chose,
 // while this is a choice nobody has made. Showing them the same way would
 // imply a decision exists where none does.
-function OpenDecisions({ choices }) {
+const decisionKey = (c) => `${c.assembly_tag}-${c.category}`;
+const EMPTY_SCENARIO = { swaps: {}, picks: {} };
+
+function OpenDecisions({ choices, scenario, onScenario }) {
   if (!choices?.length) return null;
+  const pick = (c, o) =>
+    onScenario((s) => {
+      const picks = { ...s.picks };
+      if (picks[decisionKey(c)] === o.factor_id) delete picks[decisionKey(c)];
+      else picks[decisionKey(c)] = o.factor_id;
+      return { ...s, picks };
+    });
   return (
     <div className="decisions">
-      {choices.map((c) => (
-        <div className="decision" key={`${c.assembly_tag}-${c.category}`}>
-          <div className="decision-head">
-            <div>
-              <span className="decision-cat">{c.category}</span>
-              <span className="decision-tag">
-                {c.assembly_tag} · {c.area_m2} m²
-              </span>
-            </div>
-            <div className="decision-range">
-              {int(c.low_kg_co2e)}–{int(c.high_kg_co2e)}
-            </div>
-          </div>
-          <div className="decision-says">
-            The drawings say “{c.drawing_says}” — the choice is still open, so
-            nothing is added to the total until one is made.
-          </div>
-          <div className="decision-opts">
-            {c.options.map((o) => (
-              <div className="decision-opt" key={o.factor_id}>
-                <span>{o.name}</span>
-                <b>{int(o.kg_co2e)}</b>
+      {choices.map((c) => {
+        const chosen = scenario.picks[decisionKey(c)];
+        return (
+          <div
+            className={`decision${chosen ? " is-chosen" : ""}`}
+            key={decisionKey(c)}
+          >
+            <div className="decision-head">
+              <div>
+                <span className="decision-cat">{c.category}</span>
+                <span className="decision-tag">
+                  {c.assembly_tag} · {c.area_m2} m² · {c.sheet_no}
+                </span>
               </div>
-            ))}
+              <div className="decision-range">
+                {int(c.low_kg_co2e)}–{int(c.high_kg_co2e)}
+              </div>
+            </div>
+            <div className="decision-says">
+              The drawings say “{c.drawing_says}”. Nobody has chosen yet, so
+              nothing is counted. Pick one to see what it adds.
+            </div>
+            <div className="decision-opts">
+              {c.options.map((o) => (
+                <button
+                  className={`decision-opt${chosen === o.factor_id ? " is-on" : ""}`}
+                  key={o.factor_id}
+                  aria-pressed={chosen === o.factor_id}
+                  onClick={() => pick(c, o)}
+                >
+                  <span>
+                    <i className="pick-dot" />
+                    {o.name}
+                  </span>
+                  <b>+{int(o.kg_co2e)}</b>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function Substitutions({ swaps, takeoff }) {
+const swapKey = (s) => `${s.line_id}|${s.to_material}`;
+
+function Substitutions({ swaps, takeoff, scenario, onScenario }) {
   if (!swaps?.length)
     return <div className="notices muted">No swaps apply to this design.</div>;
   const nameOf = (id) => {
     const line = (takeoff?.lines || []).find((l) => l.id === id);
-    return line ? titleCase(line.element_class) : id;
+    if (!line) return id;
+    const tag = line.assembly_tag ? ` ${line.assembly_tag}` : "";
+    return `${titleCase(line.element_class)}${tag}`;
   };
+  // One material per line: two concrete mixes for the same slab are
+  // alternatives, and summing both would count the saving twice.
+  const toggle = (s) =>
+    onScenario((sc) => {
+      const next = { ...sc.swaps };
+      if (next[s.line_id] === s.to_material) delete next[s.line_id];
+      else next[s.line_id] = s.to_material;
+      return { ...sc, swaps: next };
+    });
   return (
     <div className="swaps">
-      {swaps.slice(0, 8).map((s, i) => (
-        <div className="swap" key={`${s.line_id}-${i}`}>
-          <div>
-            <div className="swap-el">{nameOf(s.line_id)}</div>
-            <div className="swap-move">
-              {s.from_material} → {s.to_material}
+      {swaps.map((s, i) => {
+        const on = scenario.swaps[s.line_id] === s.to_material;
+        const rival = !on && scenario.swaps[s.line_id] != null;
+        return (
+          <button
+            className={`swap${on ? " is-on" : ""}${rival ? " is-rival" : ""}`}
+            key={swapKey(s)}
+            aria-pressed={on}
+            onClick={() => toggle(s)}
+          >
+            <span className="swap-rank">{i + 1}</span>
+            <div>
+              <div className="swap-el">{nameOf(s.line_id)}</div>
+              <div className="swap-move">
+                {s.from_material} → <b>{s.to_material}</b>
+              </div>
+              {/insulation/i.test(s.from_material) &&
+                /insulation/i.test(s.to_material) && (
+                  // Swaps are priced at the same volume. Two insulations at
+                  // one thickness are not one R-value, and a builder should
+                  // hear that from us rather than discover it.
+                  <div className="swap-caveat">
+                    same thickness, not matched for R-value: confirm the
+                    envelope still meets code
+                  </div>
+                )}
+              {rival && (
+                <div className="swap-rival">
+                  replaces the other swap applied to this line
+                </div>
+              )}
             </div>
-          </div>
-          <div className="swap-delta">
-            {int(s.delta_kg_co2e)}
-            <span className="swap-pct">{dec(s.pct_of_total, 1)}% of total</span>
-          </div>
-        </div>
-      ))}
+            <div className="swap-delta">
+              {int(s.delta_kg_co2e)}
+              <span className="swap-pct">{dec(s.pct_of_total, 1)}% of total</span>
+            </div>
+            <span className="swap-check">{on ? "Applied" : "Apply"}</span>
+          </button>
+        );
+      })}
     </div>
+  );
+}
+
+// The what-if. It never touches the counted total on the other pages: a
+// scenario is a builder trying a spec, not a reading of the drawings.
+function ScenarioBar({ carbon, takeoff, swaps, decisions, scenario, onScenario }) {
+  const base = carbon?.total_kg_co2e || 0;
+  const applied = (swaps || []).filter(
+    (s) => scenario.swaps[s.line_id] === s.to_material,
+  );
+  const swapKg = applied.reduce((sum, s) => sum + (s.delta_kg_co2e || 0), 0);
+  let pickKg = 0;
+  let openLow = 0;
+  let openHigh = 0;
+  const pickedNames = [];
+  for (const c of decisions || []) {
+    const id = scenario.picks[decisionKey(c)];
+    const o = id && c.options.find((x) => x.factor_id === id);
+    if (o) {
+      pickKg += o.kg_co2e || 0;
+      pickedNames.push(o.name);
+    } else {
+      openLow += c.low_kg_co2e || 0;
+      openHigh += c.high_kg_co2e || 0;
+    }
+  }
+  const total = base + swapKg + pickKg;
+  const gfa = takeoff?.project?.gfa_m2;
+  const shown = useCountUp(total);
+  const active = applied.length > 0 || pickedNames.length > 0;
+  const stillOpen = (decisions || []).length - pickedNames.length;
+
+  return (
+    <section className={`card scenario${active ? " is-active" : ""}`}>
+      <div className="scn-grid">
+        <div className="scn-cell">
+          <span className="scn-label">Counted from the drawings</span>
+          <b className="scn-fig">{int(base)}</b>
+          <em>kgCO₂e · A1–A3</em>
+        </div>
+        <div className="scn-cell">
+          <span className="scn-label">Swaps applied · {applied.length}</span>
+          <b className={`scn-fig${swapKg < 0 ? " is-down" : ""}`}>
+            {swapKg ? int(swapKg) : "0"}
+          </b>
+          <em>{base ? `${dec((swapKg / base) * 100, 1)}%` : ""}</em>
+        </div>
+        <div className="scn-cell">
+          <span className="scn-label">Decisions made · {pickedNames.length}</span>
+          <b className={`scn-fig${pickKg > 0 ? " is-up" : ""}`}>
+            {pickKg ? `+${int(pickKg)}` : "0"}
+          </b>
+          <em>
+            {stillOpen > 0
+              ? `${stillOpen} still open: ${int(openLow)}–${int(openHigh)} not counted`
+              : "every open decision made"}
+          </em>
+        </div>
+        <div className="scn-cell scn-total">
+          <span className="scn-label">Your specification</span>
+          <b className="scn-fig">{int(shown)}</b>
+          <em>
+            kgCO₂e
+            {gfa ? ` · ${dec(total / gfa, 1)} kg/m²` : ""}
+          </em>
+        </div>
+      </div>
+      <div className="scn-foot">
+        <span>
+          {active
+            ? "A what-if. The counted figure on the other pages does not change, because the drawings have not."
+            : "Apply swaps and make the open decisions below to see what a specification would carry, before it is locked."}
+        </span>
+        {active && (
+          <button className="scn-reset" onClick={() => onScenario(EMPTY_SCENARIO)}>
+            Reset
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -2042,6 +2314,7 @@ export default function App() {
   const [status, setStatus] = useState("connecting");
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [scenario, setScenario] = useState(EMPTY_SCENARIO);
 
   useEffect(() => {
     getJSON("/projects")
@@ -2103,6 +2376,7 @@ export default function App() {
     if (projectId) load(projectId);
     setFilter(null);
     setFocus(null);
+    setScenario(EMPTY_SCENARIO);
   }, [projectId, load]);
 
 
@@ -2287,6 +2561,7 @@ export default function App() {
               takeoff={takeoff}
               coverage={coverage}
               massing={massing}
+              swaps={swaps}
               onTrace={showTrace}
               onPage={setPage}
             />
@@ -2302,7 +2577,11 @@ export default function App() {
                       showing {filter} · show everything
                     </button>
                   ) : (
-                    "press a sheet tag to see where a number came from"
+                    <>
+                      press a <b>sheet tag</b> to see where a number came from ·
+                      press a <b>quantity</b> to correct it and the carbon
+                      recomputes
+                    </>
                   )}
                 </span>
               </div>
@@ -2367,24 +2646,43 @@ export default function App() {
             </section>
           </>
         ) : (
+          <>
+          <ScenarioBar
+            carbon={carbon}
+            takeoff={takeoff}
+            swaps={swaps}
+            decisions={decisions}
+            scenario={scenario}
+            onScenario={setScenario}
+          />
           <div className="two-col">
             {decisions.length > 0 && (
               <section className="card" id="decisions">
                 <div className="card-head">
                   <h2>Decisions still open</h2>
-                  <span className="card-note">not counted · priced as a range</span>
+                  <span className="card-note">not counted · press one to choose</span>
                 </div>
-                <OpenDecisions choices={decisions} />
+                <OpenDecisions
+                  choices={decisions}
+                  scenario={scenario}
+                  onScenario={setScenario}
+                />
               </section>
             )}
             <section className="card" id="substitutions">
               <div className="card-head">
                 <h2>Material substitutions</h2>
-                <span className="card-note">ranked by what they save</span>
+                <span className="card-note">ranked by kgCO₂e saved · press to apply</span>
               </div>
-              <Substitutions swaps={swaps} takeoff={takeoff} />
+              <Substitutions
+                swaps={swaps}
+                takeoff={takeoff}
+                scenario={scenario}
+                onScenario={setScenario}
+              />
             </section>
           </div>
+          </>
         )}
         {page !== "model" && <AppFooter />}
       </main>
