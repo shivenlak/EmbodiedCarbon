@@ -79,6 +79,8 @@ export default function Showcase({
   page = "model",
   onPage,
   onUpload,
+  who,
+  onSignOut,
   exportHref,
   reportHref,
 }) {
@@ -187,17 +189,39 @@ export default function Showcase({
 
   // ---- the deck ----------------------------------------------------------
 
+  // While a scroll this code started is in flight, the panel is the one it
+  // is heading for. Reading every intermediate position instead made a press
+  // on "Carbon" land back on "Quantities", and a swipe past Carbon flicker
+  // the heat map on and off as the deck passed through it.
+  const steering = useRef(null);
+  const steerTimer = useRef(0);
   function goTo(i) {
     const el = deckRef.current;
     const n = Math.max(0, Math.min(PANELS.length - 1, i));
     setPanel(n);
-    if (el) el.scrollTo({ left: n * el.clientWidth, behavior: STILL ? "auto" : "smooth" });
+    if (!el) return;
+    steering.current = n;
+    clearTimeout(steerTimer.current);
+    // A backstop in case the browser never reports arriving.
+    steerTimer.current = setTimeout(() => {
+      steering.current = null;
+    }, 900);
+    el.scrollTo({ left: n * el.clientWidth, behavior: STILL ? "auto" : "smooth" });
   }
-  // Native scroll-snap does the swipe; this only reads where it landed.
+  // Native scroll-snap does the swipe; this only reads where it settled.
   function onDeckScroll() {
     const el = deckRef.current;
     if (!el) return;
     const n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+    if (steering.current != null) {
+      if (n === steering.current && Math.abs(el.scrollLeft - n * el.clientWidth) < 2) {
+        steering.current = null;
+      }
+      return;
+    }
+    // A swipe: commit only once it is within a few pixels of a panel, so
+    // the heat map does not switch while the deck is between two.
+    if (Math.abs(el.scrollLeft - n * el.clientWidth) > 8) return;
     if (n !== panel) setPanel(n);
   }
   useEffect(() => {
@@ -331,6 +355,9 @@ export default function Showcase({
         <canvas
           ref={canvasRef}
           className="sc-canvas"
+          // Invisible during the photograph, and must not answer the
+          // pointer either: hovering the photo showed the model's read-outs.
+          style={intro ? { pointerEvents: "none" } : undefined}
           role="img"
           aria-label={`The measured building in 3D: ${massing.width_m} by ${massing.depth_m} metres, ${heights.length} storeys, ${massing.walls.length} partition walls. Drag to orbit, scroll to zoom.`}
         />
@@ -386,6 +413,17 @@ export default function Showcase({
               Export report
             </a>
           )}
+          {who && (
+            <button
+              className="glass sc-btn sc-who"
+              onClick={onSignOut}
+              title={who.guest ? "Leave this guest workspace" : `Signed in as ${who.name}`}
+            >
+              <i aria-hidden="true">{(who.name || "?")[0].toUpperCase()}</i>
+              <span className="sc-who-name">{who.name}</span>
+              <span className="sc-who-out">{who.guest ? "Leave" : "Sign out"}</span>
+            </button>
+          )}
           <button className="sc-btn sc-btn-primary" onClick={onUpload}>
             Upload a plan set
           </button>
@@ -424,7 +462,7 @@ export default function Showcase({
       )}
 
       {/* ---- hover read-out ---- */}
-      {hover && (
+      {hover && !intro && !sheetOpen && (
         <div
           className="sc-tip glass"
           style={{ left: hover.x + 16, top: hover.y + 16 }}

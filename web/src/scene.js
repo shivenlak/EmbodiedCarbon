@@ -18,6 +18,11 @@ const FLOOR_T = 0.3;
 const EXT_T = 0.235;
 const BEAM_W = 0.2;
 const BEAM_D = 1.2;
+// Faces that would otherwise share a plane -- a wall's foot on the slab, a
+// floor's edge on the wall -- are held this far apart. Coplanar faces
+// z-fight: they flicker between their two colours as the camera moves, which
+// the heat map made obvious.
+const GAP = 0.012;
 
 const STRUCTURE = {
   slab_on_grade: "#c9d1dc",
@@ -62,7 +67,9 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 500);
   // Framed by the larger of plan and height; height weighs more, because a
   // three-storey block framed by its plan alone runs into the headline.
-  const span = Math.max(W, D, H * 2.7);
+  // A square plan's diagonal is much longer than either side, and an
+  // uploaded rowhouse framed by its side alone ran off the screen.
+  const span = Math.max(W, D, Math.hypot(W, D) * 0.95, H * 2.7);
   const HOME = [span * 1.25, span * 0.85, span * 1.4];
   camera.position.set(...HOME);
 
@@ -115,7 +122,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   grid.material.transparent = true;
   grid.material.opacity = 0.09;
   grid.material.depthWrite = false;
-  grid.position.y = -SLAB_T;
+  grid.position.y = -SLAB_T - 0.004;
   scene.add(grid);
 
   const root = new THREE.Group();
@@ -131,7 +138,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     opacity: 0.38,
   });
 
-  function solid({ cls, storey = null, x, y, z, w, h, d, opacity = 1, label, detail }) {
+  function solid({ cls, storey = null, x, y, z, w, h, d, opacity = 1, label, detail, order = 0 }) {
     const geo = new THREE.BoxGeometry(w, h, d);
     const mat = new THREE.MeshStandardMaterial({
       color: STRUCTURE[cls] || "#e2e8f0",
@@ -142,6 +149,10 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       depthWrite: opacity >= 1,
     });
     const mesh = new THREE.Mesh(geo, mat);
+    // Translucent layers draw in a fixed order (floors, then the envelope)
+    // rather than re-sorting by distance every frame, which made them swap
+    // places -- and colours -- as the building turned.
+    mesh.renderOrder = order;
     mesh.position.set(x + w / 2, y + h / 2, z + d / 2);
     mesh.castShadow = opacity >= 0.5;
     mesh.receiveShadow = true;
@@ -161,18 +172,19 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   });
 
   // Grade beam round the perimeter, below grade.
-  const beamY = -SLAB_T - BEAM_D;
+  const beamY = -SLAB_T - BEAM_D - GAP;
   const beam = { cls: "footing", y: beamY, h: BEAM_D, opacity: 0.9, label: "Footings", detail: "grade beam on the perimeter, below grade" };
-  solid({ ...beam, x: 0, z: 0, w: W, d: BEAM_W });
-  solid({ ...beam, x: 0, z: D - BEAM_W, w: W, d: BEAM_W });
-  solid({ ...beam, x: 0, z: BEAM_W, w: BEAM_W, d: D - 2 * BEAM_W });
-  solid({ ...beam, x: W - BEAM_W, z: BEAM_W, w: BEAM_W, d: D - 2 * BEAM_W });
+  const g = GAP;
+  solid({ ...beam, x: g, z: g, w: W - 2 * g, d: BEAM_W });
+  solid({ ...beam, x: g, z: D - BEAM_W - g, w: W - 2 * g, d: BEAM_W });
+  solid({ ...beam, x: g, z: BEAM_W + 2 * g, w: BEAM_W, d: D - 2 * BEAM_W - 4 * g });
+  solid({ ...beam, x: W - BEAM_W - g, z: BEAM_W + 2 * g, w: BEAM_W, d: D - 2 * BEAM_W - 4 * g });
 
   // The envelope, one shell per storey so the storeys can be pulled apart.
   heights.forEach((h, s) => {
-    const y = datums[s];
+    const y = datums[s] + GAP;
     const shell = {
-      cls: "exterior_wall", storey: s, y, h, opacity: 0.2,
+      cls: "exterior_wall", storey: s, y, h: h - 2 * GAP, opacity: 0.2, order: 2,
       label: "Exterior wall", detail: `storey ${s + 1}, ${h.toFixed(1)} m datum to datum`,
     };
     solid({ ...shell, x: 0, z: 0, w: W, d: EXT_T });
@@ -187,8 +199,10 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     solid({
       cls: isRoof ? "roof_assembly" : "floor_assembly",
       storey: i,
-      x: 0, y: d - FLOOR_T, z: 0, w: W, h: FLOOR_T, d: D,
+      x: EXT_T + GAP, y: d - FLOOR_T + GAP, z: EXT_T + GAP,
+      w: W - 2 * (EXT_T + GAP), h: FLOOR_T - 2 * GAP, d: D - 2 * (EXT_T + GAP),
       opacity: isRoof ? 0.16 : 0.22,
+      order: 1,
       label: isRoof ? "Roof" : "Floor assembly",
       detail: isRoof ? "flat here: the profile is not in the takeoff" : `between storeys ${i + 1} and ${i + 2}`,
     });
@@ -201,7 +215,8 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     const len = Math.max(w.w, w.d);
     solid({
       cls: "interior_partition", storey: w.storey,
-      x: w.x, y: base, z: w.y, w: Math.max(w.w, 0.09), h: Math.max(0.5, top - base), d: Math.max(w.d, 0.09),
+      x: w.x, y: base + GAP, z: w.y, w: Math.max(w.w, 0.09),
+      h: Math.max(0.5, top - base - 2 * GAP), d: Math.max(w.d, 0.09),
       label: "Interior partition",
       detail: `storey ${w.storey + 1}, ${len.toFixed(2)} m long`,
     });
@@ -243,7 +258,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       m.opacity = op;
       m.transparent = op < 1;
       m.depthWrite = op >= 1;
-      m.emissive = new THREE.Color(hovered ? "#d9a46a" : "#000000");
+      m.emissive.set(hovered ? "#d9a46a" : "#000000");
       m.emissiveIntensity = hovered ? 0.55 : 0;
       p.edges.material.opacity = lit ? (hovered ? 0.95 : 0.38) : 0.04;
       p.edges.material.color.set(hovered ? "#ffd8a8" : state.heat ? "#1b2433" : "#ffffff");

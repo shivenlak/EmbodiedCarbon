@@ -31,6 +31,7 @@ const API = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 // sheet over it. Split out so the first paint (sign-in, offline) does not
 // wait on three.js.
 const Showcase = lazy(() => import("./Showcase.jsx"));
+const Welcome = lazy(() => import("./Welcome.jsx"));
 
 // Mirrors PARTITION_LINE_PREFIX in ecarbon/takeoff/builder.py.
 const PARTITION_PREFIX = "ln-interior-partition";
@@ -61,12 +62,38 @@ export function clearAuth() {
   }
 }
 
+// The workspace token: who this visitor is, so their corrections and uploads
+// are theirs alone. Kept in localStorage so a refresh keeps the workspace.
+let SESSION = (() => {
+  try {
+    return localStorage.getItem("ecarbon-session") || "";
+  } catch {
+    return "";
+  }
+})();
+
+export function setSession(token) {
+  SESSION = token || "";
+  try {
+    if (SESSION) localStorage.setItem("ecarbon-session", SESSION);
+    else localStorage.removeItem("ecarbon-session");
+  } catch {
+    // A private window can refuse storage; the token still works this tab.
+  }
+}
+
+function headers(extra = {}) {
+  return {
+    ...extra,
+    ...(AUTH ? { Authorization: AUTH } : {}),
+    ...(SESSION ? { "X-Ecarbon-Session": SESSION } : {}),
+  };
+}
+
 class Unauthorized extends Error {}
 
 async function getJSON(path) {
-  const res = await fetch(`${API}${path}`, {
-    headers: AUTH ? { Authorization: AUTH } : {},
-  });
+  const res = await fetch(`${API}${path}`, { headers: headers() });
   if (res.status === 401) throw new Unauthorized("Credentials required");
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} on ${path}`);
   return res.json();
@@ -75,10 +102,7 @@ async function getJSON(path) {
 async function postJSON(path, body) {
   const res = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(AUTH ? { Authorization: AUTH } : {}),
-    },
+    headers: headers({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (res.status === 401) throw new Unauthorized("Credentials required");
@@ -89,9 +113,30 @@ async function postJSON(path, body) {
 // A rendered sheet is an <img src>, which cannot carry a header, so the
 // credential rides the query string instead. Same origin, same gate.
 export function authedUrl(path) {
-  if (!AUTH) return `${API}${path}`;
+  const params = [];
+  if (AUTH) params.push(`auth=${encodeURIComponent(AUTH.slice(6))}`);
+  if (SESSION) params.push(`session=${encodeURIComponent(SESSION)}`);
+  if (!params.length) return `${API}${path}`;
   const joiner = path.includes("?") ? "&" : "?";
-  return `${API}${path}${joiner}auth=${encodeURIComponent(AUTH.slice(6))}`;
+  return `${API}${path}${joiner}${params.join("&")}`;
+}
+
+// Account calls answer 401 for a wrong password, which is not the service
+// asking for basic-auth credentials, so they do not go through postJSON.
+export async function account(path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: headers({ "Content-Type": "application/json" }),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = Array.isArray(payload.detail)
+      ? "Enter a name and a password."
+      : payload.detail;
+    throw new Error(detail || `That did not work (${res.status}).`);
+  }
+  return payload;
 }
 
 const int = (n) => (n == null ? "—" : Math.round(n).toLocaleString());
@@ -1501,7 +1546,7 @@ function Upload({ onDone, onClose }) {
     try {
       const res = await fetch(`${API}/projects/upload`, {
         method: "POST",
-        headers: AUTH ? { Authorization: AUTH } : {},
+        headers: headers(),
         body,
       });
       const payload = await res.json().catch(() => ({}));
@@ -1714,8 +1759,40 @@ export default function App() {
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [scenario, setScenario] = useState(EMPTY_SCENARIO);
+  // undefined: still checking the stored token; null: nobody signed in.
+  const [who, setWho] = useState(SESSION ? undefined : null);
 
   useEffect(() => {
+    if (!SESSION) return;
+    getJSON("/auth/me")
+      .then((me) => {
+        // A token the server no longer accepts (its secret changed) is the
+        // same as no token: ask again rather than drop them in a shared space.
+        if (!me) setSession("");
+        setWho(me || null);
+      })
+      .catch(() => setWho(null));
+  }, []);
+
+  const signedIn = useCallback((session) => {
+    setSession(session.token);
+    setWho(session);
+    setScenario(EMPTY_SCENARIO);
+    setReloadToken((n) => n + 1);
+  }, []);
+
+  const signOut = useCallback(() => {
+    setSession("");
+    setWho(null);
+    setProjects([]);
+    setProjectId(null);
+    setTakeoff(null);
+    setCarbon(null);
+    setScenario(EMPTY_SCENARIO);
+  }, []);
+
+  useEffect(() => {
+    if (!who) return;
     getJSON("/projects")
       .then((p) => {
         const list = Array.isArray(p) ? p : p.projects || [];
@@ -1733,7 +1810,7 @@ export default function App() {
         setError(e.message);
         setStatus("offline");
       });
-  }, [reloadToken]);
+  }, [reloadToken, who]);
 
   const load = useCallback(async (id) => {
     if (!id) return;
@@ -1863,6 +1940,17 @@ export default function App() {
   }, []);
 
 
+  if (who === undefined) {
+    return <div className="sc-loading">Opening your workspace…</div>;
+  }
+  if (who === null) {
+    return (
+      <Suspense fallback={<div className="sc-loading">Loading…</div>}>
+        <Welcome onSignedIn={signedIn} />
+      </Suspense>
+    );
+  }
+
   if (status === "locked") {
     return (
       <div className="app">
@@ -1941,6 +2029,8 @@ export default function App() {
           page={page}
           onPage={setPage}
           onUpload={() => setUploading(true)}
+          who={who}
+          onSignOut={signOut}
           exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
           reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
         />

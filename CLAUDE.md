@@ -8,7 +8,7 @@ Landmark Homes.
 carries the context that is not recoverable from the code.
 
 State: **722 tests passing, ruff clean**, deployed at https://ecarbon.fly.dev
-(open, no credentials).
+(press *Continue as a guest*; each visitor gets a private workspace, and the API is open without a token).
 
 ---
 

@@ -7,7 +7,7 @@ Built for the Edmonton Unlimited **Built World Tech — Venture Pilots 2026**
 challenge *"Automated Embodied Carbon Accounting for Residential Builders"*
 (sponsor: Landmark Homes).
 
-**Live: https://ecarbon.fly.dev** — no sign-in, nothing to enter.
+**Live: https://ecarbon.fly.dev**: press *Continue as a guest*. No account needed; each visitor gets a private workspace.
 
 - **[docs/HANDOFF.md](docs/HANDOFF.md)** — picking this up? Start here. The constraints, the state, and what is deliberately unfinished.
 - **[docs/FOR_JUDGES.md](docs/FOR_JUDGES.md)** — the live service, what to click, and where the numbers are weak. Start here if you are reviewing this.
