@@ -27,6 +27,8 @@ import {
   decisionKey,
   EMPTY_SCENARIO,
   authedUrl,
+  DetailPage,
+  AppFooter,
 } from "./App.jsx";
 import "./showcase.css";
 
@@ -72,9 +74,21 @@ export default function Showcase({
   scenario,
   onScenario,
   onTrace,
-  onClassic,
+  onOverride,
+  coverage,
+  page = "model",
+  onPage,
   onUpload,
+  exportHref,
+  reportHref,
 }) {
+  // The pages that open as a sheet over the model, in their order.
+  const SHEETS = [
+    { id: "quantities", label: "Bill of quantities" },
+    { id: "gaps", label: "Review notes" },
+    { id: "options", label: "Options" },
+  ];
+  const sheetOpen = page && page !== "model";
   const canvasRef = useRef(null);
   const sceneRef = useRef(null);
   const deckRef = useRef(null);
@@ -189,6 +203,12 @@ export default function Showcase({
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.closest?.("input, textarea, select")) return;
+      // A trace dialog over everything owns the keyboard.
+      if (document.querySelector(".scrim")) return;
+      if (sheetOpen) {
+        if (e.key === "Escape") onPage("model");
+        return;
+      }
       if (e.key === "ArrowRight") goTo(panel + 1);
       if (e.key === "ArrowLeft") goTo(panel - 1);
     };
@@ -319,11 +339,11 @@ export default function Showcase({
           <h2>No model for this plan set</h2>
           <p>
             {glError
-              ? `This browser could not start 3D (${glError}). The classic view has every figure.`
+              ? `This browser could not start 3D (${glError}). The bill of quantities has every figure.`
               : "A model needs a measured footprint and the storey datums from the sections, and this set did not state both. Drawing a guess would be the one thing this view exists not to do."}
           </p>
-          <button className="sc-btn" onClick={() => onClassic("model")}>
-            Open the classic view
+          <button className="sc-btn" onClick={() => onPage("quantities")}>
+            Open the bill of quantities
           </button>
         </div>
       )}
@@ -356,9 +376,16 @@ export default function Showcase({
           </label>
         </div>
         <div className="sc-top-actions">
-          <button className="glass sc-btn" onClick={() => onClassic("model")}>
-            Classic view
-          </button>
+          {exportHref && (
+            <a className="glass sc-btn" href={exportHref} download>
+              Download CSV
+            </a>
+          )}
+          {reportHref && (
+            <a className="glass sc-btn sc-hide-narrow" href={reportHref} target="_blank" rel="noreferrer">
+              Export report
+            </a>
+          )}
           <button className="sc-btn sc-btn-primary" onClick={onUpload}>
             Upload a plan set
           </button>
@@ -490,13 +517,13 @@ export default function Showcase({
                           {dec(qty, line.unit === "each" || unit === "walls" ? 0 : 1)}
                           <em>{unit}</em>
                         </span>
-                        <span className="sc-sheet">{line.provenance?.sheet_no || "—"}</span>
+                        <span className="sc-tag">{line.provenance?.sheet_no || "—"}</span>
                       </button>
                     </li>
                   );
                 })}
               </ul>
-              <button className="sc-link" onClick={() => onClassic("quantities")}>
+              <button className="sc-link" onClick={() => onPage("quantities")}>
                 All {lines.length} lines, with factors and derivations →
               </button>
             </section>
@@ -565,7 +592,7 @@ export default function Showcase({
                   </li>
                 ))}
               </ul>
-              <button className="sc-link" onClick={() => onClassic("gaps")}>
+              <button className="sc-link" onClick={() => onPage("gaps")}>
                 Every note, and every sheet →
               </button>
             </section>
@@ -626,7 +653,7 @@ export default function Showcase({
                   );
                 })}
               </ul>
-              <button className="sc-link" onClick={() => onClassic("options")}>
+              <button className="sc-link" onClick={() => onPage("options")}>
                 All {swaps?.length || 0} swaps, ranked, with their caveats →
               </button>
             </section>
@@ -650,6 +677,50 @@ export default function Showcase({
           {deckOpen ? "Hide panels" : "Show panels"}
         </button>
       </aside>
+      )}
+
+      {/* ---- the sheet: a page, expanded over the model ---- */}
+      {sheetOpen && takeoff && (
+        <div className="sc-sheet-wrap" onClick={(e) => e.target === e.currentTarget && onPage("model")}>
+          <section className="sc-sheet glass" role="dialog" aria-modal="true" aria-label={SHEETS.find((x) => x.id === page)?.label}>
+            <header className="sc-sheet-head">
+              <nav className="sc-seg" aria-label="Pages">
+                {SHEETS.map((x) => (
+                  <button
+                    key={x.id}
+                    className={page === x.id ? "is-on" : ""}
+                    aria-current={page === x.id ? "page" : undefined}
+                    onClick={() => onPage(x.id)}
+                  >
+                    {x.label}
+                    {x.id === "quantities" && <em>{lines.length}</em>}
+                    {x.id === "gaps" && <em>{takeoff?.gaps?.length ?? 0}</em>}
+                    {x.id === "options" && <em>{(swaps?.length || 0) + (decisions?.length || 0)}</em>}
+                  </button>
+                ))}
+              </nav>
+              <button className="sc-btn sc-sheet-close" onClick={() => onPage("model")}>
+                <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                Back to the model
+              </button>
+            </header>
+            <div className="sc-sheet-body page" key={page}>
+              <DetailPage
+                page={page}
+                takeoff={takeoff}
+                carbon={carbon}
+                swaps={swaps}
+                decisions={decisions}
+                scenario={scenario}
+                onScenario={onScenario}
+                onOverride={onOverride}
+                onTrace={onTrace}
+                coverage={coverage}
+              />
+              <AppFooter />
+            </div>
+          </section>
+        </div>
       )}
 
       {/* ---- the dock: what the model shows ---- */}

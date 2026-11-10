@@ -323,7 +323,7 @@
 .sc-qty-name { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; flex-wrap: wrap; }
 .sc-qty-num { font: 600 14px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sc-qty-num em { font: 400 12px var(--body); font-style: normal; color: var(--frost); margin-left: 4px; }
-.sc-sheet { justify-self: end; font: 600 11px var(--mono); padding: 3px 7px; border-radius: 6px; background: var(--cedar-soft); color: var(--cedar); }
+.sc-tag { justify-self: end; font: 600 11px var(--mono); padding: 3px 7px; border-radius: 6px; background: var(--cedar-soft); color: var(--cedar); }
 
 .sc-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .sc-bars li {
@@ -491,3 +491,132 @@
 .sc.is-intro .sc-wait { opacity: 0; }
 .sc-wait-ring { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--edge-hi); border-top-color: var(--cedar); animation: sc-spin 0.9s linear infinite; }
 @keyframes sc-spin { to { transform: rotate(360deg); } }
+
+/* ---- the sheet: a page expanded over the model ------------------------
+
+   The bill, notes and options keep their own components; this redefines
+   the tokens those components are written against, so they render as glass
+   over the night scene instead of white cards. The trace and upload dialogs
+   take the same tokens, so nothing opens as a white box. */
+
+.sc-sheet,
+.scrim {
+  --page: rgb(255 255 255 / 0.045);
+  --card: rgb(14 23 40 / 0.62);
+  --ink: #eef3fa;
+  --ink-2: #c9d4e3;
+  --muted: #9fb0c6;
+  --faint: #7f8ea6;
+  --rule: rgb(255 255 255 / 0.1);
+  --rule-strong: rgb(255 255 255 / 0.2);
+  --primary: #9db9ff;
+  --primary-soft: rgb(157 185 255 / 0.12);
+  --accent: #e8b57a;
+  --accent-soft: rgb(224 171 111 / 0.12);
+  --measured: #5ee0ae;
+  --measured-soft: rgb(79 214 162 / 0.12);
+  --inferred: #9db9ff;
+  --inferred-soft: rgb(157 185 255 / 0.12);
+  --assumed: #f5c06e;
+  --assumed-soft: rgb(245 180 83 / 0.12);
+  --danger: #f88f8f;
+  --danger-soft: rgb(248 113 113 / 0.12);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-3: 0 24px 70px rgb(0 0 0 / 0.55);
+  color: var(--ink);
+}
+
+.sc-sheet-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  padding: max(14px, env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) max(14px, env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
+  background: rgb(6 11 20 / 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: sc-fade 0.25s var(--ease) both;
+}
+.sc-sheet {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  overflow: hidden;
+  background: rgb(10 17 30 / 0.9);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  animation: sc-sheet-in 0.42s var(--ease) both;
+}
+@keyframes sc-fade { from { opacity: 0; } }
+@keyframes sc-sheet-in { from { opacity: 0; transform: translateY(18px) scale(0.985); } }
+
+.sc-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--edge);
+  flex-wrap: wrap;
+}
+.sc-sheet-head .sc-seg button em { font: 500 11px var(--mono); font-style: normal; opacity: 0.6; margin-left: 6px; }
+.sc-sheet-close { display: inline-flex; align-items: center; gap: 6px; background: rgb(255 255 255 / 0.06); }
+
+.sc-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--ink);
+  font-size: 14px;
+}
+.sc-sheet-body.page { max-width: none; margin: 0; padding: 18px 18px 28px; }
+.sc-sheet-body > * { max-width: 1360px; width: 100%; margin-left: auto; margin-right: auto; }
+
+.sc-sheet .card {
+  background: var(--card);
+  border-color: var(--rule);
+  box-shadow: none;
+}
+.sc-sheet .card-head h2 { font-family: var(--display); font-stretch: 112%; font-size: 17px; }
+
+/* Bill: the header row and the light blocks the classic table assumed. */
+.sc-sheet .boq th { background: rgb(14 23 40 / 0.96); color: var(--muted); }
+.sc-sheet .boq tr.is-lit td { background: rgb(255 255 255 / 0.05); }
+.sc-sheet .cite-sheet { background: var(--accent-soft); color: var(--accent); }
+.sc-sheet .cite { background: transparent; }
+.sc-sheet .qty-input { background: #0e1728; color: var(--ink); border-color: var(--primary); }
+.sc-sheet .el-tag { background: transparent; }
+.sc-sheet .bill-more { background: rgb(255 255 255 / 0.03); }
+.sc-sheet .swap { background: rgb(255 255 255 / 0.03); }
+.sc-sheet .swap.is-on .swap-check { color: #062a1d; }
+.sc-sheet .decision-opt:hover, .sc-sheet .decision-opt.is-on { border-color: var(--accent); }
+.sc-sheet .scenario.is-active { border-color: var(--measured); }
+.sc-sheet .scn-total { background: rgb(157 185 255 / 0.1); }
+.sc-sheet .notice { background: var(--page); }
+.sc-sheet .notice-warning { background: var(--accent-soft); }
+.sc-sheet .notice-blocking { background: var(--danger-soft); }
+.sc-sheet .notice-more { background: transparent; color: var(--muted); }
+.sc-sheet .app-footer { color: var(--faint); border-color: var(--rule); }
+
+/* Dialogs over the glass. */
+.scrim { background: rgb(4 8 16 / 0.6); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.scrim .trace,
+.scrim .upload {
+  background: rgb(12 20 35 / 0.92);
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+}
+
+@media (max-width: 820px) {
+  .sc-sheet-wrap { padding: 8px; }
+  .sc-sheet { border-radius: 18px; }
+  .sc-sheet-head .sc-seg { overflow-x: auto; max-width: 100%; }
+  .sc-sheet-close { min-height: 34px; padding: 0 12px; }
+  .sc-sheet-body.page { padding: 10px 8px 20px; }
+  .sc-hide-narrow { display: none; }
+}
+
+a.sc-btn { display: inline-flex; align-items: center; text-decoration: none; color: var(--snow); }
