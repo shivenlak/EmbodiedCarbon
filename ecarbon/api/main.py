@@ -1012,6 +1012,61 @@ def get_massing(project_id: str) -> Massing | None:
     return result
 
 
+_COVER: dict[str, bytes | None] = {}
+
+
+@app.get("/projects/{project_id}/cover.jpg")
+def get_cover(project_id: str):
+    """The rendering on the plan set's cover sheet, if it carries one.
+
+    The showcase view stands the measured model in front of the building the
+    drawings describe. Read from the PDF at request time, like every sheet
+    render, so no image of a licence-restricted design enters the repository.
+    A set without a cover rendering -- most uploads -- is a 404, and the
+    interface draws its own backdrop instead of borrowing someone else's.
+    """
+    import pymupdf
+    from fastapi.responses import Response
+
+    if project_id not in _COVER:
+        design = _design_for(project_id)
+        jpg = None
+        try:
+            doc = pymupdf.open(design.drawings_pdf)
+            try:
+                # A photograph-sized raster, not a logo strip or a title-block
+                # crest: at least a megapixel and no flatter than 2:1.
+                best = None
+                for img in doc[0].get_images(full=True):
+                    w, h = img[2], img[3]
+                    if w * h < 1_000_000 or max(w, h) > 2 * min(w, h):
+                        continue
+                    if best is None or w * h > best[2] * best[3]:
+                        best = img
+                if best is not None:
+                    pix = pymupdf.Pixmap(doc, best[0])
+                    if pix.alpha:
+                        pix = pymupdf.Pixmap(pix, 0)
+                    if pix.n > 3:
+                        pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+                    while max(pix.width, pix.height) > 1600:
+                        pix.shrink(1)
+                    jpg = pix.tobytes("jpg", jpg_quality=82)
+            finally:
+                doc.close()
+        except Exception:  # noqa: BLE001 -- a backdrop is never worth a 500
+            jpg = None
+        _COVER[project_id] = jpg
+    jpg = _COVER[project_id]
+    if jpg is None:
+        raise HTTPException(404, "this plan set has no cover rendering")
+    return Response(
+        content=jpg,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 def _mount_interface() -> None:
     """Serve the built interface, if it has been built.
 

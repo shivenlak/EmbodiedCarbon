@@ -1554,3 +1554,20 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   cursor: pointer;
 }
 .qty-undo:hover { color: var(--danger); }
+
+/* The way into the full-screen view, set apart from the export actions. */
+.btn-showcase {
+  background: #0b1422;
+  color: #eef3fa;
+  border-color: #0b1422;
+}
+.btn-showcase:hover { background: #1b2a44; }
+.sc-loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0b1422;
+  color: #a9b8cc;
+  font: 500 14px "IBM Plex Sans", system-ui, sans-serif;
+}

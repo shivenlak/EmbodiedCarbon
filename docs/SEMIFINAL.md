@@ -34,7 +34,7 @@ Quantity extraction is 30% on its own, so spend the most time there.
    press takes about 16 s instead of 0.2 s. Then press one sheet tag yourself
    to confirm it's fast.
 3. **Open these tabs, in this order:**
-   - `https://ecarbon.fly.dev/?plan=AB_Fourplex_01` (the model)
+   - `https://ecarbon.fly.dev/?plan=AB_Fourplex_01` (the showcase)
    - `https://ecarbon.fly.dev/?plan=AB_Fourplex_01#quantities`
    - `https://ecarbon.fly.dev/?plan=AB_Fourplex_01&trace=ln-interior-partition-p1-l0` (backup for the money shot)
    - `https://ecarbon.fly.dev/?plan=AB_Fourplex_01#options`
@@ -70,7 +70,20 @@ server-side and every visitor sees them. After the correction beat, press
 
 ### 0:20 The model (40 s): *quantity extraction*
 
-Tab 1. Drag the building to turn it once.
+Tab 1 opens on the **showcase**. Let it play: the rendering from the plan
+set's cover appears, steps back, and the measured model rises from the slab,
+floor plan first.
+
+> "That's the building as its architect drew it, from the cover of the PDF.
+> And this is what we read off the other forty-five pages."
+
+Drag to orbit, over the top and underneath to the grade beam. Pull the
+**Explode** slider to open the storeys. Hover a wall: it says what it is and
+its carbon per m². Swipe the panel on the right to **Carbon** and the model
+turns into a heat map.
+
+If anything misbehaves, **Classic view** (top right) is the original app, and
+`?classic=1` opens it directly.
 
 > "This is the takeoff, drawn. The footprint is 7 by 22 metres, measured off
 > the linework. The two storeys are at the datums read from the sections, and

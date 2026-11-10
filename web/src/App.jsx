@@ -12,6 +12,8 @@
 
 import {
   Fragment,
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -24,6 +26,16 @@ import {
 // *viewer's* localhost: every request failed for anyone but the developer,
 // while curl against the deployment worked perfectly and hid it.
 const API = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
+
+// The full-screen 3D view, fetched only when it opens, so the classic view's
+// bundle does not carry three.js.
+const Showcase = lazy(() => import("./Showcase.jsx"));
+// Opens on the showcase; `?classic=1` opens the classic view, so a link can
+// land on either.
+const OPEN_ON_SHOWCASE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("classic") !== "1" &&
+  !window.location.hash.replace(/^#\/?/, "");
 
 // Mirrors PARTITION_LINE_PREFIX in ecarbon/takeoff/builder.py.
 const PARTITION_PREFIX = "ln-interior-partition";
@@ -1509,6 +1521,45 @@ function face(points, fill, stroke, key, opacity = 1) {
   );
 }
 
+// Carbon per square metre of the surface drawn for each class. Totals answer
+// "how much of this is there"; intensity answers "how heavy is this surface",
+// which is the question a picture of a building can usefully show. Shared by
+// the drawing here and the showcase's 3D scene, so the two can never colour
+// the same building differently.
+const MASSING_WALL_H = 0.82;
+function surfaceIntensity(massing) {
+  const { width_m: W, depth_m: D, storey_heights_m: heights, walls } = massing;
+  const carbon = massing.carbon_by_class || {};
+  let z = 0;
+  const datums = [0];
+  for (const h of heights) {
+    z += h;
+    datums.push(z);
+  }
+  const total = z;
+  const wallFace = walls.reduce(
+    (sum, w) =>
+      sum + 2 * Math.max(w.w, w.d) * (heights[w.storey] ?? 3) * MASSING_WALL_H,
+    0,
+  );
+  const floorArea = W * D;
+  const area = {
+    slab_on_grade: floorArea,
+    exterior_wall: 2 * (W + D) * total,
+    interior_partition: wallFace,
+    roof_assembly: floorArea,
+    floor_assembly: floorArea * Math.max(1, heights.length - 1),
+  };
+  const intensity = {};
+  for (const [cls, kg] of Object.entries(carbon)) {
+    if (area[cls]) intensity[cls] = kg / area[cls];
+  }
+  const values = Object.values(intensity);
+  const hotI = values.length ? Math.max(...values) : 1;
+  const coolI = values.length ? Math.min(...values) : 0;
+  return { datums, total, intensity, hotI, coolI };
+}
+
 function Massing({ massing }) {
   const [storey, setStorey] = useState(null); // null = every storey
   // Dragging turns the building. Held in a ref as well as state so the
@@ -1542,44 +1593,9 @@ function Massing({ massing }) {
   if (!W || !D || !heights?.length) return null;
 
   const s = 15;
-  const WALL_H = 0.82;
+  const WALL_H = MASSING_WALL_H;
   const heat = mode === "carbon";
-
-  // Storey datums first: the surface areas below are computed from the
-  // building's height, and a const read above its declaration is a temporal
-  // dead zone error that blanks the entire page rather than warning.
-  let z = 0;
-  const datums = [0];
-  for (const h of heights) {
-    z += h;
-    datums.push(z);
-  }
-  const total = z;
-
-  // Carbon per square metre of the surface we actually draw for each class.
-  // Totals answer "how much of this is there"; intensity answers "how heavy
-  // is this surface", which is the question a picture of a building can
-  // usefully show.
-  const wallFace = walls.reduce(
-    (sum, w) =>
-      sum + 2 * Math.max(w.w, w.d) * (heights[w.storey] ?? 3) * WALL_H,
-    0,
-  );
-  const floorArea = W * D;
-  const area = {
-    slab_on_grade: floorArea,
-    exterior_wall: 2 * (W + D) * total,
-    interior_partition: wallFace,
-    roof_assembly: floorArea,
-    floor_assembly: floorArea * Math.max(1, heights.length - 1),
-  };
-  const intensity = {};
-  for (const [cls, kg] of Object.entries(carbon)) {
-    if (area[cls]) intensity[cls] = kg / area[cls];
-  }
-  const values = Object.values(intensity);
-  const hotI = values.length ? Math.max(...values) : 1;
-  const coolI = values.length ? Math.min(...values) : 0;
+  const { datums, total, intensity, hotI, coolI } = surfaceIntensity(massing);
 
   // In carbon mode a surface takes the colour of its intensity; in structure
   // mode the colour that makes the building readable.
@@ -2233,7 +2249,7 @@ function Sidebar({ projects, projectId, onPick, pages, page, onPage }) {
   );
 }
 
-function PageHeader({ takeoff, page, onUpload, exportHref, reportHref }) {
+function PageHeader({ takeoff, page, onUpload, exportHref, reportHref, onShowcase }) {
   const p = takeoff?.project || {};
   const facts = [
     p.jurisdiction,
@@ -2255,6 +2271,11 @@ function PageHeader({ takeoff, page, onUpload, exportHref, reportHref }) {
         {facts.length > 0 && <div className="page-facts">{facts.join(" · ")}</div>}
       </div>
       <div className="page-actions">
+        {onShowcase && (
+          <button className="btn btn-showcase" onClick={onShowcase}>
+            Showcase
+          </button>
+        )}
         {exportHref && (
           <>
             <a className="btn" href={exportHref}>
@@ -2315,6 +2336,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [scenario, setScenario] = useState(EMPTY_SCENARIO);
+  const [showcase, setShowcase] = useState(OPEN_ON_SHOWCASE);
 
   useEffect(() => {
     getJSON("/projects")
@@ -2509,6 +2531,56 @@ export default function App() {
     );
   }
 
+  const dialogs = (
+    <>
+      <TracePanel trace={trace} onClose={() => setTrace(null)} />
+      {uploading && (
+        <Upload
+          onClose={() => setUploading(false)}
+          onDone={async (id) => {
+            setUploading(false);
+            try {
+              const list = await getJSON("/projects");
+              setProjects(Array.isArray(list) ? list : list.projects || []);
+            } catch {
+              /* the selector will catch up on the next load */
+            }
+            setProjectId(id);
+            setPage("model");
+          }}
+        />
+      )}
+    </>
+  );
+
+  if (showcase && projects.length) {
+    return (
+      <>
+        <Suspense fallback={<div className="sc-loading">Loading the model…</div>}>
+          <Showcase
+            projects={projects}
+            projectId={projectId}
+            onProject={setProjectId}
+            takeoff={status === "loading" ? null : takeoff}
+            carbon={status === "loading" ? null : carbon}
+            massing={status === "loading" ? null : massing}
+            swaps={swaps}
+            decisions={decisions}
+            scenario={scenario}
+            onScenario={setScenario}
+            onTrace={showTrace}
+            onClassic={(target) => {
+              setShowcase(false);
+              setPage(target || "model");
+            }}
+            onUpload={() => setUploading(true)}
+          />
+        </Suspense>
+        {dialogs}
+      </>
+    );
+  }
+
   return (
     <div className="app app-shell">
       <Sidebar
@@ -2530,6 +2602,7 @@ export default function App() {
           onUpload={() => setUploading(true)}
           exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
           reportHref={projectId ? authedUrl(`/projects/${projectId}/report.html`) : null}
+          onShowcase={() => setShowcase(true)}
         />
 
       <main className={`page page-${page}`} key={page}>
@@ -2688,25 +2761,29 @@ export default function App() {
       </main>
       </div>
 
-      <TracePanel trace={trace} onClose={() => setTrace(null)} />
-
-      {uploading && (
-        <Upload
-          onClose={() => setUploading(false)}
-          onDone={async (id) => {
-            setUploading(false);
-            // Re-list so the new set appears in the selector, then open it.
-            try {
-              const list = await getJSON("/projects");
-              setProjects(Array.isArray(list) ? list : list.projects || []);
-            } catch {
-              /* the selector will catch up on the next load */
-            }
-            setProjectId(id);
-            setPage("model");
-          }}
-        />
-      )}
+      {dialogs}
     </div>
   );
 }
+
+// For the showcase view, which is loaded on demand and shares these so its
+// figures, labels and colours are the classic view's, not a second copy.
+export {
+  int,
+  dec,
+  titleCase,
+  isCounted,
+  useCountUp,
+  Confidence,
+  UNIT_LABEL,
+  CLASS_LABEL,
+  PARTITION_PREFIX,
+  HEAT,
+  heatColour,
+  surfaceIntensity,
+  gapTopic,
+  floorAreaNote,
+  decisionKey,
+  EMPTY_SCENARIO,
+  shortSource,
+};
