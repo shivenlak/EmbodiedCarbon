@@ -1343,7 +1343,30 @@ const CLASS_LABEL = {
 // the drawing here and the showcase's 3D scene, so the two can never colour
 // the same building differently.
 const MASSING_WALL_H = 0.82;
-function surfaceIntensity(massing) {
+const DOOR_LEAF_M2 = 0.86 * 2.03;
+
+// What the bill says about the openings: how many windows and how much glass,
+// how many doors. The read figures, not a reader's correction, because they
+// set how many blocks the model draws.
+function openingsOf(takeoff) {
+  const lines = takeoff?.lines || [];
+  const win = lines.filter((l) => l.element_class === "window");
+  const door = lines.filter((l) => l.element_class === "door");
+  const area = win.filter((l) => l.unit === "m2").reduce((s, l) => s + (l.quantity || 0), 0);
+  let count = 0;
+  for (const l of win) {
+    const m = String(l.description || "").match(/(\d+)\s+openings?/i);
+    if (m) count += Number(m[1]);
+    else if (l.unit === "each") count += l.quantity || 0;
+  }
+  if (!count && area) count = Math.round(area / 1.2);
+  const doors = door.filter((l) => l.unit === "each").reduce((s, l) => s + (l.quantity || 0), 0);
+  return {
+    windows: count ? { count, area } : null,
+    doors: doors ? { count: doors } : null,
+  };
+}
+function surfaceIntensity(massing, openings) {
   const { width_m: W, depth_m: D, storey_heights_m: heights, walls } = massing;
   const carbon = massing.carbon_by_class || {};
   let z = 0;
@@ -1366,6 +1389,10 @@ function surfaceIntensity(massing) {
     roof_assembly: floorArea,
     floor_assembly: floorArea * Math.max(1, heights.length - 1),
   };
+  // Openings are counted and measured, so their surface is known even though
+  // where each one sits is not.
+  if (openings?.windows?.area) area.window = openings.windows.area;
+  if (openings?.doors?.count) area.door = openings.doors.count * DOOR_LEAF_M2;
   const intensity = {};
   for (const [cls, kg] of Object.entries(carbon)) {
     if (area[cls]) intensity[cls] = kg / area[cls];
@@ -2194,6 +2221,7 @@ export {
   HEAT,
   heatColour,
   surfaceIntensity,
+  openingsOf,
   gapTopic,
   floorAreaNote,
   decisionKey,

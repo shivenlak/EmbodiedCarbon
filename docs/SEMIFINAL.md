@@ -106,6 +106,24 @@ Point at the right panel:
 > one quantity we measure off linework instead of reading from a schedule. It's
 > the least certain thing here, so you get both numbers."
 
+**Break it apart** (the cedar button in the dock, or drag **Explode** all the
+way). Every block bursts off the building, 166 of them on Fourplex 01, then
+flies into a list on the left, heaviest first. The total at the top counts up
+as each row lands and finishes on 43,075.
+
+> "Here's that number taken to pieces. Every block is part of the building,
+> and every row is where its carbon goes: exterior wall 12,305, slab 10,909,
+> and so on down. The running total ends on the figure from the cover."
+
+Press **Exterior wall**. Its eight blocks fly back onto the building and glow,
+and the row opens into the bill lines that make it up: quantity × factor =
+kilograms, each with its confidence and its sheet. Type a new quantity and the
+total moves. **Rebuild** (or Esc) puts it back together.
+
+> "Windows and doors are the one thing placed for illustration. We count them
+> and measure their area, but the drawings don't tell us where each one sits,
+> and the model says so wherever they show up."
+
 ### 1:00 Show your work (90 s): *quantity extraction, traceability*
 
 **Press "Interior partitions · A003"** in the panel, or open tab 3.
