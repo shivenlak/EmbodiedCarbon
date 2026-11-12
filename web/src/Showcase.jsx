@@ -7,8 +7,8 @@
 // quantity lights its element in the model, and pressing a surface in the
 // model opens the panel that explains it.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createScene } from "./scene.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createScene, SPLIT_STOREYS } from "./scene.js";
 import {
   int,
   dec,
@@ -22,6 +22,7 @@ import {
   HEAT,
   heatColour,
   surfaceIntensity,
+  openingsOf,
   gapTopic,
   floorAreaNote,
   decisionKey,
@@ -98,7 +99,22 @@ export default function Showcase({
   const [focus, setFocus] = useState(null);
   const [hover, setHover] = useState(null);
   const [storey, setStorey] = useState(null);
-  const [explode, setExplode] = useState(0);
+  // One slider: the first stretch opens the storeys, the rest takes the
+  // building to pieces.
+  const [split, setSplit] = useState(0);
+  const [splitTween, setSplitTween] = useState(false);
+  const [picked, setPicked] = useState(null);
+  const [landed, setLanded] = useState([]);
+  const [inventory, setInventory] = useState({});
+  const sliderRef = useRef(null);
+  const slotEls = useRef(new Map());
+  const listRef = useRef(null);
+  const broken = split > SPLIT_STOREYS + 0.001;
+  const brokenRef = useRef(false);
+  brokenRef.current = broken;
+  const [apart, setApart] = useState(false);
+  const apartRef = useRef(false);
+  const trayUp = broken || apart;
   const [heatPinned, setHeatPinned] = useState(false);
   const [deckOpen, setDeckOpen] = useState(true);
   const [cover, setCover] = useState("loading"); // loading | ok | none
@@ -116,7 +132,14 @@ export default function Showcase({
   const p = takeoff?.project || {};
   const heights = massing?.storey_heights_m || [];
 
-  const surfaces = useMemo(() => (massing ? surfaceIntensity(massing) : null), [massing]);
+  // Keyed by value: a correction re-fetches the takeoff, and a new object
+  // here would rebuild the whole scene mid-gesture.
+  const openingsKey = JSON.stringify(openingsOf(takeoff));
+  const openings = useMemo(() => JSON.parse(openingsKey), [openingsKey]);
+  const surfaces = useMemo(
+    () => (massing ? surfaceIntensity(massing, openings) : null),
+    [massing, openings],
+  );
 
   // ---- the scene ---------------------------------------------------------
 
@@ -130,6 +153,7 @@ export default function Showcase({
         hotI: surfaces.hotI,
         coolI: surfaces.coolI,
         still: STILL,
+        openings,
       });
     } catch (e) {
       setGlError(e?.message || "WebGL is not available in this browser");
@@ -138,9 +162,28 @@ export default function Showcase({
     sceneRef.current = handle;
     handle.onHover(setHover);
     handle.onPick((cls) => {
+      if (brokenRef.current) {
+        setPicked((c) => (c === cls ? null : cls));
+        return;
+      }
       setFocus(cls);
       goTo(cls === "interior_partition" || LINE_FOR[cls] ? 1 : 2);
     });
+    // The slider follows the building as it comes apart, without a render
+    // per frame.
+    handle.onSplit((v, settled) => {
+      if (sliderRef.current) sliderRef.current.value = String(v);
+      if (settled) setSplitTween(false);
+      // The list stays up until the last block has left it, so a rebuild
+      // flies the pieces home from their rows instead of from nowhere.
+      const apart = v > SPLIT_STOREYS + 1e-4;
+      if (apart !== apartRef.current) {
+        apartRef.current = apart;
+        setApart(apart);
+      }
+    });
+    handle.onLanded(setLanded);
+    setInventory(handle.inventory());
     setSpinning(!STILL);
     return () => {
       handle.dispose();
@@ -148,24 +191,39 @@ export default function Showcase({
     };
     // goTo is stable in effect (reads refs only)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [massing, surfaces]);
+  }, [massing, surfaces, openings]);
 
   useEffect(() => {
-    sceneRef.current?.set({ heat, storey, explode, focus, build: !intro });
-  }, [heat, storey, explode, focus, massing, intro]);
+    sceneRef.current?.set({
+      heat,
+      storey,
+      split,
+      splitTween,
+      focus: broken ? picked ?? focus : focus,
+      selected: broken ? picked : null,
+      build: !intro,
+    });
+  }, [heat, storey, split, splitTween, focus, picked, broken, massing, intro]);
 
   // Centre the building in the space the deck leaves, on a wide screen.
   useEffect(() => {
     const measure = () => {
       const wide = window.innerWidth > 820;
       const deck = document.querySelector(".sc-deck-inner");
-      const inset = wide && deckOpen && deck ? deck.getBoundingClientRect().width + 32 : 0;
+      const tray = document.querySelector(".bd");
+      const inset = !wide
+        ? 0
+        : broken && tray
+          ? -(tray.getBoundingClientRect().width + 32)
+          : deckOpen && deck
+            ? deck.getBoundingClientRect().width + 32
+            : 0;
       sceneRef.current?.set({ insetRight: inset });
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [deckOpen, massing]);
+  }, [deckOpen, massing, broken]);
 
   // ---- backdrop: the rendering from the plan set's cover ------------------
 
@@ -233,6 +291,11 @@ export default function Showcase({
         if (e.key === "Escape") onPage("model");
         return;
       }
+      if (broken && e.key === "Escape") {
+        if (picked) setPicked(null);
+        else rebuild();
+        return;
+      }
       if (e.key === "ArrowRight") goTo(panel + 1);
       if (e.key === "ArrowLeft") goTo(panel - 1);
     };
@@ -243,7 +306,13 @@ export default function Showcase({
     setPanel(0);
     setFocus(null);
     setStorey(null);
-    setExplode(0);
+    setSplit(0);
+    setPicked(null);
+    // A new building starts whole.
+    apartRef.current = false;
+    setApart(false);
+    setLanded([]);
+    if (sliderRef.current) sliderRef.current.value = "0";
     deckRef.current?.scrollTo({ left: 0 });
   }, [projectId]);
 
@@ -264,6 +333,77 @@ export default function Showcase({
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [lines, kgOf]);
   const topKg = byClass[0]?.[1] || 1;
+
+  // ---- the parts list ----------------------------------------------------
+
+  const carbonById = useMemo(() => new Map(carbonLines.map((l) => [l.line_id, l])), [carbonLines]);
+  const groups = useMemo(() => {
+    const kg = new Map(byClass);
+    const classes = new Set([...Object.keys(inventory), ...lines.map((l) => l.element_class)]);
+    return [...classes]
+      .map((cls) => ({
+        cls,
+        blocks: inventory[cls] || 0,
+        kg: kg.get(cls) || 0,
+        lines: lines.filter((l) => l.element_class === cls),
+      }))
+      .filter((g) => g.blocks || g.kg);
+  }, [byClass, inventory, lines]);
+  // The order is fixed when the building comes apart: a correction that
+  // re-ranks two rows would otherwise send their blocks jumping.
+  const [order, setOrder] = useState([]);
+  useEffect(() => {
+    if (broken && !order.length) {
+      setOrder([...groups].sort((a, b) => b.kg - a.kg).map((g) => g.cls));
+    } else if (!trayUp && order.length) {
+      setOrder([]);
+      setPicked(null);
+    }
+  }, [broken, trayUp, groups, order.length]);
+  const rows = order.length
+    ? order.map((cls) => groups.find((g) => g.cls === cls)).filter(Boolean)
+    : [...groups].sort((a, b) => b.kg - a.kg);
+  const groupTotal = rows.reduce((t, g) => t + g.kg, 0);
+  const landedSet = useMemo(() => new Set(landed), [landed]);
+  const landedKg = rows.reduce((t, g) => t + (landedSet.has(g.cls) || !g.blocks ? g.kg : 0), 0);
+  const allIn = rows.length > 0 && rows.every((g) => landedSet.has(g.cls) || !g.blocks);
+  const shownLanded = useCountUp(trayUp ? (allIn ? groupTotal : landedKg) : 0, 650);
+  const blockCount = rows.reduce((t, g) => t + g.blocks, 0);
+
+  // Where each row's slot is, for the blocks to fly to. Read every frame
+  // by the scene, so the blocks ride along when the list scrolls.
+  const slots = useCallback(() => {
+    const cv = canvasRef.current;
+    if (!cv) return null;
+    const c = cv.getBoundingClientRect();
+    const list = listRef.current?.getBoundingClientRect();
+    const out = {};
+    for (const [cls, el] of slotEls.current) {
+      const r = el.getBoundingClientRect();
+      out[cls] = {
+        x: r.left - c.left,
+        y: r.top - c.top,
+        w: r.width,
+        h: r.height,
+        clipTop: list ? list.top - c.top : null,
+        clipBottom: list ? list.bottom - c.top : null,
+      };
+    }
+    return out;
+  }, []);
+  useEffect(() => {
+    sceneRef.current?.set({ order, slots });
+  }, [order, slots, massing, surfaces]);
+
+  function breakApart() {
+    setSplit(1);
+    setSplitTween(true);
+  }
+  function rebuild() {
+    setPicked(null);
+    setSplit(0);
+    setSplitTween(true);
+  }
 
   const scenarioTotal = useMemo(() => {
     let t = total || 0;
@@ -338,7 +478,7 @@ export default function Showcase({
   // ---- render ------------------------------------------------------------
 
   return (
-    <div className={`sc${intro ? " is-intro" : ""}${heat ? " is-heat" : ""}`}>
+    <div className={`sc${intro ? " is-intro" : ""}${heat ? " is-heat" : ""}${broken ? " is-broken" : ""}`}>
       <div
         className={`sc-backdrop${cover === "ok" ? " has-cover" : ""}`}
         style={cover === "ok" ? { backgroundImage: `url(${coverUrl})` } : undefined}
@@ -404,7 +544,7 @@ export default function Showcase({
         </div>
         <div className="sc-top-actions">
           {exportHref && (
-            <a className="glass sc-btn" href={exportHref} download>
+            <a className="glass sc-btn sc-hide-phone" href={exportHref} download>
               Download CSV
             </a>
           )}
@@ -476,7 +616,7 @@ export default function Showcase({
               {dec(surfaces.intensity[hover.cls], 1)} kgCO₂e/m² of surface
             </span>
           )}
-          <em>press to see where it came from</em>
+          <em>{broken ? "press to put it back on the building" : "press to see where it came from"}</em>
         </div>
       )}
 
@@ -522,8 +662,9 @@ export default function Showcase({
               {areaNote && <p className="sc-flag">Floor area {areaNote}.</p>}
               <p className="sc-hint">
                 Drag to orbit on any axis, scroll to zoom, right-drag to pan.
-                Windows and doors are counted in the bill but not drawn: the
-                takeoff has their sizes, not their positions.
+                Windows and doors are counted and measured in the bill, but
+                the takeoff does not say where each sits, so their positions
+                on the walls are illustrative.
               </p>
             </section>
 
@@ -761,6 +902,102 @@ export default function Showcase({
         </div>
       )}
 
+      {/* ---- the parts list: the building, in pieces ---- */}
+      {trayUp && massing && !glError && (
+        <aside className={`bd${broken ? "" : " is-leaving"}`} aria-label="Every part and its carbon">
+          <header className="glass bd-top">
+            <div className="sc-eyebrow">Every part · A1–A3</div>
+            <div className="bd-total" aria-live="polite">
+              <b>{int(shownLanded)}</b>
+              <span>
+                {allIn ? "kgCO₂e, the whole building" : `of ${int(groupTotal)} kgCO₂e landed`}
+              </span>
+            </div>
+            <div className="bd-progress" aria-hidden="true">
+              <s style={{ width: `${groupTotal ? (Math.min(shownLanded, groupTotal) / groupTotal) * 100 : 0}%` }} />
+            </div>
+            <p>
+              {blockCount} blocks in {rows.length} kinds, heaviest first. Press a
+              row to put its blocks back on the building and see the working.
+            </p>
+          </header>
+          <ul className="bd-list" ref={listRef}>
+            {(() => {
+              let run = 0;
+              return rows.map((g) => {
+                run += g.kg;
+                const on = picked === g.cls;
+                const isIn = landedSet.has(g.cls) || !g.blocks;
+                const share = groupTotal ? (g.kg / groupTotal) * 100 : 0;
+                const illustrative = g.cls === "window" || g.cls === "door";
+                return (
+                  <li
+                    key={g.cls}
+                    className={`bd-row${on ? " is-on" : ""}${isIn ? " is-in" : ""}`}
+                  >
+                    <button
+                      className="bd-head"
+                      onClick={() => setPicked(on ? null : g.cls)}
+                      onMouseEnter={() => setFocus(g.cls)}
+                      onMouseLeave={() => setFocus(null)}
+                      aria-expanded={on}
+                    >
+                      <span
+                        className="bd-slot"
+                        style={{ height: slotHeight(g.blocks) }}
+                        aria-hidden="true"
+                        ref={(el) => {
+                          if (el && g.blocks) slotEls.current.set(g.cls, el);
+                          else slotEls.current.delete(g.cls);
+                        }}
+                      >
+                        {!g.blocks && <i>not drawn</i>}
+                      </span>
+                      <span className="glass bd-info">
+                        <span className="bd-name">
+                          {CLASS_LABEL[g.cls] || titleCase(g.cls)}
+                          <em>
+                            {g.blocks ? `${g.blocks} ${g.blocks === 1 ? "block" : "blocks"}` : "in the bill"}
+                            {illustrative && " · placed for illustration"}
+                          </em>
+                        </span>
+                        <span className="bd-kg">
+                          <b>{int(g.kg)}</b>
+                          <em>kg</em>
+                        </span>
+                        <span className="bd-bar" aria-hidden="true">
+                          <s style={{ width: `${(g.kg / (rows[0]?.kg || 1)) * 100}%` }} />
+                        </span>
+                        <span className="bd-run">
+                          {dec(share, 1)}% · running total <b>{isIn ? int(run) : "…"}</b>
+                        </span>
+                      </span>
+                    </button>
+                    {on && (
+                      <ul className="glass bd-lines">
+                        {g.lines.map((line) => (
+                          <PartLine
+                            key={line.id}
+                            line={line}
+                            carbonLine={carbonById.get(line.id)}
+                            onOverride={onOverride}
+                            onTrace={onTrace}
+                          />
+                        ))}
+                        {!g.lines.length && <li className="bd-none">No line in the bill for this part.</li>}
+                      </ul>
+                    )}
+                  </li>
+                );
+              });
+            })()}
+          </ul>
+          <button className="glass sc-btn bd-rebuild" onClick={rebuild}>
+            Put it back together
+          </button>
+        </aside>
+      )}
+
       {/* ---- the dock: what the model shows ---- */}
       {massing && !glError && (
         <nav className="sc-dock glass" aria-label="Model controls">
@@ -780,17 +1017,35 @@ export default function Showcase({
               </button>
             ))}
           </div>
-          <label className="sc-explode">
+          <label className="sc-explode" title="Open the storeys, then keep going to take it to pieces">
             <span>Explode</span>
             <input
+              ref={sliderRef}
               type="range"
               min="0"
               max="1"
-              step="0.01"
-              value={explode}
-              onChange={(e) => setExplode(Number(e.target.value))}
+              step="0.005"
+              defaultValue={0}
+              onChange={(e) => {
+                setSplit(Number(e.target.value));
+                setSplitTween(false);
+              }}
             />
           </label>
+          <button
+            className={`sc-break${broken ? " is-on" : ""}`}
+            onClick={broken ? rebuild : breakApart}
+            aria-pressed={broken}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+              {broken ? (
+                <path d="M4 20h16M6 20v-7l6-5 6 5v7" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              ) : (
+                <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM15 15l5 5M20 15l-5 5" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
+            <span>{broken ? "Rebuild" : "Break it apart"}</span>
+          </button>
           <div className="sc-seg" role="group" aria-label="Camera">
             {["top", "front", "side", "under"].map((v) => (
               <button key={v} onClick={() => { sceneRef.current?.view(v); setSpinning(false); }}>
@@ -813,5 +1068,109 @@ export default function Showcase({
         </nav>
       )}
     </div>
+  );
+}
+
+// A slot tall enough for its blocks to read as blocks: one row of big ones
+// for a slab, a little brick wall for seventy partitions.
+function slotHeight(n) {
+  if (!n) return 30;
+  if (n <= 4) return 44;
+  if (n <= 12) return 52;
+  return Math.min(150, 12 * Math.ceil(n / 8) + 8);
+}
+
+// One line of the bill, worked: what was read, times its factor, is its
+// carbon. The quantity can be corrected in place.
+function PartLine({ line, carbonLine, onOverride, onTrace }) {
+  const [draft, setDraft] = useState(null);
+  const edited = line.user_override != null;
+  const qty = edited ? line.user_override : line.quantity;
+  const unit = UNIT_LABEL[line.unit] || line.unit;
+  const f = carbonLine?.factor;
+  const converted = carbonLine?.conversion_note && !/directly matches/i.test(carbonLine.conversion_note);
+  // When the factor is declared in another unit, the multiplication is shown
+  // in that unit, so the arithmetic on screen is arithmetic that holds.
+  const inFactorUnit = f && f.gwp_value ? (carbonLine.kg_co2e || 0) / f.gwp_value : null;
+
+  async function commit() {
+    const value = parseFloat(draft);
+    setDraft(null);
+    if (!Number.isFinite(value) || value < 0) return;
+    // Typing back the figure we read is an undo.
+    if (value === line.quantity) {
+      if (edited) await onOverride(line.id, null);
+      return;
+    }
+    if (value === line.user_override) return;
+    await onOverride(line.id, value);
+  }
+
+  return (
+    <li className="bd-line">
+      <div className="bd-line-head">
+        <span>{line.description}</span>
+        <Confidence value={line.confidence} />
+      </div>
+      <div className="bd-math">
+        <label className="bd-qty">
+          <span className="sr">Quantity for {line.description}</span>
+          <input
+            inputMode="decimal"
+            value={draft ?? dec(qty, line.unit === "each" ? 0 : 2)}
+            onFocus={(e) => {
+              setDraft(String(qty));
+              requestAnimationFrame(() => e.target.select());
+            }}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                setDraft(null);
+                requestAnimationFrame(() => e.target.blur());
+              }
+            }}
+          />
+          <em>{unit}</em>
+        </label>
+        {f ? (
+          <>
+            {converted && inFactorUnit != null && (
+              <span className="bd-conv" title={carbonLine.conversion_note}>
+                → {dec(inFactorUnit, inFactorUnit < 10 ? 2 : 1)}
+                <em>{UNIT_LABEL[f.declared_unit] || f.declared_unit}</em>
+              </span>
+            )}
+            <span className="bd-op">×</span>
+            <span className="bd-factor">
+              {dec(f.gwp_value, f.gwp_value < 10 ? 2 : 0)}
+              <em>kg/{UNIT_LABEL[f.declared_unit] || f.declared_unit}</em>
+            </span>
+            <span className="bd-op">=</span>
+            <b className="bd-result">{int(carbonLine.kg_co2e)}</b>
+          </>
+        ) : (
+          <span className="bd-nofactor">
+            {carbonLine?.missing_reason || "no factor found, so not in the total"}
+          </span>
+        )}
+      </div>
+      <div className="bd-line-foot">
+        {f && <span className="bd-src">{f.name}</span>}
+        {converted && <span className="bd-src">{carbonLine.conversion_note}</span>}
+        {edited && (
+          <span className="bd-was">
+            we read {dec(line.quantity, 2)} ·{" "}
+            <button className="sc-link" onClick={() => onOverride(line.id, null)}>
+              undo
+            </button>
+          </span>
+        )}
+        <button className="sc-tag bd-sheet" onClick={() => onTrace(line.id, line.provenance)} title="Open the sheet this came from">
+          {line.provenance?.sheet_no || "sheet"}
+        </button>
+      </div>
+    </li>
   );
 }
