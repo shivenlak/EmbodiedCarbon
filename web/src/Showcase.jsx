@@ -101,15 +101,16 @@ export default function Showcase({
   const [storey, setStorey] = useState(null);
   // One slider: the first stretch opens the storeys, the rest takes the
   // building to pieces.
-  const [split, setSplit] = useState(0);
-  const [splitTween, setSplitTween] = useState(false);
+  // The split itself never goes through React: a slider tick is handed
+  // straight to the scene, and only crossing into "apart" re-renders.
+  const splitRef = useRef(0);
+  const [broken, setBroken] = useState(false);
   const [picked, setPicked] = useState(null);
   const [landed, setLanded] = useState([]);
   const [inventory, setInventory] = useState({});
   const sliderRef = useRef(null);
   const slotEls = useRef(new Map());
   const listRef = useRef(null);
-  const broken = split > SPLIT_STOREYS + 0.001;
   const brokenRef = useRef(false);
   brokenRef.current = broken;
   const [apart, setApart] = useState(false);
@@ -173,7 +174,6 @@ export default function Showcase({
     // per frame.
     handle.onSplit((v, settled) => {
       if (sliderRef.current) sliderRef.current.value = String(v);
-      if (settled) setSplitTween(false);
       // The list stays up until the last block has left it, so a rebuild
       // flies the pieces home from their rows instead of from nowhere.
       const apart = v > SPLIT_STOREYS + 1e-4;
@@ -197,13 +197,11 @@ export default function Showcase({
     sceneRef.current?.set({
       heat,
       storey,
-      split,
-      splitTween,
       focus: broken ? picked ?? focus : focus,
       selected: broken ? picked : null,
       build: !intro,
     });
-  }, [heat, storey, split, splitTween, focus, picked, broken, massing, intro]);
+  }, [heat, storey, focus, picked, broken, massing, intro]);
 
   // Centre the building in the space the deck leaves, on a wide screen.
   useEffect(() => {
@@ -306,7 +304,8 @@ export default function Showcase({
     setPanel(0);
     setFocus(null);
     setStorey(null);
-    setSplit(0);
+    splitRef.current = 0;
+    setBroken(false);
     setPicked(null);
     // A new building starts whole.
     apartRef.current = false;
@@ -396,13 +395,15 @@ export default function Showcase({
   }, [order, slots, massing, surfaces]);
 
   function breakApart() {
-    setSplit(1);
-    setSplitTween(true);
+    splitRef.current = 1;
+    sceneRef.current?.set({ split: 1, splitTween: true });
+    setBroken(true);
   }
   function rebuild() {
     setPicked(null);
-    setSplit(0);
-    setSplitTween(true);
+    splitRef.current = 0;
+    sceneRef.current?.set({ split: 0, splitTween: true });
+    setBroken(false);
   }
 
   const scenarioTotal = useMemo(() => {
@@ -1027,8 +1028,11 @@ export default function Showcase({
               step="0.005"
               defaultValue={0}
               onChange={(e) => {
-                setSplit(Number(e.target.value));
-                setSplitTween(false);
+                const v = Number(e.target.value);
+                splitRef.current = v;
+                sceneRef.current?.set({ split: v, splitTween: false });
+                const apartNow = v > SPLIT_STOREYS + 0.001;
+                if (apartNow !== brokenRef.current) setBroken(apartNow);
               }}
             />
           </label>
