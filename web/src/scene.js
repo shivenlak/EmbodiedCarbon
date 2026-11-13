@@ -10,9 +10,9 @@
 // read-out of one says its position is illustrative. The roof's pitch is not
 // drawn at all; there is no profile to draw.
 //
-// "Break it apart" takes the building to pieces: every block bursts off,
-// then flies to a slot in the parts list beside the model, so the list is
-// made of the building rather than describing it.
+// "Break it apart" takes the building to pieces: it spreads like an exploded
+// drawing, then every block glides to a slot in the parts list beside the
+// model, so the list is made of the building rather than describing it.
 //
 // Kept free of React so the render loop and React's renders never contend:
 // the component hands it state through the returned handle.
@@ -38,15 +38,22 @@ const STRUCTURE = {
   floor_assembly: "#dbe4f0",
   roof_assembly: "#dbe4f0",
   interior_partition: "#f4f7fb",
-  window: "#8ec3ff",
-  door: "#c4925f",
+  // Glass and a quiet leaf: part of the same pale building, not stickers on it.
+  window: "#cfe3ff",
+  door: "#d9e2ee",
 };
 
 // The share of the slider that opens the storeys; the rest takes the
 // building to pieces.
 export const SPLIT_STOREYS = 0.3;
-const BURST = 0.22; // of the break-apart: every block pops off together
-const FLY_WINDOW = 0.33; // of the rest: each block's own flight to the list
+// Of the break-apart: the building first spreads evenly about its centre, an
+// architect's exploded drawing, with nothing turned or thrown...
+const SPREAD = 0.3;
+const SPREAD_BY = 0.42;
+// ...then each kind of part glides to its row in turn, the windows of one
+// overlapping the next so the motion never stops and starts.
+const FLY_WINDOW = 0.5;
+const FLY_STAGGER = 0.42;
 const TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.42, 0.55, 0, "YXZ"));
 
 // Deterministic, so the same building always comes apart the same way.
@@ -61,7 +68,7 @@ function rng(seed) {
   };
 }
 const easeInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
-const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+const easeSine = (x) => -(Math.cos(Math.PI * x) - 1) / 2;
 
 // "rgb(12 34 56)" from the shared ramp, into a THREE.Color.
 function cssRgb(str) {
@@ -174,7 +181,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   const centre = new THREE.Vector3(W / 2, H * 0.4, D / 2);
   const classCount = {};
 
-  function solid({ cls, storey = null, x, y, z, w, h, d, opacity = 1, label, detail, order = 0 }) {
+  function solid({ cls, storey = null, x, y, z, w, h, d, opacity = 1, label, detail, order = 0, edge = 0.38 }) {
     const geo = new THREE.BoxGeometry(w, h, d);
     const mat = new THREE.MeshStandardMaterial({
       color: STRUCTURE[cls] || "#e2e8f0",
@@ -198,20 +205,11 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     ghost.position.copy(mesh.position);
     ghost.visible = false;
     root.add(ghost);
-    const part = { mesh, edges, ghost, cls, storey, baseOpacity: opacity, label, detail, y0: y + h / 2, h };
-    // ---- what the break-apart needs: where it lives, where it bursts to,
-    // how it tumbles, and how it lies once it is a tile in the list.
+    const part = { mesh, edges, ghost, cls, storey, baseOpacity: opacity, edgeOp: edge, label, detail, y0: y + h / 2, h };
+    // ---- what the break-apart needs: where it lives, and how it lies once
+    // it is a tile in the list.
     part.home = mesh.position.clone();
     part.index = classCount[cls] = (classCount[cls] ?? -1) + 1;
-    const out = part.home.clone().sub(centre);
-    out.y = Math.abs(out.y) * 0.6 + 1.2;
-    out.normalize();
-    part.burst = out.multiplyScalar(span * (0.16 + random() * 0.2));
-    part.burst.y += span * 0.06 * random();
-    part.tumble = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(random() - 0.5, random() - 0.5, random() - 0.5).normalize(),
-      (0.6 + random() * 1.4) * (random() < 0.5 ? -1 : 1),
-    );
     part.jitter = random();
     // Lay the block flat to the screen: longest side across, next side up,
     // thinnest side towards the viewer.
@@ -328,14 +326,16 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
         const pos = at.along === "x" ? at.x : at.z;
         const run = at.along === "x" ? W : D;
         const c = Math.min(Math.max(pos, ww / 2 + 0.4), run - ww / 2 - 0.4);
-        const T = EXT_T + 0.04;
+        // Set into the wall, not stuck on it: a pane inside the wall's own
+        // thickness, so the envelope stays one clean glass box.
+        const T = EXT_T - 0.05;
         solid({
           cls: "window", storey: s,
-          x: at.along === "x" ? c - ww / 2 : at.x === 0 ? -0.02 : W - T + 0.02,
+          x: at.along === "x" ? c - ww / 2 : at.x === 0 ? 0.025 : W - EXT_T + 0.025,
           y: sill,
-          z: at.along === "z" ? c - ww / 2 : at.z === 0 ? -0.02 : D - T + 0.02,
+          z: at.along === "z" ? c - ww / 2 : at.z === 0 ? 0.025 : D - EXT_T + 0.025,
           w: at.along === "x" ? ww : T, h: wh, d: at.along === "z" ? ww : T,
-          opacity: 0.72, order: 3,
+          opacity: 0.4, order: 3, edge: 0.22,
           label: "Window · position illustrative",
           detail: `one of ${winN}; the bill measures ${winArea.toFixed(1)} m² in all, but not where each sits`,
         });
@@ -356,13 +356,15 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       const top = (datums[w.storey + 1] ?? base + 3) - FLOOR_T;
       const dh = Math.min(2.03, top - base - 0.12);
       const alongX = w.w >= w.d;
-      const thick = Math.max(alongX ? w.d : w.w, 0.09) + 0.05;
+      // A hair proud of the wall each side, so it never z-fights the face.
+      const thick = Math.max(alongX ? w.d : w.w, 0.09) + 0.012;
       solid({
         cls: "door", storey: w.storey,
-        x: alongX ? w.x + w.w / 2 - DW / 2 : w.x - 0.025,
+        x: alongX ? w.x + w.w / 2 - DW / 2 : w.x - 0.006,
         y: base + GAP * 2,
-        z: alongX ? w.y - 0.025 : w.y + w.d / 2 - DW / 2,
+        z: alongX ? w.y - 0.006 : w.y + w.d / 2 - DW / 2,
         w: alongX ? DW : thick, h: dh, d: alongX ? thick : DW,
+        edge: 0.16,
         label: "Door · position illustrative",
         detail: `one of ${doorN} in the bill; it counts them, it does not place them`,
       });
@@ -371,13 +373,14 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     const slots = extDoorSlots.length ? extDoorSlots : [W / 2, W + D / 2, 2 * W + D * 1.5];
     for (let k = 0; k < left; k++) {
       const at = round(slots[k % slots.length] + Math.floor(k / slots.length) * 1.1);
-      const T = EXT_T + 0.04;
+      const T = EXT_T - 0.05;
       solid({
         cls: "door", storey: 0,
-        x: at.along === "x" ? at.x - DW / 2 : at.x === 0 ? -0.02 : W - T + 0.02,
+        x: at.along === "x" ? at.x - DW / 2 : at.x === 0 ? 0.025 : W - EXT_T + 0.025,
         y: GAP * 2,
-        z: at.along === "z" ? at.z - DW / 2 : at.z === 0 ? -0.02 : D - T + 0.02,
+        z: at.along === "z" ? at.z - DW / 2 : at.z === 0 ? 0.025 : D - EXT_T + 0.025,
         w: at.along === "x" ? DW : T, h: Math.min(2.03, (heights[0] || 3) - FLOOR_T - 0.1), d: at.along === "z" ? DW : T,
+        opacity: 0.55, order: 3, edge: 0.16,
         label: "Door · position illustrative",
         detail: `one of ${doorN} in the bill; it counts them, it does not place them`,
       });
@@ -398,6 +401,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     order: [], slots: null,
   };
   let splitShown = 0;
+  let tween = null; // { from, to, start, dur } for a button-driven split
   let lastNow = null;
   let onSplit = () => {};
   let onLanded = () => {};
@@ -434,7 +438,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       p.lit = lit;
       m.emissive.set(hovered ? "#d9a46a" : "#000000");
       m.emissiveIntensity = hovered ? 0.55 : 0;
-      p.edges.material.opacity = lit ? (hovered ? 0.95 : 0.38) : 0.04;
+      p.edges.material.opacity = lit ? (hovered ? 0.95 : p.edgeOp) : 0.04;
       p.edges.material.color.set(hovered ? "#ffd8a8" : state.heat ? "#1b2433" : "#ffffff");
     }
   }
@@ -493,13 +497,13 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     // plans open like drawers and every partition can be read from above.
     const lift = (s) => (s == null ? 0 : s * liftK * 3.2);
     const k = THREE.MathUtils.smoothstep(assemble, 0, 1);
-    const burst = easeOut(clamp01(bd / BURST));
-    const flyU = clamp01((bd - BURST) / (1 - BURST));
+    const spread = easeSine(clamp01(bd / SPREAD));
+    const flyU = clamp01((bd - SPREAD) / (1 - SPREAD));
     const targets = bd > 0 ? slotTargets() : null;
     const camQ = camera.quaternion;
     const nRows = Math.max(1, state.order.length - 1);
     const minFly = {};
-    ghostMat.opacity = 0.2 * burst;
+    ghostMat.opacity = 0.16 * easeSine(flyU);
     for (const p of parts) {
       // The build-up: below grade first, then each storey in turn.
       const order = p.storey == null ? 0 : p.storey + 1;
@@ -511,20 +515,20 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       qNow.identity();
       p.fly = 0;
       if (bd > 0) {
-        // Everything pops off at once...
-        vBurst.copy(vHome).addScaledVector(p.burst, burst);
-        qNow.slerpQuaternions(qId, p.tumble, burst);
-        // ...then flies to its row, row by row down the list, so the
+        // The building spreads about its centre, every block keeping its
+        // place relative to the rest...
+        vBurst.copy(vHome).sub(centre).multiplyScalar(1 + SPREAD_BY * spread).add(centre);
+        // ...then each kind glides to its row, in list order, so the
         // running total climbs as each one lands.
         const rank = state.order.indexOf(p.cls);
-        const delay = (rank < 0 ? 1 : rank / nRows) * 0.55 + p.jitter * 0.12;
+        const delay = (rank < 0 ? 1 : rank / nRows) * FLY_STAGGER + p.jitter * 0.08;
         const t = targets?.[p.cls];
         p.fly = t ? easeInOut(clamp01((flyU - delay) / FLY_WINDOW)) : 0;
         if (p.fly > 0) {
           const got = target(p, t, vT);
           // An arc rather than a straight line: up and over.
           vCtrl.copy(vBurst).lerp(vT, 0.5);
-          vCtrl.y += span * 0.12;
+          vCtrl.y += span * 0.05;
           const f = p.fly;
           vBurst.multiplyScalar((1 - f) * (1 - f)).addScaledVector(vCtrl, 2 * f * (1 - f)).addScaledVector(vT, f * f);
           qT.copy(camQ).multiply(TILT).multiply(p.flat);
@@ -564,9 +568,10 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       p.mesh.castShadow = bd < 0.02 && p.baseOpacity >= 0.5;
       // In pieces, every block is drawn solid enough to read as a block.
       const inList = p.fly * (1 - b);
+      // Glass in the building, glass while it spreads; a little more body
+      // once it is a tile, so a thin wall still reads in its slot.
       let op = p.op;
-      op += (Math.max(op, 0.55) - op) * burst * (1 - b);
-      op += ((p.lit ? 0.96 : 0.38) - op) * inList;
+      op += ((p.lit ? 0.85 : 0.3) - op) * inList;
       if (b > 0 && state.selected === p.cls) op = Math.max(op, p.baseOpacity, 0.5 * b);
       const m = p.mesh.material;
       m.opacity = op;
@@ -650,8 +655,21 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     // With the deck open the free area is left of it, so the building is
     // centred there rather than behind the glass; with the parts list open
     // (a negative inset), right of it.
-    const shift = Math.max(-w * 0.4, Math.min(state.insetRight, w * 0.4)) / 2;
-    if (shift !== 0) camera.setViewOffset(w, h, shift, 0, w, h);
+    shiftTo = Math.max(-w * 0.4, Math.min(state.insetRight, w * 0.4)) / 2;
+    if (!shiftReady || still) shiftNow = shiftTo;
+    shiftReady = true;
+    applyShift();
+  }
+  // The frame slides between centres rather than jumping when the deck or
+  // the parts list opens.
+  let shiftNow = 0;
+  let shiftTo = 0;
+  let shiftReady = false;
+  function applyShift() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (!w || !h) return;
+    if (Math.abs(shiftNow) > 0.25) camera.setViewOffset(w, h, shiftNow, 0, w, h);
     else camera.clearViewOffset();
     camera.updateProjectionMatrix();
   }
@@ -668,18 +686,32 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       const t = (now - assembleStart) / 1000 - ASSEMBLE_DELAY;
       assemble = Math.max(0, Math.min(1, t / ASSEMBLE_TIME));
     }
-    // The split follows its target: at a steady pace when a button sent it,
-    // close behind the thumb when the slider is being dragged.
-    const gap = state.split - splitShown;
-    if (gap) {
-      const pace = still ? 100 : state.splitTween ? 0.4 : Math.max(0.4, Math.abs(gap) * 5);
-      const stepBy = Math.sign(gap) * Math.min(Math.abs(gap), pace * dt);
-      splitShown += stepBy;
-      if (Math.abs(state.split - splitShown) < 1e-4) {
-        splitShown = state.split;
-        state.splitTween = false;
+    // The split eases to its target: a slow ease-in-out when a button sent
+    // it, a damped glide behind the thumb when the slider is dragged. Never
+    // a step, so a jerky drag still draws as a smooth one.
+    const before = splitShown;
+    if (still) {
+      splitShown = state.split;
+      tween = null;
+    } else if (tween) {
+      if (tween.start == null) tween.start = now;
+      const t = clamp01((now - tween.start) / 1000 / tween.dur);
+      splitShown = tween.from + (tween.to - tween.from) * easeSine(t);
+      if (t >= 1) {
+        splitShown = tween.to;
+        tween = null;
       }
-      onSplit(splitShown, splitShown === state.split);
+    } else if (splitShown !== state.split) {
+      splitShown += (state.split - splitShown) * (1 - Math.exp(-dt * 6));
+      if (Math.abs(state.split - splitShown) < 5e-4) splitShown = state.split;
+    }
+    if (splitShown !== before) onSplit(splitShown, splitShown === state.split && !tween);
+    if (Math.abs(shiftTo - shiftNow) > 0.25) {
+      shiftNow += (shiftTo - shiftNow) * (1 - Math.exp(-dt * 5));
+      applyShift();
+    } else if (shiftNow !== shiftTo) {
+      shiftNow = shiftTo;
+      applyShift();
     }
     // An exploded building is taller; the aim point rises with it so the
     // top storey does not leave the frame.
@@ -702,9 +734,17 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   return {
     set(next) {
       const insetChanged = next.insetRight != null && next.insetRight !== state.insetRight;
+      // Only what changes the look restyles; a slider tick should cost a
+      // number, not a pass over every material.
+      const styleChanged = ["heat", "focus", "storey"].some((k) => k in next && next[k] !== state[k]);
+      if ("split" in next && next.split !== state.split) {
+        tween = next.splitTween
+          ? { from: splitShown, to: next.split, start: null, dur: Math.max(0.8, (next.split > splitShown ? 6 : 4.5) * Math.abs(next.split - splitShown)) }
+          : null;
+      }
       Object.assign(state, next);
       if (insetChanged) resize();
-      restyle();
+      if (styleChanged) restyle();
     },
     onHover(fn) {
       onHover = fn;
