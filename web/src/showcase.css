@@ -825,4 +825,6 @@ a.sc-btn { display: inline-flex; align-items: center; text-decoration: none; col
   .sc-dock .sc-explode { display: none; }
   .sc-break span { display: none; }
   .sc-break { padding: 0 10px; }
+  /* Room for the roof toggle on a 360 px screen. */
+  .sc-dock .sc-seg button { padding: 0 7px; }
 }

@@ -141,6 +141,27 @@ class TakeoffInputs:
         return slabs.get(tag) if tag else None
 
 
+def _roof_area_note(levels) -> str:
+    """The roof-area assumption, with this design's own ridge height when known."""
+    rise = None
+    if levels is not None and levels.roof_level_m is not None and levels.floors:
+        hs = levels.storey_heights_m()
+        if hs:
+            r = levels.roof_level_m - levels.floors[0].elevation_m - sum(hs)
+            rise = r if 0.3 <= r <= 6.0 else None
+    where = (
+        f"this design's roof datum sits {rise:.2f} m above the top plate"
+        if rise is not None
+        else "the sections read give no roof datum above the top plate"
+    )
+    return (
+        "Roof area assumed equal to the footprint, which is its horizontal "
+        f"projection. A pitched roof's surface is larger: {where}, so the real "
+        "area is understated. The pitch is not dimensioned on the sheets read, so "
+        "no slope correction is applied rather than a guessed one."
+    )
+
+
 def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs, list, list[Gap]]:
     """Run the extraction stages for one design."""
     sheets, _, _ = inventory(design.drawings_pdf, with_scale=True)
@@ -912,13 +933,7 @@ def build_takeoff(
                 ElementClass.ROOF_ASSEMBLY,
                 confidence=Confidence.ASSUMED,
                 area_note=f"Area taken as the {fp.area_m2:.1f} m2 footprint.",
-                extra_assumptions=[
-                    "Roof area assumed equal to the footprint, which is its horizontal "
-                    "projection. A pitched roof's surface is larger: this design's roof "
-                    "datum sits 1.87 m above the top plate, so the real area is "
-                    "understated. The pitch is not dimensioned on the sheets read, so no "
-                    "slope correction is applied rather than a guessed one."
-                ],
+                extra_assumptions=[_roof_area_note(inputs.heights)],
             )
             lines += built
             gaps += more
