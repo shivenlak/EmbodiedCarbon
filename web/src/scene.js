@@ -7,8 +7,11 @@
 // The one exception is said out loud wherever it shows: windows and doors.
 // The takeoff counts them and measures their area, but does not record where
 // each sits, so they are spread along the walls for illustration and every
-// read-out of one says its position is illustrative. The roof's pitch is not
-// drawn at all; there is no profile to draw.
+// read-out of one says its position is illustrative. So is the pitched roof:
+// its ridge height is the section's TOP OF ROOF datum, measured, but the
+// shape between eave and ridge is not on the sheets, so it is drawn as a
+// plain gable over the long side and says so. It carries no carbon of its
+// own; the roof's carbon is the flat slab under it, the area the bill uses.
 //
 // "Break it apart" takes the building to pieces: it spreads like an exploded
 // drawing, then every block glides to a slot in the parts list beside the
@@ -265,9 +268,10 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   });
 
   // Floors between storeys, and the roof assembly on top.
+  let roofPart = null;
   datums.slice(1).forEach((d, i) => {
     const isRoof = i === datums.length - 2;
-    solid({
+    const made = solid({
       cls: isRoof ? "roof_assembly" : "floor_assembly",
       storey: i,
       x: EXT_T + GAP, y: d - FLOOR_T + GAP, z: EXT_T + GAP,
@@ -277,8 +281,40 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       label: isRoof ? "Roof" : "Floor assembly",
       detail: isRoof ? "flat here: the profile is not in the takeoff" : `between storeys ${i + 1} and ${i + 2}`,
     });
+    if (isRoof) roofPart = made;
   });
 
+  // ---- the pitched roof: measured ridge, illustrative shape --------------
+  // A gable over the long side, eaves on the wall line, ridge at the
+  // section's roof datum. Not a part: it is not in the bill and never
+  // leaves for the parts list; hovering it reads as the roof it sits on.
+  const rise = massing.roof_rise_m;
+  let pitched = null;
+  if (roofPart && rise > 0) {
+    const along = W >= D; // ridge runs along x when the plan is wider than deep
+    const run = along ? D : W;
+    const len = along ? W : D;
+    const tri = new THREE.Shape([
+      new THREE.Vector2(0, 0), new THREE.Vector2(run, 0), new THREE.Vector2(run / 2, rise),
+    ]);
+    const geo = new THREE.ExtrudeGeometry(tri, { depth: len, bevelEnabled: false });
+    // Shape in x-y, extruded along z: turn it so the ridge runs the long way,
+    // and put its origin at the plan's corner.
+    if (along) geo.rotateY(Math.PI / 2).translate(0, 0, run);
+    const mat = new THREE.MeshStandardMaterial({
+      color: STRUCTURE.roof_assembly, roughness: 0.82, metalness: 0.02,
+      transparent: true, opacity: 0, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 2;
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat.clone());
+    mesh.add(edges);
+    mesh.visible = false;
+    mesh.userData.part = roofPart;
+    root.add(mesh);
+    pitched = { mesh, edges, shown: 0 };
+    roofPart.detail = `ridge ${rise.toFixed(2)} m above the top storey, from the section; gable shape illustrative. Carbon is on the footprint area`;
+  }
   // Partitions, each where it was counted.
   for (const w of massing.walls) {
     const base = datums[w.storey] ?? 0;
@@ -392,7 +428,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   // `build` holds the build-up until the view says go, so it starts as the
   // photograph steps back rather than on a clock of its own.
   const state = {
-    heat: false, storey: null, focus: null, hover: null, insetRight: 0, build: still,
+    heat: false, storey: null, focus: null, hover: null, insetRight: 0, build: still, roof: true,
     // 0 → SPLIT_STOREYS opens the storeys; on to 1 takes it to pieces.
     split: 0, splitTween: false,
     // The class pressed in the parts list: its blocks fly back home.
@@ -583,6 +619,31 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
         m.emissiveIntensity = 0.4 * glow;
       }
     }
+    if (pitched) {
+      // Grows up out of the roof slab when switched on, and folds away as
+      // the building comes apart: the gable is no block of the bill.
+      const want = state.roof ? 1 : 0;
+      pitched.shown += (want - pitched.shown) * Math.min(1, dt * 5);
+      if (Math.abs(want - pitched.shown) < 0.002) pitched.shown = want;
+      const p = roofPart;
+      const g = easeSine(pitched.shown) * (1 - easeSine(clamp01(bd / SPREAD)));
+      const storeyOk = state.storey == null || state.storey === p.storey;
+      const e = Math.min(1, p.mesh.scale.y);
+      const m = pitched.mesh;
+      m.visible = g > 0.002 && e > 0.02 && storeyOk;
+      if (m.visible) {
+        m.position.set(p.mesh.position.x - p.home.x, p.mesh.position.y + p.h / 2, p.mesh.position.z - p.home.z);
+        m.scale.set(1, Math.max(0.001, g * e), 1);
+        const lit = p.lit;
+        const hovered = state.hover === p;
+        m.material.color.copy(p.mesh.material.color);
+        m.material.opacity = (lit ? Math.max(0.34, Math.min(p.op, 0.5)) : 0.05) * g;
+        m.material.emissive.set(hovered ? "#d9a46a" : "#000000");
+        m.material.emissiveIntensity = hovered ? 0.55 : 0;
+        pitched.edges.material.opacity = (lit ? (hovered ? 0.95 : 0.5) : 0.04) * g;
+        pitched.edges.material.color.set(hovered ? "#ffd8a8" : state.heat ? "#1b2433" : "#ffffff");
+      }
+    }
     if (bd > 0) {
       const landed = Object.keys(minFly).filter((c) => minFly[c] >= 0.999).sort();
       const key = landed.join(",");
@@ -608,7 +669,9 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     const r = canvas.getBoundingClientRect();
     ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hits = ray.intersectObjects(parts.filter((p) => p.mesh.visible).map((p) => p.mesh), false);
+    const meshes = parts.filter((p) => p.mesh.visible).map((p) => p.mesh);
+    if (pitched?.mesh.visible) meshes.push(pitched.mesh);
+    const hits = ray.intersectObjects(meshes, false);
     // Prefer a solid wall over the translucent shell in front of it, so the
     // envelope never blocks the partitions it was made see-through to show.
     const hit =

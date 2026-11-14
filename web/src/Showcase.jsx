@@ -99,6 +99,9 @@ export default function Showcase({
   const [focus, setFocus] = useState(null);
   const [hover, setHover] = useState(null);
   const [storey, setStorey] = useState(null);
+  // The pitched roof: its ridge is measured, its shape illustrative. Only
+  // offered when the sections gave a roof datum.
+  const [roofOn, setRoofOn] = useState(true);
   // One slider: the first stretch opens the storeys, the rest takes the
   // building to pieces.
   // The split itself never goes through React: a slider tick is handed
@@ -200,8 +203,9 @@ export default function Showcase({
       focus: broken ? picked ?? focus : focus,
       selected: broken ? picked : null,
       build: !intro,
+      roof: roofOn,
     });
-  }, [heat, storey, focus, picked, broken, massing, intro]);
+  }, [heat, storey, focus, picked, broken, massing, intro, roofOn]);
 
   // Centre the building in the space the deck leaves, on a wide screen.
   useEffect(() => {
@@ -1018,6 +1022,18 @@ export default function Showcase({
               </button>
             ))}
           </div>
+          {massing.roof_rise_m > 0 && (
+            <div className="sc-seg" role="group" aria-label="Roof">
+              <button
+                className={roofOn ? "is-on" : ""}
+                onClick={() => setRoofOn((r) => !r)}
+                aria-pressed={roofOn}
+                title={`Ridge ${massing.roof_rise_m.toFixed(2)} m above the top storey, from the section. The gable shape is illustrative.`}
+              >
+                Roof
+              </button>
+            </div>
+          )}
           <label className="sc-explode" title="Open the storeys, then keep going to take it to pieces">
             <span>Explode</span>
             <input

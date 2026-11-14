@@ -1018,9 +1018,24 @@ class Massing(BaseModel):
     width_m: float
     depth_m: float
     storey_heights_m: list[float]
+    # The section's TOP OF ROOF datum above the top storey's datum: how high
+    # the ridge stands. Measured; the roof's shape between eave and ridge is
+    # not, so a viewer drawing one must say it is illustrative. None when the
+    # sections carry no roof datum, or one that does not read as a pitch.
+    roof_rise_m: float | None = None
     walls: list[MassingWall] = Field(default_factory=list)
     carbon_by_class: dict[str, float] = Field(default_factory=dict)
     note: str
+
+
+def _roof_rise(levels, heights: list[float]) -> float | None:
+    """Ridge height above the top storey's datum, from the section's roof level."""
+    roof = getattr(levels, "roof_level_m", None) if levels else None
+    floors = levels.floors if levels else []
+    if roof is None or not floors:
+        return None
+    rise = roof - floors[0].elevation_m - sum(heights)
+    return round(rise, 3) if 0.3 <= rise <= 6.0 else None
 
 
 @app.get("/projects/{project_id}/massing", response_model=Massing | None)
@@ -1114,6 +1129,7 @@ def get_massing(project_id: str) -> Massing | None:
         width_m=round(footprint.width_m, 2),
         depth_m=round(footprint.depth_m, 2),
         storey_heights_m=[round(h, 3) for h in heights],
+        roof_rise_m=_roof_rise(inputs.heights, heights),
         walls=walls,
         carbon_by_class=by_class,
         note=(
