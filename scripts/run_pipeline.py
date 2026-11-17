@@ -3,6 +3,7 @@
 
     python scripts/run_pipeline.py              # all 53
     python scripts/run_pipeline.py AB_Sixplex   # one
+    python scripts/run_pipeline.py ~/ec-data/landmark/   # any folder or PDF
 
 This is the end-to-end check behind two rubric bars: that the intake opens any
 set in the catalogue without crashing, and that a set runs through to a carbon
@@ -20,10 +21,11 @@ import statistics
 import sys
 import time
 import traceback
+from pathlib import Path
 
 from ecarbon.carbon.calculate import calculate_carbon
 from ecarbon.carbon.store import LocalSnapshotProvider
-from ecarbon.config import discover, get_design
+from ecarbon.config import discover, get_design, pdf_designs
 from ecarbon.models import ProjectFacts
 from ecarbon.takeoff.builder import (
     ELEMENT_CARBON_SHARE,
@@ -56,7 +58,10 @@ def facts_for(design) -> ProjectFacts:
 
 
 def main(argv: list[str]) -> int:
-    designs = [get_design(argv[0])] if argv else list(discover())
+    if argv and Path(argv[0]).expanduser().exists():
+        designs = pdf_designs(Path(argv[0]).expanduser())
+    else:
+        designs = [get_design(argv[0])] if argv else list(discover())
 
     print(
         f"{'design':30} {'secs':>5} {'lines':>5} {'cov':>5} {'kgCO2e':>10} "

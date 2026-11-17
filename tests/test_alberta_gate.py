@@ -219,13 +219,16 @@ class TestAlbertaQuantities:
             and by_line.get(ln.id)
             and by_line[ln.id].kg_co2e
         )
-        # Excluding partitions: the figure every earlier published number used,
-        # unchanged, which is how we know nothing else moved.
-        assert carbon.total_kg_co2e - partitions == pytest.approx(37536, rel=0.02)
+        # Excluding partitions. 37,536 until wall framing stopped being priced
+        # as solid timber 150 mm thick over the whole wall area: it now takes a
+        # 140 mm stud at a 15% framing fraction, and the wall line alone fell
+        # from 2,877 to 403. Nothing else moved.
+        assert carbon.total_kg_co2e - partitions == pytest.approx(35061, rel=0.02)
         # 48,613 until partitions stopped being counted once per storey: the run
         # is summed over both plans, so it stands one storey tall, not two.
-        assert carbon.total_kg_co2e == pytest.approx(43075, rel=0.02)
-        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(140.8, rel=0.02)
+        # 43,075 before the framing fraction above.
+        assert carbon.total_kg_co2e == pytest.approx(40600, rel=0.02)
+        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(132.7, rel=0.02)
 
     def test_interior_partitions_are_measured_and_say_how_certain(self, takeoff):
         from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX

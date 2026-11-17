@@ -323,6 +323,22 @@ function TitleBlock({ takeoff, carbon, coverage }) {
 
 const UNIT_LABEL = { m3: "m³", m2: "m²", m: "m", each: "each", kg: "kg" };
 
+// The pipeline writes "m2" in prose; the interface shows m² everywhere else.
+const prose = (t) => String(t ?? "").replace(/\bm([23])\b/g, (_, d) => (d === "2" ? "m²" : "m³"));
+
+// A factor shown with fewer places than it has makes the arithmetic on screen
+// false: 0.42 kg/kg must not read as 0.
+const rate = (v) => dec(v, v < 10 ? 2 : 0);
+
+// When the factor is declared in another unit than the line (a wall in m²
+// against a factor per m³), the quantity in the factor's unit, so the
+// multiplication on screen is one that holds. Null when no conversion.
+function inFactorUnit(result) {
+  const f = result?.factor;
+  if (!f?.gwp_value || !result.conversion_note || /directly matches/i.test(result.conversion_note)) return null;
+  return (result.kg_co2e || 0) / f.gwp_value;
+}
+
 // "Kootenay Construction Material Impact Guide (2026)" does not fit beside a
 // figure; the full name stays in the tooltip and the derivation.
 function shortSource(source) {
@@ -531,7 +547,7 @@ function NoticeBody({ text }) {
   const long = String(text || "").length > NOTICE_FOLD;
   return (
     <div className="notice-body">
-      <div className={long && !open ? "is-folded" : undefined}>{text}</div>
+      <div className={long && !open ? "is-folded" : undefined}>{prose(text)}</div>
       {long && (
         <button className="notice-toggle" onClick={() => setOpen((o) => !o)}>
           {open ? "Show less" : "Show the full note"}
@@ -623,7 +639,7 @@ function BillOfQuantities({
                     )}
                   </div>
                   {line.description && (
-                    <div className="el-desc">{line.description}</div>
+                    <div className="el-desc">{prose(line.description)}</div>
                   )}
                   {(line.assumptions?.length || line.basis?.note) && (
                     <>
@@ -637,19 +653,21 @@ function BillOfQuantities({
                       </div>
                       {open[line.id] && (
                         <div className="derivation-body">
-                          {line.basis?.note && <div>{line.basis.note}</div>}
+                          {line.basis?.note && <div>{prose(line.basis.note)}</div>}
                           {result?.factor && isCounted(result) && (
                             <div className="derivation-carbon">
                               <b>Carbon:</b>{" "}
                               {dec(edited ? line.user_override : line.quantity, 2)}{" "}
-                              {UNIT_LABEL[line.unit] || line.unit} ×{" "}
-                              {dec(result.factor.gwp_value, 1)} kgCO₂e/
+                              {UNIT_LABEL[line.unit] || line.unit}
+                              {inFactorUnit(result) != null &&
+                                ` → ${dec(inFactorUnit(result), 2)} ${UNIT_LABEL[result.factor.declared_unit] || result.factor.declared_unit}`}{" "}
+                              × {rate(result.factor.gwp_value)} kgCO₂e/
                               {UNIT_LABEL[result.factor.declared_unit] ||
                                 result.factor.declared_unit}{" "}
                               = {int(result.kg_co2e)} kgCO₂e.{" "}
                               {result.conversion_note &&
                                 !/directly matches/.test(result.conversion_note) &&
-                                `${result.conversion_note} `}
+                                `${prose(result.conversion_note).replace(/\.$/, "")}. `}
                               Factor: {result.factor.name}, {result.factor.source}
                               , {result.factor.geography},{" "}
                               {(result.factor.modules || []).join("–")},{" "}
@@ -669,7 +687,7 @@ function BillOfQuantities({
                           {line.assumptions?.length > 0 && (
                             <ul>
                               {line.assumptions.map((a, i) => (
-                                <li key={i}>{a}</li>
+                                <li key={i}>{prose(a)}</li>
                               ))}
                             </ul>
                           )}
@@ -759,7 +777,9 @@ function BillOfQuantities({
                             .filter(Boolean)
                             .join("\n")}
                         >
-                          × {dec(result.factor.gwp_value, 0)} /
+                          {inFactorUnit(result) != null &&
+                            `${dec(inFactorUnit(result), 1)} ${UNIT_LABEL[result.factor.declared_unit] || result.factor.declared_unit} `}
+                          × {rate(result.factor.gwp_value)} kg/
                           {UNIT_LABEL[result.factor.declared_unit] ||
                             result.factor.declared_unit}
                           <em>
@@ -1036,15 +1056,77 @@ const TRACE_KIND = {
 // the measured region is the point: a 36x24 inch sheet scaled to fit a
 // dialog shows a grey haze, and the whole claim of this panel is that you can
 // see the thing that was measured.
+// Rects near each other, as groups. A label read from a sheet can match in
+// several places -- "SLAB ON GRADE" in five notes across S201 -- and zooming
+// to all of them at once is zooming to most of the sheet.
+function clusterRects(rects, reach = 160) {
+  const groups = [];
+  for (const r of rects) {
+    const near = groups.filter((g) =>
+      g.some((q) => r[0] - reach < q[2] && q[0] - reach < r[2] && r[1] - reach < q[3] && q[1] - reach < r[3]),
+    );
+    const merged = [r, ...near.flat()];
+    for (const g of near) groups.splice(groups.indexOf(g), 1);
+    groups.push(merged);
+  }
+  // Reading order: top to bottom, then left to right.
+  const top = (g) => Math.min(...g.map((q) => q[1]));
+  const left = (g) => Math.min(...g.map((q) => q[0]));
+  return groups.sort((a, b) => top(a) - top(b) || left(a) - left(b));
+}
+
+// The sheet's viewBox, glided rather than jumped: opening from the whole sheet
+// into the region shows where on the sheet it sits, which a cut straight to
+// the crop loses.
+function SheetView({ view, page, children, ...rest }) {
+  const whole = { x: 0, y: 0, w: page[0], h: page[1] };
+  const [box, setBox] = useState(STILL ? view : whole);
+  const at = useRef(box);
+  useEffect(() => {
+    if (STILL) {
+      setBox((at.current = view));
+      return;
+    }
+    const from = at.current;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / 650);
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const b = {};
+      for (const k of ["x", "y", "w", "h"]) b[k] = from[k] + (view[k] - from[k]) * e;
+      setBox((at.current = b));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    // Headless capture and background tabs can stall frames; land regardless.
+    const settle = setTimeout(() => {
+      cancelAnimationFrame(raf);
+      setBox((at.current = view));
+    }, 900);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+    };
+  }, [view.x, view.y, view.w, view.h]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <svg viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} {...rest}>
+      {children}
+    </svg>
+  );
+}
+
 function TracePanel({ trace, onClose }) {
   const [page, setPage] = useState(0);
   const [whole, setWhole] = useState(false);
+  const [spot, setSpot] = useState(0);
   const [drawn, setDrawn] = useState(false);
 
   useEffect(() => {
     setPage(0);
     setWhole(false);
   }, [trace?.lineId]);
+  useEffect(() => setSpot(0), [trace?.lineId, page]);
 
   useEffect(() => {
     setDrawn(false);
@@ -1063,6 +1145,7 @@ function TracePanel({ trace, onClose }) {
   const { lineId, label, regions, loading, error } = trace;
   const region = regions?.[page];
   const kind = TRACE_KIND[region?.kind] || TRACE_KIND.sheet_only;
+  const spots = clusterRects(region?.rects || []);
 
   // The viewBox is the measured region with a margin, or the whole sheet.
   // Everything else -- image placement, stroke widths -- follows from it, so
@@ -1071,7 +1154,7 @@ function TracePanel({ trace, onClose }) {
     const W = region?.page_width || 0;
     const H = region?.page_height || 0;
     if (!W || !H) return null;
-    const rects = region.rects || [];
+    const rects = spots[Math.min(spot, spots.length - 1)] || [];
     if (whole || !rects.length) return { x: 0, y: 0, w: W, h: H, full: true };
     const x0 = Math.min(...rects.map((r) => r[0]));
     const y0 = Math.min(...rects.map((r) => r[1]));
@@ -1080,7 +1163,7 @@ function TracePanel({ trace, onClose }) {
     // Breathing room so the region is legible in context rather than cropped
     // to its own edges, and a floor so a single thin wall is not magnified
     // into abstraction.
-    const pad = Math.max((x1 - x0) * 0.6, (y1 - y0) * 0.6, 90);
+    const pad = Math.max((x1 - x0) * 0.6, (y1 - y0) * 0.6, 200);
     const x = Math.max(0, x0 - pad);
     const y = Math.max(0, y0 - pad);
     return {
@@ -1138,6 +1221,17 @@ function TracePanel({ trace, onClose }) {
                   {whole ? "Zoom to the measurement" : "Show the whole sheet"}
                 </button>
               )}
+              {!whole && spots.length > 1 && (
+                <span className="trace-spots">
+                  <button onClick={() => setSpot((i) => (i + spots.length - 1) % spots.length)} aria-label="Previous place">
+                    ‹
+                  </button>
+                  {Math.min(spot, spots.length - 1) + 1} of {spots.length} places on this sheet
+                  <button onClick={() => setSpot((i) => (i + 1) % spots.length)} aria-label="Next place">
+                    ›
+                  </button>
+                </span>
+              )}
               {regions.length > 1 && (
                 <span className="trace-pager">
                   {regions.map((r, i) => (
@@ -1156,9 +1250,11 @@ function TracePanel({ trace, onClose }) {
 
             <div className="trace-body">
               {view ? (
-                <svg
+                <SheetView
+                  key={`${lineId}-${page}`}
+                  view={view}
+                  page={[region.page_width, region.page_height]}
                   className="trace-sheetview"
-                  viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
                   preserveAspectRatio="xMidYMid meet"
                   role="img"
                   aria-label={`Sheet ${region.sheet_no}${
@@ -1196,7 +1292,7 @@ function TracePanel({ trace, onClose }) {
                       />
                     );
                   })}
-                </svg>
+                </SheetView>
               ) : (
                 <div className="muted">
                   Nothing is highlighted on this sheet, by design.
@@ -1366,9 +1462,12 @@ function openingsOf(takeoff) {
     doors: doors ? { count: doors } : null,
   };
 }
-function surfaceIntensity(massing, openings) {
+// `carbon` stands in for the bill's own figures (a spec being tried), and
+// `mode: "share"` colours by kilograms instead: the second question, where
+// most of the carbon is, rather than which surface is heaviest.
+function surfaceIntensity(massing, openings, { carbon: override, mode = "area" } = {}) {
   const { width_m: W, depth_m: D, storey_heights_m: heights, walls } = massing;
-  const carbon = massing.carbon_by_class || {};
+  const carbon = override || massing.carbon_by_class || {};
   let z = 0;
   const datums = [0];
   for (const h of heights) {
@@ -1395,12 +1494,14 @@ function surfaceIntensity(massing, openings) {
   if (openings?.doors?.count) area.door = openings.doors.count * DOOR_LEAF_M2;
   const intensity = {};
   for (const [cls, kg] of Object.entries(carbon)) {
-    if (area[cls]) intensity[cls] = kg / area[cls];
+    if (area[cls]) intensity[cls] = mode === "share" ? kg : kg / area[cls];
   }
   const values = Object.values(intensity);
   const hotI = values.length ? Math.max(...values) : 1;
-  const coolI = values.length ? Math.min(...values) : 0;
-  return { datums, total, intensity, hotI, coolI };
+  // Shares are scaled from zero: a class with little carbon should look like
+  // little, not like the bottom of a range.
+  const coolI = mode === "share" ? 0 : values.length ? Math.min(...values) : 0;
+  return { datums, total, intensity, hotI, coolI, mode };
 }
 
 /* ------------------------------------------------------- sheet coverage -- */
@@ -1536,10 +1637,30 @@ function SheetStrip({ takeoff }) {
 // product. Until this existed the upload endpoint was reachable only by curl,
 // which meant the one thing that proves this is not a canned demo -- running
 // a set the service has never opened -- could not be done from the interface.
+// The pipeline's stages in the order the server reports them. Each ticks
+// only when the server says it finished, with what it found.
+const UPLOAD_STAGES = [
+  ["pages", "Open the PDF"],
+  ["sheets", "Read and classify every sheet"],
+  ["geometry", "Measure the footprint and walls"],
+  ["openings", "Count windows and doors"],
+  ["assemblies", "Resolve each assembly into layers"],
+  ["partitions", "Trace interior partitions"],
+  ["carbon", "Price the carbon"],
+];
+
 function Upload({ onDone, onClose }) {
   const [file, setFile] = useState(null);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stages, setStages] = useState(null);
+  const [since, setSince] = useState(0);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!busy) return undefined;
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [busy]);
   const [error, setError] = useState(null);
   const [facts, setFacts] = useState({
     name: "",
@@ -1559,7 +1680,7 @@ function Upload({ onDone, onClose }) {
       return;
     }
     setFile(f);
-    setFacts((x) => ({ ...x, name: x.name || f.name.replace(/\.pdf$/i, "") }));
+    setFacts((x) => ({ ...x, name: x.name || f.name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").trim() }));
   };
 
   async function submit(e) {
@@ -1570,17 +1691,33 @@ function Upload({ onDone, onClose }) {
     const body = new FormData();
     body.append("file", file);
     for (const [k, v] of Object.entries(facts)) if (v !== "") body.append(k, v);
+    setStages([]);
+    setSince(Date.now());
     try {
-      const res = await fetch(`${API}/projects/upload`, {
+      const res = await fetch(`${API}/projects/upload?background=true`, {
         method: "POST",
         headers: headers(),
         body,
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload.detail || `upload failed (${res.status})`);
-      onDone(payload.id);
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 500));
+        const r = await fetch(`${API}/uploads/${payload.job}`, { headers: headers() });
+        const job = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(job.detail || `upload lost (${r.status})`);
+        setStages((prev) => (prev && prev.length === job.stages.length ? prev : job.stages));
+        if (job.error) throw new Error(job.error);
+        if (job.done) {
+          // A beat on the finished list, so the last tick is seen.
+          await new Promise((r2) => setTimeout(r2, STILL ? 0 : 700));
+          onDone(job.result.id);
+          return;
+        }
+      }
     } catch (err) {
       setError(String(err.message || err));
+      setStages(null);
     } finally {
       setBusy(false);
     }
@@ -1632,7 +1769,7 @@ function Upload({ onDone, onClose }) {
             ) : (
               <>
                 <b>Drop a vector PDF here</b>
-                <span>or click to choose · any set from the CMHC catalogue works</span>
+                <span>or click to choose · a Revit or AutoCAD export; a scanned set has no text to read</span>
               </>
             )}
           </label>
@@ -1645,8 +1782,8 @@ function Upload({ onDone, onClose }) {
             {[
               ["name", "Name", "text", "As you want it shown"],
               ["gfa_m2", "Floor area m²", "number", "Leave blank to measure it"],
-              ["storeys", "Storeys", "number", ""],
-              ["units", "Units", "number", ""],
+              ["storeys", "Storeys", "number", "Optional"],
+              ["units", "Units", "number", "Optional"],
               ["jurisdiction", "Location", "text", "Edmonton, AB"],
             ].map(([key, label, type, hint]) => (
               <label key={key}>
@@ -1665,13 +1802,31 @@ function Upload({ onDone, onClose }) {
 
           {error && <p className="form-fail">{error}</p>}
 
+          {stages && (
+            <ol className="upload-stages" aria-live="polite">
+              {UPLOAD_STAGES.map(([key, label], i) => {
+                const hit = stages.find((x) => x[0] === key);
+                const current = !hit && i === stages.length;
+                return (
+                  <li key={key} className={hit ? "is-done" : current ? "is-now" : ""}>
+                    <i aria-hidden="true" />
+                    <span>{label}</span>
+                    <em>
+                      {hit ? hit[1] : current && busy ? `${Math.max(0, Math.round((Date.now() - since) / 1000))} s` : ""}
+                    </em>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+
           <div className="upload-actions">
             <button className="btn btn-primary" type="submit" disabled={!file || busy}>
               {busy ? "Reading the drawings…" : "Read this plan set"}
             </button>
             <span className="muted">
               {busy
-                ? "A 46-page set takes about 20 seconds."
+                ? "Reading every sheet is most of it: about 15 seconds for 50 pages."
                 : "Nothing is stored beyond this session."}
             </span>
           </div>
@@ -2227,6 +2382,9 @@ export {
   decisionKey,
   EMPTY_SCENARIO,
   shortSource,
+  prose,
+  rate,
+  inFactorUnit,
   DetailPage,
   AppFooter,
 };

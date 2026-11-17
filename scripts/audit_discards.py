@@ -28,14 +28,16 @@ thickness is a different animal from one carrying an empty block.
 
     python scripts/audit_discards.py             # whole catalogue
     python scripts/audit_discards.py AB QC       # just those regions
+    python scripts/audit_discards.py ~/ec-data/landmark/   # any folder or PDF
 """
 
 from __future__ import annotations
 
 import collections
 import sys
+from pathlib import Path
 
-from ecarbon.config import discover
+from ecarbon.config import discover, pdf_designs
 from ecarbon.extract.assemblies import assemblies_on_page
 
 # A refusal that still carried this much structure is worth a second look: the
@@ -60,8 +62,8 @@ def _reason_class(message: str) -> str:
     return "other"
 
 
-def audit(regions: set[str] | None = None) -> int:
-    designs = [
+def audit(regions: set[str] | None = None, folder: Path | None = None) -> int:
+    designs = pdf_designs(folder) if folder else [
         d
         for d in sorted(discover(), key=lambda x: x.key)
         if not regions or d.key.split("_")[0].upper() in regions
@@ -134,5 +136,8 @@ def audit(regions: set[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    wanted = {a.upper() for a in sys.argv[1:]} or None
+    args = sys.argv[1:]
+    if args and Path(args[0]).expanduser().exists():
+        raise SystemExit(audit(folder=Path(args[0]).expanduser()))
+    wanted = {a.upper() for a in args} or None
     raise SystemExit(audit(wanted))

@@ -139,6 +139,32 @@ class TestPrintableReport:
         assert "<script>alert" not in page
         assert "&lt;script&gt;" in page
 
+    def test_open_decisions_are_priced_but_kept_out_of_the_total(self, pair):
+        """Cladding left as a placeholder must show up, as a range, not as carbon."""
+        from types import SimpleNamespace as NS
+
+        takeoff, carbon = pair
+        choice = NS(
+            category="Cladding", assembly_tag="W1", drawing_says="placeholder",
+            area_m2=120.0, sheet_no="A300", low_kg_co2e=1200.0, high_kg_co2e=5400.0,
+            options=[NS(name="Fibre cement", kg_co2e=1200.0), NS(name="Brick", kg_co2e=5400.0)],
+        )
+        page = report_html(takeoff, carbon, [choice])
+        assert "Decisions still open" in page
+        assert "1,200&ndash;5,400" in page
+        assert "not in the" in page
+        assert "Decisions still open" not in report_html(takeoff, carbon)
+
+    def test_it_says_what_the_total_rests_on(self, pair):
+        """The share of carbon behind each kind of claim, adding to the whole."""
+        import re
+
+        takeoff, carbon = pair
+        page = report_html(takeoff, carbon)
+        assert "Rests on:" in page
+        shares = [int(x) for x in re.findall(r"</b> (\d+)%", page.split("Rests on:")[1][:400])]
+        assert shares and abs(sum(shares) - 100) <= len(shares)
+
     def test_it_is_a_complete_document(self, pair):
         takeoff, carbon = pair
         page = report_html(takeoff, carbon)

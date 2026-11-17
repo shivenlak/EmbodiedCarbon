@@ -125,6 +125,10 @@ _PLACEHOLDER_RE = re.compile(r"PLACE\s?HOLDER", re.I)
 _CW_TAIL_RE = re.compile(r"\s+C/W:?\s*$", re.I)
 _DEFER_RE = re.compile(r"\(?\s*REFER\s+TO\s+(\w+)[^)]*\)?", re.I)
 # The framing layer and the insulation that fills the gaps between it.
+# Share of a stud cavity the studs and plates take, at 400 mm centres; the
+# fill takes the rest. Also used where framing is carried only as a wall area.
+FRAMING_FRACTION = 0.15
+
 _FRAMING_RE = re.compile(r"\b(STUD|JOIST|TRUSS|RAFTER)\s+FRAMING\b|\bFRAMING\b", re.I)
 # A layer the schedule states is intermittent rather than continuous:
 # "WOOD STRAPPING @ 400mm O/C  (38mm WIDE MINIMUM)". Its thickness is the
@@ -322,7 +326,7 @@ class Layer:
             and self.coverage[0] > 0.0
         )
 
-    def volume_m3(self, area_m2: float, framing_fraction: float = 0.15) -> float | None:
+    def volume_m3(self, area_m2: float, framing_fraction: float = FRAMING_FRACTION) -> float | None:
         """Volume of this layer over `area_m2` of the assembly.
 
         A layer sharing a cavity takes only its share of it: the framing takes

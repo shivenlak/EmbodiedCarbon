@@ -862,6 +862,12 @@ table.boq td { padding: 11px var(--s4); vertical-align: top; }
 .trace-meta { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; padding: var(--s3) var(--s5) 0; }
 .trace-sheet { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 .trace-pager { display: flex; gap: 4px; margin-left: auto; }
+.trace-spots { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.trace-spots button {
+  font: 14px/1 var(--mono); width: 26px; height: 26px; border-radius: var(--r-sm);
+  border: 1px solid var(--rule-strong); background: transparent; color: var(--muted); cursor: pointer;
+}
+.trace-spots button:hover { border-color: var(--primary); color: var(--primary); }
 .trace-pager button {
   font-family: var(--mono);
   font-size: 11px;
@@ -1030,6 +1036,17 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 }
 
 .upload-body { padding: var(--s4) var(--s5) var(--s5); display: grid; gap: var(--s4); }
+.upload-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.upload-stages li { display: grid; grid-template-columns: 18px auto 1fr; align-items: center; gap: 10px; padding: 6px 2px; font-size: 13.5px; color: var(--muted); }
+.upload-stages li i { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--rule-strong); justify-self: center; transition: all 240ms var(--ease); }
+.upload-stages li em { font: 12px var(--mono); font-style: normal; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-stages li.is-now { color: var(--ink); }
+.upload-stages li.is-now i { border-color: var(--primary); border-top-color: transparent; animation: upload-spin 0.9s linear infinite; }
+.upload-stages li.is-done { color: var(--ink); }
+.upload-stages li.is-done i { background: var(--measured); border-color: var(--measured); box-shadow: 0 0 0 4px var(--measured-soft); }
+.upload-stages li.is-done em { color: var(--measured); }
+@keyframes upload-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .upload-stages li.is-now i { animation: none; } }
 
 .dropzone {
   display: grid;
@@ -1155,10 +1172,8 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 .qty-was {
   display: block;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
-  text-decoration: line-through;
-  text-decoration-color: var(--faint);
   margin-top: 2px;
 }
 .qty-edited .qty-btn { color: var(--primary); border-bottom-color: var(--primary); }

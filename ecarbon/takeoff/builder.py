@@ -881,6 +881,7 @@ def build_takeoff(
     design,
     project: ProjectFacts | None = None,
     trust_stated_gfa: bool = False,
+    progress=None,
 ) -> TakeoffResult:
     """Produce a bill of quantities for one design, from measured geometry.
 
@@ -890,23 +891,38 @@ def build_takeoff(
     report's figure is replaced: a number a person entered deliberately is
     theirs to change, and overriding it would answer a question they already
     answered.
+
+    `progress(stage, detail)` is told as each stage finishes, with what it
+    found, so an upload can show its real progress rather than a spinner.
     """
+    tell = progress or (lambda stage, detail: None)
     facts = project or ProjectFacts(name=design.key)
     expected = (
         facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
     )
     inputs, sheets, gaps = gather(design, expected)
+    tell(
+        "sheets",
+        f"{len(sheets)} sheets classified, {sum(1 for s in sheets if s.readable)} readable",
+    )
 
     lines = _foundation_lines(inputs) + _wall_lines(inputs)
+    fp = inputs.footprint
+    tell(
+        "geometry",
+        f"footprint {fp.area_m2:,.0f} m2 off sheet {inputs.footprint_sheet}"
+        if fp
+        else "no footprint could be measured",
+    )
 
     opening_lines, opening_gaps = _opening_lines(design)
     lines += opening_lines
     gaps += opening_gaps
+    tell("openings", f"{len(opening_lines)} window and door lines from the schedules")
 
     # Resolve each element's area into its materials, using the assembly the
     # drawings actually reference rather than the first one the schedule lists.
     wall = next((ln for ln in lines if ln.id == "ln-exterior-wall"), None)
-    fp = inputs.footprint
 
     if wall is not None:
         asm = inputs.assembly_for("W")
@@ -983,10 +999,13 @@ def build_takeoff(
             lines += built
             gaps += more
 
+    tell("assemblies", f"{len(inputs.assemblies)} assemblies resolved into their layers")
+
     # Interior partitions, measured from the plans rather than assumed.
     partition_lines, partition_gaps = _partition_lines(design, inputs)
     lines += partition_lines
     gaps += partition_gaps
+    tell("partitions", f"{len(partition_lines)} partition lines off the plan linework")
 
     if inputs.footprint is not None and facts.gfa_m2 is None:
         facts.gfa_m2 = round(inputs.footprint.area_m2 * max(inputs.heights.n_storeys, 1), 1)
