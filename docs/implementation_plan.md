@@ -46,7 +46,8 @@ Week 6: Commercial Rollout & Expansion Roadmap
 ### Phase 1: Intake & Calibration (Weeks 1–2)
 - **Data Ingestion:** Landmark provides vector PDF drawings for 3 representative models (e.g., single-family detached, laneway suite / garage suite, and multi-unit townhouse).
 - **Material Factor Mapping:** Map Landmark's specific regional suppliers (e.g., Lafarge ECOPact concrete mix designs, local SPF lumber, specific triple-pane window specs) into our SQLite/local factor store with regional EPD numbers.
-- **Drawing Toolchain Alignment:** Tune page classification ladder and viewport scale calibration to Landmark's Revit/AutoCAD drafting standards.
+- **Drawing Toolchain Alignment:** Run Landmark's sets through intake on day one. Each page is classified by how it was exported (`classify_toolchain`: Revit, AutoCAD, outlined text and so on), so a new exporter shows up as a named toolchain in the review notes, not as wrong quantities. Calibration effort goes to whichever toolchain the notes flag.
+- **Basements and garages:** the CMHC Alberta sets we built against stand on grade beams and screw piles, but Landmark builds on full basements with attached garages. In weeks 1–2 we check the foundation-wall and strip-footing lines, which are already read on the Ontario and BC sets, against Landmark's own sections. Any garage slab is reported as its own line or as not counted, never folded silently into the house footprint.
 
 ### Phase 2: Pilot Validation & Shadowing (Weeks 3–4)
 - **Side-by-Side Comparison:** Run our automated takeoff pipeline concurrently with Landmark's estimating team on 3 live production projects.
@@ -139,7 +140,7 @@ week three.
 | **Per-unit vs whole-block floor area** | One catalogue design reports area for a single unit while its drawings depict the whole block, giving an intensity six times its neighbours'. Quantities were right; the denominator was wrong | The upload asks for gross floor area and its basis rather than inferring it. Week 1 confirms the basis against Landmark's own convention |
 | **Deferred specifications** | CMHC's drawings say "cladding placeholder" and "roofing placeholder", worth ~12% of a home's embodied carbon | Reported as open decisions priced as a range, never defaulted. Landmark's actual spec closes them in week 1 |
 | **Drawing conventions shift inside one PDF** | Architectural pages are Revit exports, structural pages AutoCAD, in the same file. Per-file assumptions break | Detection is per page, not per file |
-| **Structural members deferred to another discipline** | Schedules say "see structural", so framing is absent from the architectural set | Reported as a gap. If Landmark's structural sets are available, they are ingested too |
+| **Structural members deferred to another discipline** | Schedules say "see structural", so floor joists, roof trusses and steel studs are absent from the architectural set. Only foundation concrete is read from the structural sheets today | Each one is named in the review notes as not counted, with its carbon missing from the total, never implied. Landmark's truss and joist layouts (or supplier quantities) close it in week 2 |
 | **A region can regress when another improves** | Every extraction module is shared; a change made for one province moves another. Ontario fell 42% to 29% while Alberta rose to 100% | A pinned regression gate on the development region, run on every change. Landmark's sets get the same treatment from week 2 |
 
 ---

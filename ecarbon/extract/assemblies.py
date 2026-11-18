@@ -455,16 +455,20 @@ class Assembly:
     def _deferral_gap(self, layer: Layer) -> str:
         """Where a deferred layer is counted, which is not always anywhere.
 
-        Only foundation concrete is read off the structural drawings, and wall
-        framing is priced over the exterior wall area. Joists, trusses and
-        steel studs are counted nowhere, and saying "counted there" for them
-        claimed carbon the total does not hold.
+        Only slab and footing concrete is read off the structural drawings, and
+        wall framing is priced over the exterior wall area. Joists, trusses,
+        steel studs and foundation-wall concrete are counted nowhere, and
+        saying "counted there" for them claimed carbon the total does not hold.
         """
         head = (f"{self.tag} layer {layer.index + 1} '{layer.material}' defers to the "
                 f"{layer.deferred_to.lower()} drawings")
-        if _CONCRETE_RE.search(layer.material):
+        if _CONCRETE_RE.search(layer.material) and not self.tag.upper().startswith("FW"):
             return f"{head} and is counted there, not here"
-        if layer.is_framing and self.tag.upper().startswith("W") and not STEEL_RE.search(layer.material):
+        if layer.is_framing and self.tag.upper().startswith("W"):
+            if STEEL_RE.search(layer.material):
+                # Named once, on the exterior wall line, so it is not listed twice.
+                return (f"{head}; the factor store has no steel stud factor, so the "
+                        f"exterior wall framing line is not counted")
             return f"{head}; it is counted once, as framing over the exterior wall area"
         return (f"{head}, which are not quantified for it, so it is not counted: "
                 f"its carbon is missing from the total")

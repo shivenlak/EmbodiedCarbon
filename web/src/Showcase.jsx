@@ -724,6 +724,11 @@ export default function Showcase({
               <b>{int(shownLean)}</b> without the inferred partitions
             </span>
           )}
+          {p.units > 1 && (
+            <span>
+              <b>{int(total / p.units)}</b> per home, over {p.units}
+            </span>
+          )}
         </div>
         {restsOn && (
           <div className="sc-rests" onMouseLeave={() => setRestsHover(null)}>

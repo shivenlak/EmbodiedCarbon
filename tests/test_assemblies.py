@@ -478,5 +478,6 @@ class TestDeferralSaysWhereItIsCounted:
     def test_joists_trusses_and_steel_studs_say_they_are_missing(self):
         for tag, material in (("F2", "ENGINEERED WOOD JOIST OR I-JOIST"),
                               ("R2", "PRE FABRICATED ROOF TRUSS"),
-                              ("W2", "METAL STUD FRAMING")):
+                              ("W2", "METAL STUD FRAMING"),
+                              ("FW1.1", "CAST-IN-PLACE CONCRETE")):
             assert "not counted" in self.gap_for(tag, material), material

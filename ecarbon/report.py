@@ -263,6 +263,28 @@ choice closes it.</p>
         else ""
     )
 
+    # Everything the total leaves out, in one place: bill rows with no factor
+    # and layers deferred to drawings nothing reads. Each is real carbon.
+    line_of = {ln.id: ln for ln in takeoff.lines}
+    left_out = [
+        (line_of[c.line_id].description or c.line_id, c.missing_reason)
+        for c in carbon.lines
+        if c.kg_co2e is None and c.missing_reason and c.line_id in line_of
+    ] + [(None, g.message) for g in takeoff.gaps if "so it is not counted" in g.message]
+    left_out_section = (
+        "<h2>Not in the total</h2>"
+        '<p class="muted" style="max-width:72ch">Real carbon this total does not hold, '
+        "because the drawings defer it or the factor store has nothing for it. "
+        "The total is low by these, not complete without them.</p><ul>"
+        + "".join(
+            f"<li>{f'<b>{_prose(what)}.</b> ' if what else ''}{_prose(why)}</li>"
+            for what, why in left_out
+        )
+        + "</ul>"
+        if left_out
+        else ""
+    )
+
     contrib_html = "".join(
         f"<tr><td>{_esc(x.key)}</td><td class='num'>{x.kg_co2e:,.0f}</td>"
         f"<td class='num'>{x.pct_of_total:.1f}%</td></tr>"
@@ -366,7 +388,7 @@ choice closes it.</p>
 <div class="scope">Modules {module_label(carbon.modules)} &middot; product stage only</div>
 <div style="margin-top:10px">Intensity
   <b class="num">{carbon.intensity_kg_co2e_per_m2:,.1f}</b> kg CO&#8322;e per m&sup2;
-  ({_esc(carbon.intensity_basis)} floor area).</div>
+  ({_esc(carbon.intensity_basis)} floor area){f' &middot; <b class="num">{carbon.total_kg_co2e / p.units:,.0f}</b> kg CO&#8322;e per home, over {p.units} homes' if p.units and p.units > 1 else ''}.</div>
 {f'<div class="warn">{_esc(coverage)}</div>' if coverage else ''}
 <p class="muted" style="margin-top:12px;max-width:72ch">This figure covers the
 product stage only &mdash; raw material supply, transport to the factory and
@@ -377,6 +399,8 @@ one without restating both to the same modules.</p>
 
 <h2>What could not be read</h2>
 <ul>{gap_html}</ul>
+
+{left_out_section}
 
 {decisions_section}
 

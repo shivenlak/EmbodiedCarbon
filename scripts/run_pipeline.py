@@ -23,7 +23,9 @@ import time
 import traceback
 from pathlib import Path
 
-from ecarbon.carbon.calculate import calculate_carbon
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ecarbon.carbon.calculate import calculate_carbon  # noqa: E402
 from ecarbon.carbon.store import LocalSnapshotProvider
 from ecarbon.config import discover, get_design, pdf_designs
 from ecarbon.models import ProjectFacts

@@ -52,8 +52,8 @@ Intensity tracks coverage almost exactly, which is the expected signature and
 also the reason every total in this system is reported with the share of the
 building it reaches.
 
-So: where a figure below is quoted for AB_Fourplex_01 — 100% coverage, 43,075
-kgCO₂e, 140.8 kgCO₂e/m² — read it as **the best case on the development
+So: where a figure below is quoted for AB_Fourplex_01 — 100% coverage, 38,075
+kgCO₂e, 124.4 kgCO₂e/m² — read it as **the best case on the development
 region**, not as typical. The median design gets **52%**, and only **7 of 45**
 reach 80%.
 
@@ -406,6 +406,23 @@ Partitions now stand one storey tall. AB_Fourplex_01 moves from 48,613 to
 43,075 kgCO₂e; its total without partitions is unchanged at 37,536.
 `tests/test_partitions.py::test_partitions_stand_one_storey_tall` pins it.
 
+**Stud framing, corrected in November.** Framing was priced as solid timber:
+first the exterior wall (150 mm over the whole area), then, once that took a
+140 mm stud at a 15% framing fraction, the partitions (89 mm studs with an
+empty cavity, which the fraction skipped). W2's "METAL STUD FRAMING" was also
+priced with the timber factor; the store has no steel stud factor, so it is
+now uncounted and named. AB_Fourplex_01, with the `tests/test_alberta_gate.py`
+facts:
+
+| | Total | Without partitions | kg/m² |
+|---|---|---|---|
+| Before | 43,075 | 37,536 | 140.8 |
+| Exterior wall at stud share | 40,600 | 35,061 | 132.7 |
+| Partition studs too, steel studs uncounted | **38,075** | **34,659** | **124.4** |
+
+The other Alberta sets: AB_Fourplex_02 61,179 → 57,611, AB_Rowhouse_02
+27,472 → 24,388, AB_Sixplex 65,555 → 61,747.
+
 **Known weakness, unresolved.** AB_Fourplex_01's `W1` exterior wall is 235 mm
 and its `P3` demising wall is also 235 mm, so depth alone cannot separate an
 exterior run from a partition. A perimeter-exclusion filter was written and
@@ -462,9 +479,9 @@ is discipline.
 | Summing across scopes | **raises**, never silently totals |
 | Unmatched materials | visible rows with a stated reason, excluded from the total |
 
-AB_Fourplex_01 end to end: **43,075 kg CO₂e A1–A3 at 140.8 kg/m²**, from 20
+AB_Fourplex_01 end to end: **38,075 kg CO₂e A1–A3 at 124.4 kg/m²**, from 20
 bill-of-quantities lines covering **100%** of the building's embodied carbon by
-element. Excluding the inferred interior partitions it is **37,536 kg CO₂e**,
+element. Excluding the inferred interior partitions it is **34,659 kg CO₂e**,
 and both are reported because the partition run is measured off the linework
 rather than stated by a schedule. The published whole-life figure for the same
 building is 162,043 kg CO₂e, of which A1–A5 is 107,000 — our product-stage
