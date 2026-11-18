@@ -44,6 +44,7 @@ from datetime import date
 import pymupdf
 
 from ecarbon.extract.assemblies import (
+    STEEL_RE,
     Assembly,
     assemblies_for,
     assembly_tags_used,
@@ -516,6 +517,11 @@ def _assembly_lines(
                 f"{2 * layer.thickness_mm:.0f} mm of material in a "
                 f"{layer.thickness_mm:.0f} mm space."
             )
+        elif layer.is_framing:
+            notes.append(
+                f"Studs at centres take {STUD_FRAMING_FRACTION:.0%} of the "
+                f"{layer.thickness_mm:.0f} mm depth; the rest of the cavity is empty."
+            )
 
         out.append(
             TakeoffLine(
@@ -926,6 +932,16 @@ def build_takeoff(
 
     if wall is not None:
         asm = inputs.assembly_for("W")
+        steel = asm and next((x for x in asm.layers if x.is_framing and STEEL_RE.search(x.material)), None)
+        if steel is not None:
+            # The store holds only timber framing; pricing steel studs as wood
+            # would put a confident wrong number on the line.
+            wall.material = "Steel Stud Framing"
+            wall.assumptions.append(
+                f"{asm.tag} frames with '{steel.material}'. The factor store has no "
+                f"steel stud factor, so this framing is not counted rather than "
+                f"priced as timber."
+            )
         if asm is not None:
             built, more = _assembly_lines(
                 asm,
