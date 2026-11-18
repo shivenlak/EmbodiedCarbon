@@ -172,7 +172,8 @@ class TestUploadingAPlanSet:
         assert pid.startswith("upload-")
         # The same drawings through a different door must give the same answer.
         assert body["n_lines"] == 20
-        assert body["total_kg_co2e"] == pytest.approx(43075, rel=0.02)
+        # 40,600 since wall framing is priced at its stud share (was 43,075).
+        assert body["total_kg_co2e"] == pytest.approx(40600, rel=0.02)
 
         for endpoint in ("takeoff", "carbon", "intake", "substitutions", "unspecified"):
             assert client.get(f"/projects/{pid}/{endpoint}").status_code == 200
@@ -188,6 +189,47 @@ class TestUploadingAPlanSet:
         )
         assert image.status_code == 200
         assert image.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_a_background_upload_reports_its_failure_through_the_job(self, client):
+        """The job route carries the same refusal the blocking one raises."""
+        import time
+
+        resp = client.post(
+            "/projects/upload?background=true",
+            files={"file": ("broken.pdf", b"%PDF-1.7\nnot really", "application/pdf")},
+        )
+        assert resp.status_code == 201
+        job = resp.json()["job"]
+        for _ in range(100):
+            status = client.get(f"/uploads/{job}").json()
+            if status["done"]:
+                break
+            time.sleep(0.05)
+        assert status["done"] and status["result"] is None
+        assert "Nothing partial is stored" in status["error"]
+        assert client.get("/uploads/not-a-job").status_code == 404
+
+    @pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+    def test_a_background_upload_reports_real_stages(self, client):
+        import time
+
+        from ecarbon.config import get_design
+
+        pdf = get_design("AB_Sixplex").drawings_pdf
+        with open(pdf, "rb") as handle:
+            job = client.post(
+                "/projects/upload?background=true",
+                files={"file": (pdf.name, handle, "application/pdf")},
+            ).json()["job"]
+        for _ in range(1200):
+            status = client.get(f"/uploads/{job}").json()
+            if status["done"]:
+                break
+            time.sleep(0.1)
+        assert status["error"] is None, status["error"]
+        stages = [s for s, _ in status["stages"]]
+        assert stages == ["pages", "sheets", "geometry", "openings", "assemblies", "partitions", "carbon"]
+        assert client.get(f"/projects/{status['result']['id']}/takeoff").status_code == 200
 
     @pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
     def test_uploads_do_not_land_beside_the_catalogue(self, client):

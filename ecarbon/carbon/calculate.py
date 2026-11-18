@@ -16,6 +16,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 
 from ecarbon.carbon.store import FactorProvider, LocalSnapshotProvider
+from ecarbon.extract.assemblies import FRAMING_FRACTION
 from ecarbon.models import (
     CarbonLine,
     CarbonResult,
@@ -27,6 +28,9 @@ from ecarbon.models import (
 )
 
 DEFAULT_MODULES = ("A1", "A2", "A3")
+
+# A 2x6 stud, the depth assumed when framing is carried only as a wall area.
+STUD_DEPTH_M = 0.140
 
 
 def reconcile_units(
@@ -69,13 +73,15 @@ def reconcile_units(
 
     # m2 -> m3 via thickness
     if f_u == "m2" and d_u == "m3":
-        th = thickness_m if (thickness_m and thickness_m > 0) else 0.15  # default 150mm if unknown
-        return quantity * th, f"m2 converted to m3 via thickness {th*1000:.0f} mm."
+        if thickness_m and thickness_m > 0:
+            return quantity * thickness_m, f"m2 converted to m3 via thickness {thickness_m*1000:.0f} mm."
+        return quantity * 0.15, "m2 converted to m3 via thickness 150 mm, assumed: no thickness is stated."
 
     # m3 -> m2 via thickness
     if f_u == "m3" and d_u == "m2":
-        th = thickness_m if (thickness_m and thickness_m > 0) else 0.15
-        return quantity / th, f"m3 converted to m2 via thickness {th*1000:.0f} mm."
+        if thickness_m and thickness_m > 0:
+            return quantity / thickness_m, f"m3 converted to m2 via thickness {thickness_m*1000:.0f} mm."
+        return quantity / 0.15, "m3 converted to m2 via thickness 150 mm, assumed: no thickness is stated."
 
     # Default fallback if unit compatible
     return quantity, f"Declared unit {declared_unit} assumed 1:1 with {from_unit}."
@@ -129,6 +135,31 @@ def compute_carbon_line(
     )
 
 
+def _is_framing_by_area(line: TakeoffLine, factor: FactorRef | None) -> bool:
+    """Framing lumber billed by wall area, which needs its stud share applied."""
+    return (
+        factor is not None
+        and line.unit == Unit.M2
+        and factor.declared_unit.strip().lower() == "m3"
+        and "framing" in (line.material or "").lower()
+    )
+
+
+def _framing_layer(takeoff: TakeoffResult, line: TakeoffLine) -> TakeoffLine | None:
+    """An assembly layer of the same element that already counts the framing."""
+    return next(
+        (
+            other
+            for other in takeoff.lines
+            if other is not line
+            and other.element_class == line.element_class
+            and other.unit == Unit.M3
+            and "framing" in (other.material or "").lower()
+        ),
+        None,
+    )
+
+
 def calculate_carbon(
     takeoff: TakeoffResult,
     provider: FactorProvider | None = None,
@@ -154,11 +185,36 @@ def calculate_carbon(
         elif line.element_class:
             factor = prov.find_by_material(line.element_class.value)
 
-        cline = compute_carbon_line(
-            line=line,
-            factor=factor,
-            allowed_modules=allowed_modules,
-        )
+        framing = _is_framing_by_area(line, factor)
+        layer = _framing_layer(takeoff, line) if framing else None
+        if layer is not None:
+            cline = CarbonLine(
+                line_id=line.id,
+                quantity=line.effective_quantity,
+                unit=line.unit,
+                factor=None,
+                kg_co2e=None,
+                missing_reason=(
+                    f"Framing is counted in the {layer.assembly_tag or 'assembly'} framing "
+                    f"layer ({layer.id}), so this wall area carries none rather than "
+                    f"counting the studs twice."
+                ),
+            )
+        else:
+            cline = compute_carbon_line(
+                line=line,
+                factor=factor,
+                allowed_modules=allowed_modules,
+                thickness_m=STUD_DEPTH_M * FRAMING_FRACTION if framing else None,
+            )
+            if framing and cline.kg_co2e is not None:
+                # Studs fill a share of the wall, not all of it: solid timber
+                # over the whole area overstated this line about sevenfold.
+                cline.conversion_note = (
+                    f"m2 converted to m3 as framing: {STUD_DEPTH_M * 1000:.0f} mm stud depth x "
+                    f"{FRAMING_FRACTION:.0%} framing fraction (studs at 400 mm centres, "
+                    f"assumed; the schedule gives no framing quantity)."
+                )
         carbon_lines.append(cline)
 
         if cline.is_counted and cline.kg_co2e is not None:

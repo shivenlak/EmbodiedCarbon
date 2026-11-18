@@ -23,6 +23,7 @@ from __future__ import annotations
 import csv
 import html
 import io
+import re
 from datetime import date
 
 from ecarbon.models import CarbonResult, TakeoffResult
@@ -96,6 +97,26 @@ def _esc(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
+def _prose(value: object) -> str:
+    """Escaped, with the pipeline's "m2"/"m3" written as m&sup2;/m&sup3;."""
+    return re.sub(r"\bm([23])\b", lambda m: f"m&sup{m.group(1)};", _esc(value))
+
+
+UNIT = {"m2": "m&sup2;", "m3": "m&sup3;"}
+
+# The interface's words for the severities, so the report a builder hands on
+# reads like the screen they checked it on.
+SEVERITY = {"blocking": "Read this first", "warning": "Worth knowing", "info": "Note"}
+
+# The one quantity measured off linework rather than read from a schedule;
+# the total is stated with and without it.
+PARTITION_PREFIX = "ln-interior-partition"
+
+
+def _name(name: str) -> str:
+    return re.sub(r"[_ ]Technical[_ ]Design[_ ]Package$", "", name or "", flags=re.I).replace("_", " ")
+
+
 def module_label(modules: list[str]) -> str:
     """"A1, A2, A3" is the scope; "A1-A3" is how the standard writes it."""
     if not modules:
@@ -126,28 +147,45 @@ def _rows(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
             if line.provenance.sheet_no
             else '<span class="muted">no sheet recorded</span>'
         )
+        if c and c.factor and c.kg_co2e is not None and c.factor.gwp_value:
+            unit = UNIT.get(c.factor.declared_unit, _esc(c.factor.declared_unit))
+            # In the factor's own unit, so the multiplication printed holds.
+            kg += (
+                f"<div class='muted factor'>{c.kg_co2e / c.factor.gwp_value:,.2f} {unit}"
+                f" &times; {c.factor.gwp_value:,.{2 if c.factor.gwp_value < 10 else 0}f} kg/{unit}</div>"
+            )
         notes = list(line.assumptions) + ([c.missing_reason] if c and c.missing_reason else [])
+        if c and c.conversion_note and "assumed" in c.conversion_note:
+            notes.append(c.conversion_note)
+        if line.user_override is not None:
+            notes.insert(0, f"Corrected by the reviewer; the drawings read {line.quantity:,.2f}.")
         note_html = (
             "<div class='notes'>"
-            + "".join(f"<div>&mdash; {_esc(n)}</div>" for n in notes)
+            + "".join(f"<div>&mdash; {_prose(n)}</div>" for n in notes)
             + "</div>"
             if notes
             else ""
         )
+        qty = line.user_override if line.user_override is not None else line.quantity
         out.append(
             f"<tr class='c-{line.confidence.value}'>"
             f"<td><div class='el'>{_esc(line.element_class.value.replace('_', ' ').title())}"
             f"{f' [{_esc(line.assembly_tag)}]' if line.assembly_tag else ''}</div>"
-            f"<div class='desc'>{_esc(line.description or '')}</div>{cite}{note_html}</td>"
-            f"<td class='num'>{line.quantity:,.2f} <span class='muted'>{line.unit.value}</span></td>"
+            f"<div class='desc'>{_prose(line.description or '')}</div>{cite}{note_html}</td>"
+            f"<td class='num'>{qty:,.2f} <span class='muted'>{UNIT.get(line.unit.value, line.unit.value)}</span></td>"
             f"<td><span class='tag'>{line.confidence.value}</span></td>"
             f"<td class='num'>{kg}</td></tr>"
         )
     return "".join(out)
 
 
-def report_html(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
-    """A printable report. Scope and limits come before the total."""
+def report_html(takeoff: TakeoffResult, carbon: CarbonResult, decisions=()) -> str:
+    """A printable report. Scope and limits come before the total.
+
+    `decisions` are the open choices (cladding, roofing) the drawings leave as
+    placeholders: priced as a range here and kept out of the total, as on
+    screen, so the report cannot read as complete when it is not.
+    """
     p = takeoff.project
     gaps = sorted(takeoff.gaps, key=lambda g: {"blocking": 0, "warning": 1}.get(g.severity.value, 2))
     coverage = next(
@@ -163,10 +201,67 @@ def report_html(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
     readable = sum(1 for s in takeoff.sheets if s.readable)
 
     gap_html = "".join(
-        f"<li class='sev-{g.severity.value}'><b>{_esc(g.severity.value)}</b> "
-        f"{_esc(g.message)}</li>"
+        f"<li class='sev-{g.severity.value}'><b>{SEVERITY.get(g.severity.value, _esc(g.severity.value))}.</b> "
+        f"{_prose(g.message)}</li>"
         for g in gaps
     ) or "<li>Every sheet this takeoff needed was readable.</li>"
+
+    partitions = sum(
+        c.kg_co2e or 0 for c in carbon.lines if c.line_id.startswith(PARTITION_PREFIX)
+    )
+    twice_html = (
+        f'<div style="margin-top:6px"><b class="num">{carbon.total_kg_co2e - partitions:,.0f}</b>'
+        " kg CO&#8322;e without the interior partitions, the one quantity measured"
+        " off the plan linework rather than read from a schedule, and the least"
+        " certain here.</div>"
+        if partitions
+        else ""
+    )
+
+    # How much of the total each kind of claim carries, so the reader sees at
+    # a glance what the number rests on rather than finding it row by row.
+    conf_of = {ln.id: ln.confidence.value for ln in takeoff.lines}
+    rests = {"measured": 0.0, "inferred": 0.0, "assumed": 0.0}
+    for c in carbon.lines:
+        if c.kg_co2e and conf_of.get(c.line_id) in rests:
+            rests[conf_of[c.line_id]] += c.kg_co2e
+    counted = sum(rests.values())
+    rests_html = (
+        '<div class="rests">'
+        + "".join(
+            f'<i class="r-{k}" style="flex-grow:{v:.0f}"></i>' for k, v in rests.items() if v
+        )
+        + "</div><div class='rests-key'>Rests on: "
+        + " &middot; ".join(
+            f"<b class='r-{k}'>{k}</b> {100 * v / counted:.0f}%" for k, v in rests.items() if v
+        )
+        + "</div>"
+        if counted
+        else ""
+    )
+
+    decision_html = "".join(
+        f"<tr><td><div class='el'>{_esc(d.category)}"
+        f"{f' [{_esc(d.assembly_tag)}]' if d.assembly_tag else ''}</div>"
+        f"<div class='desc'>The drawings say &ldquo;{_esc(d.drawing_says)}&rdquo;"
+        f" over {d.area_m2:,.1f} m&sup2;"
+        f"{f', sheet {_esc(d.sheet_no)}' if d.sheet_no else ''}.</div>"
+        "<div class='notes'>"
+        + "".join(f"<div>&mdash; {_esc(o.name)}: +{o.kg_co2e:,.0f}</div>" for o in d.options)
+        + "</div></td>"
+        f"<td class='num'>{d.low_kg_co2e:,.0f}&ndash;{d.high_kg_co2e:,.0f}</td></tr>"
+        for d in decisions
+    )
+    decisions_section = (
+        f"""<h2>Decisions still open</h2>
+<p class="muted" style="max-width:72ch">Drawn as placeholders, so <b>not in the
+total above</b>. Each is priced across the options available; the builder&rsquo;s
+choice closes it.</p>
+<table><thead><tr><th>Layer and options</th><th class="num">kg CO&#8322;e if chosen</th></tr></thead>
+<tbody>{decision_html}</tbody></table>"""
+        if decision_html
+        else ""
+    )
 
     contrib_html = "".join(
         f"<tr><td>{_esc(x.key)}</td><td class='num'>{x.kg_co2e:,.0f}</td>"
@@ -182,7 +277,7 @@ def report_html(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Embodied carbon takeoff &mdash; {_esc(p.name)}</title>
+<title>Embodied carbon takeoff &mdash; {_esc(_name(p.name))}</title>
 <style>
   :root {{
     --paper:#fbfaf7; --ink:#141719; --graphite:#5c6469; --hairline:#ddd9d1;
@@ -218,6 +313,15 @@ def report_html(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
   th.num, td.num {{ text-align:right; }}
   td {{ padding:9px 8px; border-bottom:1px solid var(--hairline); vertical-align:top; }}
   td:first-child {{ border-left:3px solid transparent; padding-left:11px; }}
+  .rests {{ display:flex; gap:3px; height:8px; max-width:520px; margin-top:12px;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact; }}
+  .rests i {{ flex-basis:0; min-width:4px; border-radius:2px; }}
+  .rests .r-measured {{ background:var(--blueprint); }}
+  .rests .r-inferred {{ background:var(--graphite); opacity:.45; }}
+  .rests .r-assumed {{ background:var(--flag); }}
+  .rests-key {{ margin-top:6px; font-size:13px; }}
+  .rests-key b.r-measured {{ color:var(--blueprint); }}
+  .rests-key b.r-assumed {{ color:var(--flag); }}
   tr.c-measured td:first-child {{ border-left-color:var(--blueprint); }}
   tr.c-inferred td:first-child {{ border-left-color:var(--rule); }}
   tr.c-assumed  td:first-child {{ border-left-color:var(--flag); }}
@@ -232,6 +336,7 @@ def report_html(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
   tr.c-inferred .tag {{ color:var(--graphite); }}
   tr.c-assumed  .tag {{ color:var(--flag); }}
   .notes {{ margin-top:6px; font-size:12px; color:var(--graphite); max-width:60ch; }}
+  .factor {{ font-size:11px; margin-top:2px; }}
   .flag {{ color:var(--flag); font-family:"IBM Plex Mono",monospace; font-size:11.5px; }}
   ul {{ padding-left:18px; }} li {{ margin:6px 0; max-width:72ch; }}
   li.sev-blocking {{ color:var(--flag); }}
@@ -243,7 +348,7 @@ def report_html(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
 
 <header>
   <h1>Embodied carbon takeoff</h1>
-  <div class="muted">{_esc(p.name)}{f' &middot; {_esc(p.jurisdiction)}' if p.jurisdiction else ''}
+  <div class="muted">{_esc(_name(p.name))}{f' &middot; {_esc(p.jurisdiction)}' if p.jurisdiction else ''}
     &middot; from {_esc(takeoff.source_file)}</div>
   <div class="facts">
     <div><span>Floor area</span>{f'{p.gfa_m2:,.1f} m&sup2; ({_esc(p.gfa_basis)})' if p.gfa_m2 else '&mdash;'}</div>
@@ -255,7 +360,9 @@ def report_html(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
 
 <h2>What this number is, and is not</h2>
 <div class="total">{carbon.total_kg_co2e:,.0f} <span class="muted"
-  style="font:600 15px/1 'Archivo Narrow',sans-serif;letter-spacing:.08em">KG CO&#8322;E</span></div>
+  style="font:600 16px/1 'IBM Plex Sans',sans-serif;letter-spacing:0">kg CO&#8322;e</span></div>
+{twice_html}
+{rests_html}
 <div class="scope">Modules {module_label(carbon.modules)} &middot; product stage only</div>
 <div style="margin-top:10px">Intensity
   <b class="num">{carbon.intensity_kg_co2e_per_m2:,.1f}</b> kg CO&#8322;e per m&sup2;
@@ -270,6 +377,8 @@ one without restating both to the same modules.</p>
 
 <h2>What could not be read</h2>
 <ul>{gap_html}</ul>
+
+{decisions_section}
 
 <h2>Bill of quantities</h2>
 <table><thead><tr><th>Element and source</th><th class="num">Quantity</th>

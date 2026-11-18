@@ -620,7 +620,7 @@ def export_report(project_id: str) -> HTMLResponse:
     from ecarbon.report import report_html
 
     p = _get(project_id)
-    return HTMLResponse(report_html(p.takeoff, p.carbon))
+    return HTMLResponse(report_html(p.takeoff, p.carbon, get_unspecified(project_id)))
 
 
 # -- click-to-trace --------------------------------------------------------
@@ -859,6 +859,7 @@ async def upload_project(
     storeys: int | None = Form(None),  # noqa: B008
     units: int | None = Form(None),  # noqa: B008
     jurisdiction: str | None = Form(None),  # noqa: B008
+    background: bool = False,
 ) -> dict[str, object]:
     """Run the pipeline on a plan set the caller supplies.
 
@@ -872,6 +873,11 @@ async def upload_project(
     Gross floor area in particular decides the intensity per square metre, and
     inferring it from a plan whose extents cover a whole block gave one
     catalogue design an intensity six times its neighbours'.
+
+    With `?background=true` it answers at once with a job id, and
+    `GET /uploads/{job}` reports each stage as it really finishes -- the pages
+    found, sheets classified, footprint measured -- so the twenty seconds the
+    drawings take to read show what is being read instead of a spinner.
     """
     from ecarbon.config import Design
     from ecarbon.models import ProjectFacts
@@ -918,26 +924,77 @@ async def upload_project(
         storeys=storeys,
         units=units,
     )
-    try:
-        with _BUILD_LOCK:
-            takeoff = build_takeoff(
-                design, facts, trust_stated_gfa=gfa_m2 is not None
-            )
-    except Exception as exc:
-        raise HTTPException(
-            422,
-            f"could not read this plan set: {exc}. Nothing partial is stored.",
-        ) from exc
+    owner = _WORKSPACE.get()
 
-    project = Project(id=project_id, takeoff=takeoff, design=design)
-    _PROJECTS[project_id] = project
-    _OWNER[project_id] = _WORKSPACE.get()
+    def run(tell) -> dict[str, object]:
+        try:
+            import pymupdf
+
+            with pymupdf.open(pdf) as doc:
+                tell("pages", f"{doc.page_count} pages")
+            with _BUILD_LOCK:
+                takeoff = build_takeoff(
+                    design, facts, trust_stated_gfa=gfa_m2 is not None, progress=tell
+                )
+        except Exception as exc:
+            raise HTTPException(
+                422,
+                f"could not read this plan set: {exc}. Nothing partial is stored.",
+            ) from exc
+        project = Project(id=project_id, takeoff=takeoff, design=design)
+        total = project.carbon.total_kg_co2e
+        tell("carbon", f"{total:,.0f} kgCO2e across {len(takeoff.lines)} lines")
+        _PROJECTS[project_id] = project
+        _OWNER[project_id] = owner
+        return {
+            "id": project_id,
+            "n_lines": len(takeoff.lines),
+            "n_sheets": len(takeoff.sheets),
+            "n_gaps": len(takeoff.gaps),
+            "total_kg_co2e": total,
+        }
+
+    if not background:
+        return run(lambda stage, detail: None)
+
+    job_id = uuid.uuid4().hex
+    job: dict[str, object] = {"owner": owner, "stages": [], "result": None, "error": None}
+    with _JOBS_LOCK:
+        while len(_JOBS) >= _MAX_JOBS:
+            _JOBS.pop(next(iter(_JOBS)))
+        _JOBS[job_id] = job
+
+    def work() -> None:
+        try:
+            job["result"] = run(lambda stage, detail: job["stages"].append([stage, detail]))
+        except HTTPException as exc:
+            job["error"] = exc.detail
+        except Exception as exc:  # anything else still ends the job, with its reason
+            job["error"] = f"could not read this plan set: {exc}. Nothing partial is stored."
+
+    threading.Thread(target=work, daemon=True).start()
+    return {"job": job_id}
+
+
+# Upload jobs in progress or recently finished. In memory like everything else
+# here, and bounded so abandoned uploads cannot grow it.
+_JOBS: dict[str, dict] = {}
+_JOBS_LOCK = threading.Lock()
+_MAX_JOBS = 64
+
+
+@app.get("/uploads/{job_id}")
+def upload_status(job_id: str) -> dict[str, object]:
+    """The stages an upload has finished so far, then its project or its error."""
+    job = _JOBS.get(job_id)
+    # Another workspace's job is as absent as one that never existed.
+    if job is None or job["owner"] != _WORKSPACE.get():
+        raise HTTPException(404, "no such upload")
     return {
-        "id": project_id,
-        "n_lines": len(takeoff.lines),
-        "n_sheets": len(takeoff.sheets),
-        "n_gaps": len(takeoff.gaps),
-        "total_kg_co2e": project.carbon.total_kg_co2e,
+        "stages": list(job["stages"]),
+        "done": job["result"] is not None or job["error"] is not None,
+        "result": job["result"],
+        "error": job["error"],
     }
 
 

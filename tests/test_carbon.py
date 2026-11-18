@@ -143,6 +143,52 @@ class TestCarbonCalculation:
         mat_pct_sum = sum(c.pct_of_total for c in result.by_material_category)
         assert 99.0 <= mat_pct_sum <= 101.0
 
+    def _with_wall(self, *extra):
+        takeoff = example_takeoff()
+        takeoff.lines = [ln for ln in takeoff.lines if "framing" not in (ln.material or "").lower()]
+        takeoff.lines.append(
+            TakeoffLine(
+                id="ln-wall-area",
+                element_class=ElementClass.EXTERIOR_WALL,
+                quantity=100.0,
+                unit=Unit.M2,
+                confidence=Confidence.INFERRED,
+                material="CMHC_Wood Framing",
+                provenance=Provenance(page=1),
+            )
+        )
+        takeoff.lines.extend(extra)
+        return takeoff
+
+    def test_framing_by_wall_area_takes_its_stud_share(self, store):
+        """Studs fill 15% of a 140 mm cavity, not the whole wall solid."""
+        result = calculate_carbon(self._with_wall(), provider=store)
+        c = next(c for c in result.lines if c.line_id == "ln-wall-area")
+        assert c.kg_co2e == pytest.approx(100 * 0.140 * 0.15 * c.factor.gwp_value, rel=1e-3)
+        assert "15% framing fraction" in c.conversion_note
+        assert "assumed" in c.conversion_note
+
+    def test_framing_already_in_an_assembly_layer_is_not_counted_twice(self, store):
+        layer = TakeoffLine(
+            id="ln-wall-w1-l6",
+            element_class=ElementClass.EXTERIOR_WALL,
+            quantity=2.1,
+            unit=Unit.M3,
+            confidence=Confidence.INFERRED,
+            material="CMHC_Wood Framing",
+            assembly_tag="W1",
+            provenance=Provenance(page=1),
+        )
+        result = calculate_carbon(self._with_wall(layer), provider=store)
+        c = next(c for c in result.lines if c.line_id == "ln-wall-area")
+        assert c.kg_co2e is None
+        assert "ln-wall-w1-l6" in c.missing_reason
+        assert "ln-wall-area" in result.uncounted_lines
+
+    def test_an_unstated_thickness_says_it_was_assumed(self):
+        _, note = reconcile_units(10.0, Unit.M2, "m3")
+        assert "assumed" in note
+
     def test_intensity_computed(self, store):
         takeoff = example_takeoff()
         result = calculate_carbon(takeoff, provider=store)

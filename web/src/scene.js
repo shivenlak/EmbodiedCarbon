@@ -57,6 +57,7 @@ const SPREAD_BY = 0.42;
 // overlapping the next so the motion never stops and starts.
 const FLY_WINDOW = 0.5;
 const FLY_STAGGER = 0.42;
+const PULSE_S = 1.4;
 const TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.42, 0.55, 0, "YXZ"));
 
 // Deterministic, so the same building always comes apart the same way.
@@ -184,6 +185,21 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   const centre = new THREE.Vector3(W / 2, H * 0.4, D / 2);
   const classCount = {};
 
+  // Diagonal stripes across a block whose quantity no line measured: the heat
+  // map says how heavy a surface is, and this says how sure we are of it.
+  // Drawn in screen space, so a long thin wall hatches like a short thick one.
+  function hatchable(mat) {
+    mat.userData.hatch = { value: 0 };
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uHatch = mat.userData.hatch;
+      shader.fragmentShader = `uniform float uHatch;\n${shader.fragmentShader}`.replace(
+        "#include <dithering_fragment>",
+        `gl_FragColor.rgb *= 1.0 - uHatch * 0.22 * step(0.78, fract((gl_FragCoord.x + gl_FragCoord.y) / 11.0));
+        #include <dithering_fragment>`,
+      );
+    };
+  }
+
   function solid({ cls, storey = null, x, y, z, w, h, d, opacity = 1, label, detail, order = 0, edge = 0.38 }) {
     const geo = new THREE.BoxGeometry(w, h, d);
     const mat = new THREE.MeshStandardMaterial({
@@ -194,6 +210,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       opacity,
       depthWrite: opacity >= 1,
     });
+    hatchable(mat);
     const mesh = new THREE.Mesh(geo, mat);
     // Translucent layers draw in a fixed order (floors, then the envelope)
     // rather than re-sorting by distance every frame, which made them swap
@@ -429,6 +446,9 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   // photograph steps back rather than on a clock of its own.
   const state = {
     heat: false, storey: null, focus: null, hover: null, insetRight: 0, build: still, roof: true,
+    // What the heat map colours by, and the classes no line measured. Held
+    // here rather than baked in, so a spec swap recolours without a rebuild.
+    heatI: intensity, hotI, coolI, hatch: [],
     // 0 → SPLIT_STOREYS opens the storeys; on to 1 takes it to pieces.
     split: 0, splitTween: false,
     // The class pressed in the parts list: its blocks fly back home.
@@ -436,6 +456,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     // The parts list, in its order, and where each row's slot is on screen.
     order: [], slots: null,
   };
+  const pulses = {}; // class -> when its pulse started
   let splitShown = 0;
   let tween = null; // { from, to, start, dur } for a button-driven split
   let lastNow = null;
@@ -452,7 +473,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   let liftApplied = 0;
 
   function colourFor(cls) {
-    if (state.heat && intensity[cls] != null) return cssRgb(heatColour(intensity[cls], hotI, coolI));
+    if (state.heat && state.heatI[cls] != null) return cssRgb(heatColour(state.heatI[cls], state.hotI, state.coolI));
     if (state.heat) return new THREE.Color("#5b6b82");
     return new THREE.Color(STRUCTURE[cls] || "#e2e8f0");
   }
@@ -465,15 +486,23 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       const hovered = state.hover === p;
       let op = p.baseOpacity;
       if (state.heat && p.cls !== "interior_partition" && p.cls !== "footing" && p.cls !== "slab_on_grade") {
-        op = Math.max(op, 0.42);
+        op = Math.max(op, 0.5);
       }
+      // The colour lit from within as well as by the lamps, so shading and
+      // what shows through a glass wall cannot shift its hue off the legend.
+      const coloured = state.heat && state.heatI[p.cls] != null;
+      p.glowColour = coloured ? m.color.clone() : null;
+      p.glow = coloured && lit ? 0.32 : 0;
+      m.userData.hatch.value = state.heat && state.hatch.includes(p.cls) ? 1 : 0;
       if (!lit) op = Math.min(op, 0.07);
       // The frame loop owns the final opacity: a block in the parts list is
       // drawn solid whatever it was in the building.
       p.op = op;
       p.lit = lit;
-      m.emissive.set(hovered ? "#d9a46a" : "#000000");
-      m.emissiveIntensity = hovered ? 0.55 : 0;
+      if (hovered) {
+        m.emissive.set("#d9a46a");
+        m.emissiveIntensity = 0.55;
+      }
       p.edges.material.opacity = lit ? (hovered ? 0.95 : p.edgeOp) : 0.04;
       p.edges.material.color.set(hovered ? "#ffd8a8" : state.heat ? "#1b2433" : "#ffffff");
     }
@@ -611,12 +640,27 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       if (b > 0 && state.selected === p.cls) op = Math.max(op, p.baseOpacity, 0.5 * b);
       const m = p.mesh.material;
       m.opacity = op;
-      m.transparent = op < 0.999;
+      // A material compiled opaque pins its alpha to 1, so a solid block
+      // that fades -- a partition when another class is in focus -- must be
+      // recompiled, or it stays solid at any opacity.
+      if (m.transparent !== op < 0.999) {
+        m.transparent = op < 0.999;
+        m.needsUpdate = true;
+      }
       m.depthWrite = op >= 0.999;
       if (state.hover !== p) {
         const glow = state.selected === p.cls ? b : 0;
-        if (glow > 0) m.emissive.setHex(0xd9a46a);
-        m.emissiveIntensity = 0.4 * glow;
+        if (glow > 0) {
+          m.emissive.setHex(0xd9a46a);
+          m.emissiveIntensity = 0.4 * glow;
+        } else {
+          // One slow swell when a spec choice moved this class's carbon.
+          const t = pulses[p.cls] == null ? 9 : (performance.now() - pulses[p.cls]) / 1000;
+          const pulse = t < PULSE_S ? 0.7 * Math.sin((Math.PI * t) / PULSE_S) : 0;
+          if (p.glowColour) m.emissive.copy(p.glowColour);
+          else m.emissive.setHex(pulse ? 0xffffff : 0);
+          m.emissiveIntensity = p.glow + pulse;
+        }
       }
     }
     if (pitched) {
@@ -799,7 +843,8 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       const insetChanged = next.insetRight != null && next.insetRight !== state.insetRight;
       // Only what changes the look restyles; a slider tick should cost a
       // number, not a pass over every material.
-      const styleChanged = ["heat", "focus", "storey"].some((k) => k in next && next[k] !== state[k]);
+      const styleChanged = ["heat", "focus", "storey", "heatI", "hatch"].some((k) => k in next && next[k] !== state[k]);
+      for (const cls of next.pulse || []) pulses[cls] = performance.now();
       if ("split" in next && next.split !== state.split) {
         tween = next.splitTween
           ? { from: splitShown, to: next.split, start: null, dur: Math.max(0.8, (next.split > splitShown ? 6 : 4.5) * Math.abs(next.split - splitShown)) }

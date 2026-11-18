@@ -20,7 +20,7 @@ available any Designs", so a commit here is ungated public distribution. The
 data lives at `$EC_DATA` (default `~/ec-data/cmhc`). Before every commit:
 
 ```bash
-git status --short | grep -iE "CMHC|\.ifc|\.h2k|\.dwg|\.ctb|reference/|deploy/data|_prebuilt|web/dist"
+git status --short | grep -iE "CMHC|landmark|\.ifc|\.h2k|\.dwg|\.ctb|reference/|deploy/data|_prebuilt|web/dist"
 ```
 
 A hit means stop. Shipping plan sets inside the *deployed image* is a

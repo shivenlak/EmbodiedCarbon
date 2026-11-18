@@ -146,6 +146,29 @@ def discover(root: Path | None = None) -> list[Design]:
     return designs
 
 
+def pdf_designs(path: Path) -> list[Design]:
+    """Every PDF at `path` (a file or a folder, searched recursively) as a bare
+    Design, the way an upload sees one: drawings only, no IFC or reports.
+
+    Unseen sets don't follow the catalogue's naming, so every PDF counts.
+    """
+    pdfs = [path] if path.is_file() else sorted(path.rglob("*.pdf"))
+    return [
+        Design(
+            key=pdf.stem,
+            region="UPLOAD",
+            package_dir=pdf.parent,
+            drawings_pdf=pdf,
+            ifc=None,
+            h2k=[],
+            bpr=[],
+            list_of_drawings=None,
+        )
+        for pdf in pdfs
+        if not pdf.name.startswith(("_", "."))
+    ]
+
+
 def get_design(key_fragment: str) -> Design:
     """Find one design by a case-insensitive fragment of its key."""
     frag = key_fragment.lower()

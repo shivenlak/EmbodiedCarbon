@@ -7,7 +7,7 @@
 // quantity lights its element in the model, and pressing a surface in the
 // model opens the panel that explains it.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createScene, SPLIT_STOREYS } from "./scene.js";
 import {
   int,
@@ -28,6 +28,7 @@ import {
   decisionKey,
   EMPTY_SCENARIO,
   authedUrl,
+  prose,
   DetailPage,
   AppFooter,
 } from "./App.jsx";
@@ -37,12 +38,19 @@ const STILL =
   typeof window !== "undefined" &&
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
+// A mono comma takes a whole digit cell, which at display size split
+// "65,555" into two numbers. The separators sit in their own tighter box.
+const grouped = (s) =>
+  s.split(/([,\u00a0\u202f.])/).map((x, i) => (i % 2 ? <i key={i} className="sc-sep">{x}</i> : x));
+
 const PANELS = [
-  { id: "read", label: "The building" },
+  // Short enough that all five fit the deck: a clipped "Try a s" tab read as
+  // broken, and the panel's own heading carries the full phrase.
+  { id: "read", label: "Building" },
   { id: "quantities", label: "Quantities" },
   { id: "carbon", label: "Carbon" },
-  { id: "notes", label: "Open questions" },
-  { id: "spec", label: "Try a spec" },
+  { id: "notes", label: "Questions" },
+  { id: "spec", label: "Your spec" },
 ];
 
 // The element each class is billed under, for "press a surface, see its line".
@@ -53,6 +61,9 @@ const LINE_FOR = {
   window: "ln-windows",
   door: "ln-doors",
 };
+
+// Which element an open decision's assembly belongs to, by its tag's letter.
+const TAG_CLASS = { W: "exterior_wall", R: "roof_assembly", F: "floor_assembly" };
 
 const MODEL_ORDER = [
   "slab_on_grade",
@@ -120,7 +131,28 @@ export default function Showcase({
   const apartRef = useRef(false);
   const trayUp = broken || apart;
   const [heatPinned, setHeatPinned] = useState(false);
+  const [heatMode, setHeatMode] = useState("area"); // area: kg per m² | share: kg
   const [deckOpen, setDeckOpen] = useState(true);
+  // Three things a first visit would otherwise not find, shown until put away.
+  const [hints, setHints] = useState(() => {
+    try {
+      return localStorage.getItem("ec-hints-seen") ? null : [];
+    } catch {
+      return [];
+    }
+  });
+  const hintDone = (i) => {
+    if (i == null) {
+      try {
+        localStorage.setItem("ec-hints-seen", "1");
+      } catch {
+        /* a private window just shows them again next time */
+      }
+      setHints(null);
+      return;
+    }
+    setHints((h) => (h && !h.includes(i) ? [...h, i] : h));
+  };
   const [cover, setCover] = useState("loading"); // loading | ok | none
   const [intro, setIntro] = useState(!STILL);
   const [spinning, setSpinning] = useState(!STILL);
@@ -322,10 +354,39 @@ export default function Showcase({
   // ---- figures -----------------------------------------------------------
 
   const total = carbon?.total_kg_co2e;
-  const shownTotal = useCountUp(total, 1400);
+  // Held at nothing until the intro lifts, so the count is seen rather than
+  // finishing behind a hidden hero.
+  const shownTotal = useCountUp(intro ? null : total, 1400);
   const partitions = carbonLines
     .filter((l) => isCounted(l) && String(l.line_id).startsWith(PARTITION_PREFIX))
     .reduce((sum, l) => sum + (l.kg_co2e || 0), 0);
+  const shownLean = useCountUp(intro || total == null ? null : total - partitions, 1400);
+
+  // How much of the total each kind of claim carries. Not counted is its own
+  // hollow segment priced at the open decisions, so the bar never reads as a
+  // complete building when the drawings say "placeholder".
+  const RESTS = ["measured", "inferred", "assumed"];
+  const restsOn = useMemo(() => {
+    const kg = { measured: 0, inferred: 0, assumed: 0 };
+    const top = { measured: [], inferred: [], assumed: [] };
+    for (const l of lines) {
+      const v = kgOf.get(l.id);
+      if (!v || kg[l.confidence] == null) continue;
+      kg[l.confidence] += v;
+      top[l.confidence].push({ name: `${CLASS_LABEL[l.element_class] || titleCase(l.element_class)}${l.assembly_tag ? ` ${l.assembly_tag}` : ""}`, kg: v });
+    }
+    for (const k of RESTS) top[k] = top[k].sort((a, b) => b.kg - a.kg).slice(0, 3);
+    const open = (decisions || []).reduce(
+      (r, c) => {
+        const ks = c.options.map((o) => o.kg_co2e || 0);
+        return ks.length ? [r[0] + Math.min(...ks), r[1] + Math.max(...ks), r[2] + 1] : r;
+      },
+      [0, 0, 0],
+    );
+    const counted = kg.measured + kg.inferred + kg.assumed;
+    return counted ? { kg, top, counted, open } : null;
+  }, [lines, kgOf, decisions]);
+  const [restsHover, setRestsHover] = useState(null);
 
   const byClass = useMemo(() => {
     const m = new Map();
@@ -423,6 +484,74 @@ export default function Showcase({
     Object.keys(scenario.swaps).length > 0 || Object.keys(scenario.picks).length > 0;
   const shownSpec = useCountUp(scenarioTotal, 600);
 
+  // ---- the heat map, for the bill or for the spec being tried -------------
+
+  // Each class's carbon with the spec's choices applied, so the model shows
+  // where a choice lands, not only what it does to the total.
+  const specByClass = useMemo(() => {
+    if (!massing || !scenarioActive) return null;
+    const out = { ...(massing.carbon_by_class || {}) };
+    const classOf = new Map(lines.map((l) => [l.id, l.element_class]));
+    for (const sw of swaps || []) {
+      const cls = classOf.get(sw.line_id);
+      if (cls && out[cls] != null && scenario.swaps[sw.line_id] === sw.to_material) {
+        out[cls] += sw.delta_kg_co2e || 0;
+      }
+    }
+    for (const c of decisions || []) {
+      const o = c.options.find((x) => x.factor_id === scenario.picks[decisionKey(c)]);
+      const cls = TAG_CLASS[String(c.assembly_tag || "")[0]];
+      if (o && cls) out[cls] = (out[cls] || 0) + (o.kg_co2e || 0);
+    }
+    return out;
+  }, [massing, scenarioActive, lines, swaps, decisions, scenario]);
+  // Per m² always, for the read-outs; the colour follows the chosen mode.
+  const areaView = useMemo(
+    () => (massing ? surfaceIntensity(massing, openings, { carbon: specByClass }) : null),
+    [massing, openings, specByClass],
+  );
+  const heatView = useMemo(
+    () =>
+      !massing || heatMode === "area"
+        ? areaView
+        : surfaceIntensity(massing, openings, { carbon: specByClass, mode: "share" }),
+    [massing, openings, specByClass, heatMode, areaView],
+  );
+  // Where each class sat before the spec, for a ghost on the legend.
+  const baseView = useMemo(
+    () => (massing && specByClass ? surfaceIntensity(massing, openings, { mode: heatMode }) : null),
+    [massing, openings, specByClass, heatMode],
+  );
+  // Classes no line measured: hatched on the model, never shown as sure.
+  const unmeasured = useMemo(() => {
+    const sure = new Map();
+    for (const l of lines) sure.set(l.element_class, sure.get(l.element_class) || l.confidence === "measured");
+    return [...sure].filter(([, v]) => !v).map(([cls]) => cls);
+  }, [lines]);
+
+  const lastSpec = useRef(null);
+  useEffect(() => {
+    if (!heatView) return;
+    const now = specByClass || massing?.carbon_by_class || {};
+    const before = lastSpec.current || now;
+    lastSpec.current = now;
+    const pulse = Object.keys(now).filter((c) => Math.abs((now[c] || 0) - (before[c] || 0)) > 1);
+    sceneRef.current?.set({
+      heatI: heatView.intensity,
+      hotI: heatView.hotI,
+      coolI: heatView.coolI,
+      hatch: unmeasured,
+      pulse,
+    });
+  }, [heatView, unmeasured, specByClass, massing, surfaces]);
+  const heatSwatch = (cls) =>
+    heatView?.intensity[cls] != null ? heatColour(heatView.intensity[cls], heatView.hotI, heatView.coolI) : null;
+  const rampAt = (v) => {
+    const { hotI, coolI } = heatView;
+    return Math.max(0, Math.min(1, (v - coolI) / (hotI - coolI || hotI || 1)));
+  };
+  const heatFmt = (v) => (heatMode === "share" ? `${int(v)} kg` : `${dec(v, 1)} kg/m²`);
+
   const counts = useMemo(() => {
     const c = { measured: 0, inferred: 0, assumed: 0 };
     for (const l of lines) if (c[l.confidence] != null) c[l.confidence] += 1;
@@ -453,10 +582,12 @@ export default function Showcase({
     return [...seen.values()];
   }, [takeoff]);
 
+  // Cut at a clause break, but end on a full stop: a note ending "here:" or
+  // "schedule;" reads as text that failed to load.
   const firstSentence = (t) => {
-    const s = String(t || "");
+    const s = prose(t);
     const i = s.search(/[.;:](\s|$)/);
-    return i > 40 && i < 220 ? s.slice(0, i + 1) : s.length > 200 ? `${s.slice(0, 200)}…` : s;
+    return i > 40 && i < 220 ? `${s.slice(0, i)}.` : s.length > 200 ? `${s.slice(0, 200)}…` : s;
   };
 
   const toggleSwap = (s) =>
@@ -580,7 +711,7 @@ export default function Showcase({
       <section className="sc-hero" aria-live="polite">
         <div className="sc-eyebrow">Embodied carbon · A1–A3, product stage</div>
         <div className="sc-figure">
-          {total == null ? "—" : int(shownTotal)}
+          {total == null ? "—" : grouped(int(shownTotal))}
           <span>kgCO₂e</span>
         </div>
         <div className="sc-sub">
@@ -590,14 +721,69 @@ export default function Showcase({
           </span>
           {partitions > 0 && (
             <span>
-              <b>{int(total - partitions)}</b> without the inferred partitions
+              <b>{int(shownLean)}</b> without the inferred partitions
             </span>
           )}
         </div>
+        {restsOn && (
+          <div className="sc-rests" onMouseLeave={() => setRestsHover(null)}>
+            <div className="sc-rests-bar" style={{ "--open": restsOn.open[1] / (restsOn.counted + restsOn.open[1]) }}>
+              {RESTS.map((k) =>
+                restsOn.kg[k] ? (
+                  <button
+                    key={k}
+                    className={`is-${k}${restsHover === k ? " is-on" : ""}`}
+                    style={{ flexGrow: restsOn.kg[k] }}
+                    onMouseEnter={() => setRestsHover(k)}
+                    onFocus={() => setRestsHover(k)}
+                    onBlur={() => setRestsHover(null)}
+                    aria-label={`${k}: ${int(restsOn.kg[k])} kg`}
+                  />
+                ) : null,
+              )}
+              {restsOn.open[2] > 0 && (
+                <button
+                  className={`is-open${restsHover === "open" ? " is-on" : ""}`}
+                  style={{ flexGrow: restsOn.open[1] }}
+                  onMouseEnter={() => setRestsHover("open")}
+                  onFocus={() => setRestsHover("open")}
+                  onBlur={() => setRestsHover(null)}
+                  aria-label="not counted"
+                />
+              )}
+            </div>
+            <div className="sc-rests-key">
+              {restsHover && restsHover !== "open" ? (
+                <span>
+                  <b className={`is-${restsHover}`}>{restsHover}</b>{" "}
+                  {restsOn.top[restsHover].map((t) => `${t.name} ${int(t.kg)}`).join(" · ")}
+                </span>
+              ) : restsHover === "open" ? (
+                <span>
+                  <b>not counted</b> {restsOn.open[2]} placeholder{restsOn.open[2] > 1 ? "s" : ""} the drawings leave open,{" "}
+                  {int(restsOn.open[0])}–{int(restsOn.open[1])} kg, not in the total
+                </span>
+              ) : (
+                <>
+                  {RESTS.filter((k) => restsOn.kg[k]).map((k) => (
+                    <span key={k}>
+                      <b className={`is-${k}`}>{k}</b> {Math.round((100 * restsOn.kg[k]) / restsOn.counted)}%
+                    </span>
+                  ))}
+                  {restsOn.open[2] > 0 && (
+                    <span>
+                      <b>+ not counted</b> {int(restsOn.open[0])}–{int(restsOn.open[1])}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
         {scenarioActive && (
           <button className="sc-spec-chip" onClick={() => goTo(4)}>
             Your spec <b>{int(shownSpec)}</b>
-            <em>
+            <em className={scenarioTotal > total ? "is-up" : ""}>
               {scenarioTotal <= total ? "−" : "+"}
               {int(Math.abs(scenarioTotal - total))}
             </em>
@@ -615,11 +801,14 @@ export default function Showcase({
         >
           <b>{hover.label}</b>
           <span>{hover.detail}</span>
-          {surfaces?.intensity[hover.cls] != null && (
+          {areaView?.intensity[hover.cls] != null && (
             <span className="sc-tip-heat">
-              <i style={{ background: heatColour(surfaces.intensity[hover.cls], surfaces.hotI, surfaces.coolI) }} />
-              {dec(surfaces.intensity[hover.cls], 1)} kgCO₂e/m² of surface
+              <i style={{ background: heatSwatch(hover.cls) }} />
+              {dec(areaView.intensity[hover.cls], 1)} kgCO₂e/m² of surface
             </span>
+          )}
+          {heat && unmeasured.includes(hover.cls) && (
+            <span className="sc-tip-sure">Hatched: no line of it was measured</span>
           )}
           <em>{broken ? "press to put it back on the building" : "press to see where it came from"}</em>
         </div>
@@ -660,9 +849,9 @@ export default function Showcase({
                 <div><dt>Bill</dt><dd>{lines.length} lines</dd></div>
               </dl>
               <div className="sc-basis">
-                <span><Confidence value="measured" /> {counts.measured} off the linework</span>
-                <span><Confidence value="inferred" /> {counts.inferred} from what a sheet states</span>
-                <span><Confidence value="assumed" /> {counts.assumed} where a standard stood in</span>
+                <span><Confidence value="measured" /> {counts.measured || "none"} off the linework</span>
+                <span><Confidence value="inferred" /> {counts.inferred || "none"} from what a sheet states</span>
+                <span><Confidence value="assumed" /> {counts.assumed || "none"} where a standard stood in</span>
               </div>
               {areaNote && <p className="sc-flag">Floor area {areaNote}.</p>}
               <p className="sc-hint">
@@ -716,12 +905,61 @@ export default function Showcase({
             <section className="sc-panel" aria-label="Carbon">
               <h2>Where the carbon is</h2>
               <p className="sc-lede">
-                The model is coloured by carbon per square metre of surface.
+                {heatMode === "share"
+                  ? "The model is coloured by how much of the total each part holds."
+                  : "The model is coloured by carbon per square metre of surface: which part is heaviest for its size."}{" "}
                 Hover a row to find it.
               </p>
+              {heatView && (
+                <div className="sc-legend">
+                  <div className="sc-mode" role="group" aria-label="Colour the model by">
+                    <button className={heatMode === "area" ? "is-on" : ""} onClick={() => setHeatMode("area")}>
+                      Per m² of surface
+                    </button>
+                    <button className={heatMode === "share" ? "is-on" : ""} onClick={() => setHeatMode("share")}>
+                      Share of total
+                    </button>
+                  </div>
+                  <div className="sc-ramp">
+                    <i style={{ background: `linear-gradient(90deg, ${HEAT.join(",")})` }} />
+                    {Object.entries(heatView.intensity).map(([cls, v]) => {
+                      const was = baseView?.intensity[cls];
+                      const moved = was != null && Math.abs(rampAt(was) - rampAt(v)) > 0.005;
+                      const name = CLASS_LABEL[cls] || titleCase(cls);
+                      return (
+                        <Fragment key={cls}>
+                          {moved && <b className="sc-mark is-was" style={{ left: `${rampAt(was) * 100}%` }} />}
+                          <button
+                            className={`sc-mark${focus === cls ? " is-on" : ""}`}
+                            style={{ left: `${rampAt(v) * 100}%`, background: heatSwatch(cls) }}
+                            onMouseEnter={() => setFocus(cls)}
+                            onMouseLeave={() => setFocus(null)}
+                            onFocus={() => setFocus(cls)}
+                            onBlur={() => setFocus(null)}
+                            aria-label={`${name}, ${heatFmt(v)}`}
+                            title={`${name} · ${heatFmt(v)}`}
+                          />
+                        </Fragment>
+                      );
+                    })}
+                  </div>
+                  <div className="sc-ramp-ends">
+                    <span>{heatFmt(heatView.coolI)} · lighter</span>
+                    <span>heavier · {heatFmt(heatView.hotI)}</span>
+                  </div>
+                  {specByClass && <p className="sc-legend-note">Hollow marks: where each part was before your spec.</p>}
+                  {unmeasured.length > 0 && (
+                    <p className="sc-legend-note">
+                      <i className="sc-hatch" /> Hatched: no line of it was measured off the drawings, so its
+                      quantity is inferred or assumed.
+                    </p>
+                  )}
+                </div>
+              )}
               <ul className="sc-bars">
                 {byClass.map(([cls, kg]) => {
-                  const dens = surfaces?.intensity[cls];
+                  const dens = areaView?.intensity[cls];
+                  const swatch = heatSwatch(cls);
                   return (
                     <li
                       key={cls}
@@ -732,17 +970,14 @@ export default function Showcase({
                       <span className="sc-bar-name">
                         <i
                           style={{
-                            background:
-                              dens != null && surfaces
-                                ? heatColour(dens, surfaces.hotI, surfaces.coolI)
-                                : "transparent",
+                            background: swatch || "transparent",
                           }}
-                          className={dens == null ? "is-none" : ""}
+                          className={swatch ? "" : "is-none"}
                         />
                         {CLASS_LABEL[cls] || titleCase(cls)}
                       </span>
                       <span className="sc-bar-track">
-                        <s style={{ width: `${(kg / topKg) * 100}%` }} />
+                        <s style={{ width: `${(kg / topKg) * 100}%`, background: swatch || undefined }} />
                       </span>
                       <b>{int(kg)}</b>
                       <em>{dens != null ? `${dec(dens, 1)}/m²` : "not drawn"}</em>
@@ -750,11 +985,6 @@ export default function Showcase({
                   );
                 })}
               </ul>
-              <div className="sc-ramp" aria-hidden="true">
-                <span>lighter per m²</span>
-                <i style={{ background: `linear-gradient(90deg, ${HEAT.join(",")})` }} />
-                <span>heavier</span>
-              </div>
             </section>
 
             {/* 4. notes */}
@@ -1003,6 +1233,33 @@ export default function Showcase({
         </aside>
       )}
 
+      {/* ---- first visit: where the three things worth finding are ---- */}
+      {hints && massing && !glError && !intro && !trayUp && !sheetOpen && (
+        <aside className="sc-hints glass" aria-label="Getting started">
+          {[
+            ["Press a sheet tag", "to see where a number came from", 1],
+            ["Heat map", "what is heaviest per m²", 2],
+            ["Your spec", "price a choice before it is locked", 4],
+          ].map(([b, rest, to], i) => (
+            <button
+              key={b}
+              className={hints.includes(i) ? "is-seen" : ""}
+              onClick={() => {
+                hintDone(i);
+                setDeckOpen(true);
+                goTo(to);
+              }}
+            >
+              <span>{i + 1}</span>
+              <b>{b}</b> {rest}
+            </button>
+          ))}
+          <button className="sc-hints-x" onClick={() => hintDone(null)} aria-label="Hide these hints">
+            Got it, hide these
+          </button>
+        </aside>
+      )}
+
       {/* ---- the dock: what the model shows ---- */}
       {massing && !glError && (
         <nav className="sc-dock glass" aria-label="Model controls">
@@ -1178,7 +1435,7 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
       </div>
       <div className="bd-line-foot">
         {f && <span className="bd-src">{f.name}</span>}
-        {converted && <span className="bd-src">{carbonLine.conversion_note}</span>}
+        {converted && <span className="bd-src">{prose(carbonLine.conversion_note)}</span>}
         {edited && (
           <span className="bd-was">
             we read {dec(line.quantity, 2)} ·{" "}
