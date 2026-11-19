@@ -12,6 +12,32 @@ State: **747 tests (202 need the full catalogue), ruff clean**, deployed at http
 
 ---
 
+## Finals workstreams (until Fri 27 Nov): start here
+
+Two people build the finals submission in parallel, each with their own agent.
+**Run `git branch --show-current` first:**
+
+- **`finals/reading`**: you are **Stream A** (the tool reads any plan set,
+  anywhere: global conventions, imperial, vision fallback). Read
+  [docs/finals/SHARED.md](docs/finals/SHARED.md), then
+  [docs/finals/READING.md](docs/finals/READING.md).
+- **`finals/product`**: you are **Stream B** (anyone can use and trust it:
+  guided fallback, regional factors, units toggle, accuracy, submission).
+  Read [docs/finals/SHARED.md](docs/finals/SHARED.md), then
+  [docs/finals/PRODUCT.md](docs/finals/PRODUCT.md).
+- **Any other branch:** ask which stream before changing code.
+
+Then:
+- Only edit files your stream owns (the table in SHARED.md). Cross-stream asks
+  go under "Requests" in SHARED.md.
+- `git merge origin/main` before each task.
+- Land work as small PRs into `main`.
+- Tick your checklist items in the PR that lands them, so the other agent sees
+  progress after a pull.
+- Never open the holdout corpus sets if you are Stream A.
+
+---
+
 ## Hard constraints
 
 **The CMHC catalogue must never be committed. This repo is public.**
@@ -20,22 +46,25 @@ available any Designs", so a commit here is ungated public distribution. The
 data lives at `$EC_DATA` (default `~/ec-data/cmhc`). Before every commit:
 
 ```bash
-git status --short | grep -iE "CMHC|landmark|\.ifc|\.h2k|\.dwg|\.ctb|reference/|deploy/data|_prebuilt|web/dist"
+git status --short | grep -iE "CMHC|landmark|\.pdf|\.ifc|\.h2k|\.dwg|\.ctb|reference/|deploy/data|_prebuilt|web/dist"
 ```
 
-A hit means stop. Shipping plan sets inside the *deployed image* is a
+A hit means stop. The same goes for every plan set in the global corpus
+(`corpus/sources.yaml` lists URLs only; the files live in `~/ec-data/global/`).
+Shipping plan sets inside the *deployed image* is a
 separate thing and is fine — the image builds from `deploy/data/`, which is
 gitignored.
 
-**`ecarbon/models.py` is a frozen contract** shared with the `mvp` branch.
-Don't edit it; work around it and say so.
+**`ecarbon/models.py` is a frozen contract.** Its JSON shape is what the API,
+the report and saved takeoffs share. Don't edit it; work around it and say so.
 
 **`tests/test_alberta_gate.py` pins the scored region.** Every extraction
 module is shared, so a change for one province silently moves another. If a
 gate number moves it is a regression until proven otherwise, and the proof
 goes in the commit message.
 
-**Never rewrite history or force-push.** A teammate works on `origin/mvp`.
+**Never rewrite history or force-push.** Two people push to this repo. The
+old `mvp` branch is kept as the tag `archive/mvp`.
 
 ## Before you believe a UI change worked, look at it
 
