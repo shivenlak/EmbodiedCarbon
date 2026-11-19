@@ -73,7 +73,7 @@ If you need a change in a file the other stream owns, write it under "Requests" 
 
 | ID | Contract | Owner | Status |
 |---|---|---|---|
-| C1 | `ecarbon/intake/locale.py`: `detect_locale(design) -> Locale` | A | ☐ stub ☐ real |
+| C1 | `ecarbon/intake/locale.py`: `detect_locale(design) -> Locale` | A | ☑ stub ☐ real |
 | C2 | `ecarbon/takeoff/overrides.py` `Overrides`, threaded through `gather()` / `build_takeoff()` | B | ☐ |
 | C3 | Line labels: `"vision: "` and `"stated: "` note prefixes | A writes vision lines; B writes stated lines and renders both | ☐ |
 | C4 | Upload stage `"vision"` | A emits, B displays | ☐ |

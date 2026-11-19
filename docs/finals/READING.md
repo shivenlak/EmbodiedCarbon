@@ -41,7 +41,7 @@ Tick each box in the PR that lands it.
   - Every failure is a readable `broke` string.
   - CLI: `python scripts/score_blind.py --split dev` writes `out/blind.json` and prints a table.
   - B imports `score_set`, so keep it import-safe: no work at import time.
-- [ ] **C1 stub.** `ecarbon/intake/locale.py` with the `Locale` dataclass and `detect_locale()` returning all-`None`. PR it on day 1 so B can build against it. Tick C1 "stub" in SHARED.md.
+- [x] **C1 stub.** `ecarbon/intake/locale.py` with the `Locale` dataclass and `detect_locale()` returning all-`None`. PR it on day 1 so B can build against it. Tick C1 "stub" in SHARED.md.
 - [ ] **Baseline.** Run `scripts/run_pipeline.py` on CMHC and save `out/baseline.json`. If `--json` doesn't exist yet, add a minimal one: per design, coverage % and total. This is the "must not regress" line.
 - [ ] **Failure list.** Rank the `broke` strings across dev sets by how many sets each one blocks. Paste the top 10 into this file under "Findings". That list orders A3.
 
