@@ -152,7 +152,7 @@ class Overrides:
   - Files live in `~/ec-data/landmark/<project>/`.
   - They never go in git, `corpus/sources.yaml`, `deploy/data`, the image, the live site, screenshots in the repo, or the deck, unless the sponsor says so. The guard grep already matches `landmark` and `.pdf`.
   - Don't commit the Drive link or the file names either. Each person downloads from the shared folder themselves.
-  - **No vision API calls on Landmark pages** until the team confirms with the challenge organiser that sending them to a third-party AI provider is acceptable. Rules-only runs are fine.
+  - **Vision API calls on Landmark pages are allowed** (confirmed by the team, 19 Nov). Use providers' API tiers that don't train on submitted data, and keep the vision cache for these pages under `~/ec-data/landmark/`, not in the repo.
   - Quote results as aggregate accuracy (for example "within X% of Landmark's own takeoff"), never as their drawings or quantities.
 - **How each set is delivered:** as **several PDFs per project**: Floor Layout, Roof Layout, Building Details, Schedule A, Final Blueprint, Foundation, and Mech & Electrical. That is how real builders deliver, and today both `config.pdf_designs()` and the upload treat each PDF as its own design. That gap is now a task on both streams: A4b and B2b.
 - **Split:** all three are **calibration (dev)** for Stream A, as the sponsor intends. Stream B scores them against Landmark's takeoffs when those arrive (B6).

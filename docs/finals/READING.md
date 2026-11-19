@@ -144,7 +144,7 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
 
 ## A4b. Plan sets delivered as several PDFs (Landmark), by Mon 23
 
-Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Building Details, Schedule A, Final Blueprint, Foundation, and Mech & Electrical. See SHARED.md "Landmark Homes sets" for the **confidentiality rules**: no vision API on them for now, and nothing in git.
+Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Building Details, Schedule A, Final Blueprint, Foundation, and Mech & Electrical. See SHARED.md "Landmark Homes sets" for the **confidentiality rules**: vision is allowed, but nothing goes in git.
 
 - [ ] **One design from a folder.** `config.pdf_designs(folder)` (or a new `folder_design`) makes **one** `Design` from all the PDFs in a folder, so the inventory sees every sheet across every file. Pages need a stable global index, plus a `(file, page)` mapping for provenance and trace. Check how `Design.drawings_pdf` is used (`config.py:44`, `intake/inventory.py`, `trace.render_page`), and keep single-PDF behaviour unchanged.
 - [ ] **Sheet classification across files.** File names are a strong hint ("Foundation.pdf", "Roof Layout.pdf"). Use them only when the title block is unreadable, and record that as the basis.
@@ -168,3 +168,14 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 ## Findings (append as you go)
 
 - *(A1 failure list, A3 before/after, A4 bake-off, A5 NOR before/after)*
+- **19 Nov, Landmark baseline (rules only, main @ dc8df88): 0 quantities on all three projects. This is the top priority.**
+  - Not one sheet is classified: 0/13 (RPL), 0/14 (RSL) and 0/11 (Townhome blueprint) are `unknown`, and 0 scales are found. So every downstream extractor reports "no floor plan / section / schedule".
+  - **Why:**
+    - The title block has a "SHEET n NO." layout (the number reads *before* the words) and an empty-looking "DRAWING:" field. Neither `classify_page` nor `from_title_block` matches it.
+    - There are no written scale notes.
+    - Dimensions are feet-and-inches only.
+  - **Implications:**
+    - (1) Classify from the drawing content (view titles inside the sheet, e.g. "...FLOOR PLAN", "SECTION", "ELEVATION") when the title block gives no title. This is also vision task 1.
+    - (2) Scale must come from dimension chains in feet-inches (`parse_imperial` already exists), or from vision task 2.
+    - (3) This is A4b's multi-PDF case: Townhome's foundation sheet is a separate PDF **with no text layer**, a natural first vision target.
+  - Inspect the files locally in `~/ec-data/landmark/`. Don't paste their text into the repo.
