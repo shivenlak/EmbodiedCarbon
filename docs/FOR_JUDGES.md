@@ -3,16 +3,19 @@
 **Live:** https://ecarbon.fly.dev. **Press *Continue as a guest*; no account needed.** Open the
 link and it works.
 
-> **A correction, found 28 October.** Interior partition *area* was being
-> multiplied by the height of the whole building rather than of one storey, so
-> every partition was counted once per storey. The IFC models caught it:
-> AB_Rowhouse_02 read 1,203 m² of partition against the model's 576 (now 602),
-> AB_Sixplex 2,029 against 738 (now 676). Every figure on this page is the
-> corrected one. AB_Fourplex_01 moves from 48,613 to **43,075 kgCO₂e**, and the
-> figure without partitions stays at exactly **37,536**, which is how we know
-> nothing else moved. If the live site still shows 48,613, it is serving the
-> build from before the fix, which differs only in the partition lines.
-> ([the fix and its evidence](https://github.com/shivenlak/EmbodiedCarbon/pull/3))
+> **Corrections since Submission 1, each published with its arithmetic.**
+> Every figure on this page is the corrected one.
+>
+> - *28 October.* Interior partition area was multiplied by the height of the
+>   whole building, not one storey. The IFC models caught it: AB_Rowhouse_02
+>   read 1,203 m² against the model's 576 (now 602). AB_Fourplex_01 went from
+>   48,613 to 43,075 kgCO₂e.
+>   ([the fix](https://github.com/shivenlak/EmbodiedCarbon/pull/3))
+> - *November.* Stud framing was priced as solid timber over the whole wall.
+>   It now takes a 15% stud share, in exterior walls and partitions alike.
+>   Steel studs, which the factor store has no factor for, are now left
+>   uncounted and named rather than priced as wood. AB_Fourplex_01 is
+>   **38,075 kgCO₂e**, and **34,659** without partitions.
 
 A vector PDF plan set goes in. A traceable bill of quantities and an A1–A3
 embodied carbon figure come out, with every quantity linked back to the sheet
@@ -33,7 +36,7 @@ partition-measurement approaches that failed before the fifth worked. A low
 total that does not announce itself as partial is indistinguishable from a
 good one.
 
-**2. The total is given twice.** 43,075 kgCO₂e, and 37,536 without the inferred
+**2. The total is given twice.** 38,075 kgCO₂e, and 34,659 without the inferred
 interior partitions. That one run is measured off the plan linework rather than
 read from a schedule — it is the least certain quantity in the bill, so the
 figure without it sits beside the figure with it.
