@@ -94,6 +94,7 @@ sets:
     url: https://www.planning.vic.gov.au/__data/assets/pdf_file/0026/635363/future-homes-design-b-ewg.pdf
     page: https://www.planning.vic.gov.au/guides-and-resources/strategies-and-initiatives/future-homes/future-homes-designs
     fetch: browser
+    sha256: c842337115428e06
     licence: "As au-vic-futurehomes-a."
     local_only: true
   - id: au-vic-futurehomes-c
@@ -106,6 +107,7 @@ sets:
     url: https://www.planning.vic.gov.au/__data/assets/pdf_file/0027/635364/future-homes-design-c-ewg.pdf
     page: https://www.planning.vic.gov.au/guides-and-resources/strategies-and-initiatives/future-homes/future-homes-designs
     fetch: browser
+    sha256: 845f5e48a663d73c
     licence: "As au-vic-futurehomes-a."
     local_only: true
   - id: au-vic-futurehomes-d
@@ -118,6 +120,7 @@ sets:
     url: https://www.planning.vic.gov.au/__data/assets/pdf_file/0027/635373/future-homes-design-d-ewg.pdf
     page: https://www.planning.vic.gov.au/guides-and-resources/strategies-and-initiatives/future-homes/future-homes-designs
     fetch: browser
+    sha256: a0a88da394ba3363
     licence: "As au-vic-futurehomes-a."
     local_only: true
 
