@@ -140,6 +140,23 @@ class Overrides:
   - Holdout numbers are recorded once, after Wednesday's freeze, and quoted as they are.
 - **Licences:** each set's licence is recorded in `sources.yaml`. Sets whose licence forbids redistribution are used for local testing only, never bundled into the deployed image.
 
+## Landmark Homes sets (sponsor-provided, CONFIDENTIAL)
+
+- **What arrived:** on 19 Nov the sponsor shared three Landmark projects, **RPL**, **RSL** and **Townhome**, "for calibration and testing". Next week it adds a **material list and high-level quantity takeoff** for each. Those takeoffs are the best ground truth we will ever get: a real builder's own quantities. Check that they've arrived before scoring.
+- **What the sponsor scores:**
+  1. drawing recognition across styles and housing types
+  2. quantity takeoff accuracy
+  3. UX for industry use
+  4. implementation and commercialization
+- **Confidentiality rules (stricter than the corpus):**
+  - Files live in `~/ec-data/landmark/<project>/`.
+  - They never go in git, `corpus/sources.yaml`, `deploy/data`, the image, the live site, screenshots in the repo, or the deck, unless the sponsor says so. The guard grep already matches `landmark` and `.pdf`.
+  - Don't commit the Drive link or the file names either. Each person downloads from the shared folder themselves.
+  - **Vision API calls on Landmark pages are allowed** (confirmed by the team, 19 Nov). Use providers' API tiers that don't train on submitted data, and keep the vision cache for these pages under `~/ec-data/landmark/`, not in the repo.
+  - Quote results as aggregate accuracy (for example "within X% of Landmark's own takeoff"), never as their drawings or quantities.
+- **How each set is delivered:** as **several PDFs per project**: Floor Layout, Roof Layout, Building Details, Schedule A, Final Blueprint, Foundation, and Mech & Electrical. That is how real builders deliver, and today both `config.pdf_designs()` and the upload treat each PDF as its own design. That gap is now a task on both streams: A4b and B2b.
+- **Split:** all three are **calibration (dev)** for Stream A, as the sponsor intends. Stream B scores them against Landmark's takeoffs when those arrive (B6).
+
 ## Schedule
 
 | Day | A reading (Divyesh) | B product (Shiven) |
