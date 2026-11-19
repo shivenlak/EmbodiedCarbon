@@ -1,0 +1,174 @@
+# The global corpus: plan sets from outside the CMHC catalogue.
+#
+# URLs and facts only. The PDFs never enter git. `scripts/fetch_corpus.py`
+# downloads them into ~/ec-data/global/<id>/planset.pdf.
+#
+# split:      dev     -> Stream A (reading) may open, tune on, and score.
+#             holdout -> Stream B (product) only. Scored once after the freeze.
+#             todo    -> found but not downloaded yet; give it a split when it is.
+# fetch:      direct  -> a plain HTTP download works.
+#             browser -> the site blocks scripts; open `url` in a browser and
+#                        save the file as ~/ec-data/global/<id>/planset.pdf.
+# local_only: true    -> licence does not grant redistribution: local testing
+#                        only, never bundled into deploy/data or the image.
+#
+# Keep a whole program (one architect / one template) inside one split, or the
+# holdout leaks: the four Escondido sets share one template.
+
+sets:
+  # ---- USA, imperial ---------------------------------------------------------
+  - id: us-escondido-adu-1
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: ADU (detached, 1 storey)
+    kind: full construction set, vector, 38 pages
+    url: https://www.escondido.gov/DocumentCenter/View/7245/PAADU-Planset-1
+    page: https://www.escondido.gov/1207
+    fetch: direct
+    sha256: a72b98170c2689ea
+    licence: "City of Escondido Pre-Approved ADU program: 'available to the public for download and use'. Redistribution not granted."
+    local_only: true
+  - id: us-escondido-adu-2
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: ADU
+    kind: full construction set, vector, 39 pages
+    url: https://www.escondido.gov/DocumentCenter/View/7246/PAADU-Planset-2
+    page: https://www.escondido.gov/1207
+    fetch: direct
+    sha256: 41565a021dc1e7ca
+    licence: "As us-escondido-adu-1."
+    local_only: true
+  - id: us-escondido-adu-3
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: ADU
+    kind: full construction set, vector, 39 pages
+    url: https://www.escondido.gov/DocumentCenter/View/7247/PAADU-Planset-3
+    page: https://www.escondido.gov/1207
+    fetch: direct
+    sha256: a8c7b3bcdb8a5da1
+    licence: "As us-escondido-adu-1."
+    local_only: true
+  - id: us-escondido-adu-4
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: ADU
+    kind: full construction set, vector, 40 pages
+    url: https://www.escondido.gov/DocumentCenter/View/7248/PAADU-Planset-4
+    page: https://www.escondido.gov/1207
+    fetch: direct
+    sha256: 4fb0930238f2c34a
+    licence: "As us-escondido-adu-1."
+    local_only: true
+
+  # ---- Australia, metric (Victoria "Future Homes", four architects) -----------
+  - id: au-vic-futurehomes-a
+    split: dev
+    country: AU
+    region: AU-VIC
+    units: metric
+    type: 3-storey apartment building
+    kind: design intent plans, vector, 12 pages (no wall build-ups)
+    url: https://www.planning.vic.gov.au/__data/assets/pdf_file/0029/635366/future-homes-design-a-ewg.pdf
+    page: https://www.planning.vic.gov.au/guides-and-resources/strategies-and-initiatives/future-homes/future-homes-designs
+    fetch: browser
+    sha256: 354e1e811b3a7160
+    licence: "Victorian Government; see terms: https://www.planning.vic.gov.au/__data/assets/pdf_file/0029/635357/terms-and-conditions-for-licence-of-future-homes-exemplar-plans.pdf"
+    local_only: true
+  - id: au-vic-futurehomes-b
+    split: dev
+    country: AU
+    region: AU-VIC
+    units: metric
+    type: 3-storey apartment building
+    kind: design intent plans
+    url: https://www.planning.vic.gov.au/__data/assets/pdf_file/0026/635363/future-homes-design-b-ewg.pdf
+    page: https://www.planning.vic.gov.au/guides-and-resources/strategies-and-initiatives/future-homes/future-homes-designs
+    fetch: browser
+    licence: "As au-vic-futurehomes-a."
+    local_only: true
+  - id: au-vic-futurehomes-c
+    split: holdout
+    country: AU
+    region: AU-VIC
+    units: metric
+    type: 3-storey apartment building
+    kind: design intent plans
+    url: https://www.planning.vic.gov.au/__data/assets/pdf_file/0027/635364/future-homes-design-c-ewg.pdf
+    page: https://www.planning.vic.gov.au/guides-and-resources/strategies-and-initiatives/future-homes/future-homes-designs
+    fetch: browser
+    licence: "As au-vic-futurehomes-a."
+    local_only: true
+  - id: au-vic-futurehomes-d
+    split: holdout
+    country: AU
+    region: AU-VIC
+    units: metric
+    type: 3-storey apartment building
+    kind: design intent plans
+    url: https://www.planning.vic.gov.au/__data/assets/pdf_file/0027/635373/future-homes-design-d-ewg.pdf
+    page: https://www.planning.vic.gov.au/guides-and-resources/strategies-and-initiatives/future-homes/future-homes-designs
+    fetch: browser
+    licence: "As au-vic-futurehomes-a."
+    local_only: true
+
+  # ---- Found, not yet downloaded (sites block scripts; fetch in a browser) ----
+  # Holdout candidates should come from programs not used in dev.
+  - id: us-boise-adu
+    split: todo
+    country: US
+    units: imperial
+    type: ADU (six designs; city says the plans are public domain)
+    page: https://www.cityofboise.org/departments/planning-and-development-services/planning/boise-zoning-code/pre-approved-adu-plans/
+    fetch: browser
+  - id: us-fresnocounty-plex
+    split: todo
+    country: US
+    units: imperial
+    type: duplex / triplex / fourplex
+    page: https://www.fresnocountyca.gov/Departments/Public-Works-and-Planning/divisions-of-public-works-and-planning/community-development-division/Duplex-Plans
+    fetch: browser
+  - id: us-martinez-adu
+    split: todo
+    country: US
+    units: imperial
+    type: ADU
+    page: https://www.cityofmartinez.org/departments/planning/accessory-dwelling-units/pre-approved-adu-plans
+    fetch: browser
+  - id: us-kalamazoo-plex
+    split: todo
+    country: US
+    units: imperial
+    type: duplex / fourplex
+    page: https://issuu.com/kalamazoocity/docs/preapproved_plans_comp
+    fetch: browser
+  - id: au-designforplace
+    split: todo
+    country: AU
+    units: metric
+    type: single-storey house, three lot sizes (Australian Government)
+    page: https://www.yourhome.gov.au/house-designs
+    fetch: browser
+  - id: ca-toronto-multiplex
+    split: todo
+    country: CA
+    units: metric
+    type: fourplex / sixplex (City of Toronto pre-approved; not CMHC)
+    page: https://www.toronto.ca/news/city-of-toronto-introduces-pre-approved-multiplex-designs-making-it-easier-to-build-more-homes-faster/
+    fetch: browser
+  - id: gb-ie-plana-timber-house
+    split: todo
+    country: IE
+    units: metric
+    type: 42 m2 timber house (Plana Architecture, released free)
+    page: https://learnarchitecture.net/?p=39277
+    fetch: browser
