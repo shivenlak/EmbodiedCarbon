@@ -93,9 +93,7 @@ def discover(root: Path | None = None) -> list[Design]:
     # as a design, appeared in the selector, and returned 500 when opened --
     # which a judge would find within ten seconds of arriving.
     for pkg in sorted(
-        p
-        for p in base.iterdir()
-        if p.is_dir() and not p.name.startswith(("_", "."))
+        p for p in base.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))
     ):
         files = [p for p in pkg.rglob("*") if p.is_file()]
         drawings = sorted(p for p in files if _is_drawings_pdf(p.name))
@@ -166,7 +164,76 @@ def pdf_designs(path: Path) -> list[Design]:
         )
         for pdf in pdfs
         if not pdf.name.startswith(("_", "."))
+        # Not folder_design's joined copy, which lives in a dot directory.
+        and not any(part.startswith(".") for part in pdf.relative_to(path).parts[:-1])
     ]
+
+
+COMBINED_DIR = ".ecarbon"
+
+
+def folder_design(folder: Path) -> Design:
+    """Every PDF in `folder` as ONE design: how builders deliver a set, as
+    separate Floor Layout, Roof, Foundation and Details files.
+
+    The files are joined into one PDF beside them, so every extractor, the
+    trace and the sheet renders see one set with one page index, and
+    `source_of` maps a page back to its file. A folder holding a single PDF
+    is that PDF, unchanged. The joined copy stays inside `folder`, so a
+    confidential set never leaves the place its owner put it.
+    """
+    import json
+
+    import pymupdf
+
+    folder = Path(folder)
+    pdfs = sorted(p for p in folder.glob("*.pdf") if not p.name.startswith(("_", ".")))
+    if not pdfs:
+        raise FileNotFoundError(f"no PDF in {folder}")
+    if len(pdfs) == 1:
+        return pdf_designs(pdfs[0])[0]
+
+    out = folder / COMBINED_DIR / "combined.pdf"
+    manifest = out.with_suffix(".json")
+    stamp = [[p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in pdfs]
+    current = json.loads(manifest.read_text()) if manifest.is_file() else None
+    if not out.is_file() or not current or current.get("stamp") != stamp:
+        files, joined = [], pymupdf.open()
+        for p in pdfs:
+            with pymupdf.open(p) as src:
+                files.append(
+                    {"file": p.name, "first_page": joined.page_count, "pages": src.page_count}
+                )
+                joined.insert_pdf(src)
+        out.parent.mkdir(exist_ok=True)
+        joined.save(out, garbage=1, deflate=True)
+        joined.close()
+        manifest.write_text(json.dumps({"stamp": stamp, "files": files}, indent=1))
+
+    return Design(
+        key=folder.name,
+        region="UPLOAD",
+        package_dir=folder,
+        drawings_pdf=out,
+        ifc=None,
+        h2k=[],
+        bpr=[],
+        list_of_drawings=None,
+    )
+
+
+def source_of(drawings_pdf: Path | str, page: int) -> tuple[str, int] | None:
+    """(file name, page within that file) for a page of a folder design's
+    joined PDF, or None for an ordinary single PDF."""
+    import json
+
+    manifest = Path(drawings_pdf).with_suffix(".json")
+    if Path(drawings_pdf).parent.name != COMBINED_DIR or not manifest.is_file():
+        return None
+    for f in json.loads(manifest.read_text())["files"]:
+        if f["first_page"] <= page < f["first_page"] + f["pages"]:
+            return f["file"], page - f["first_page"]
+    return None
 
 
 def get_design(key_fragment: str) -> Design:

@@ -3,6 +3,7 @@
 
     python scripts/score_blind.py --split dev        # Stream A
     python scripts/score_blind.py --split holdout    # Stream B only (blind)
+    python scripts/score_blind.py --dir ~/ec-data/landmark   # each subfolder, no truth
 
 Truth is read by eye off each set's drawings into corpus/<split>_truth.yaml;
 the sets themselves live in ~/ec-data/global/<id>/ (scripts/fetch_corpus.py).
@@ -27,7 +28,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ecarbon.config import pdf_designs  # noqa: E402
+from ecarbon.config import folder_design  # noqa: E402
 from ecarbon.models import SheetType  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,7 +53,7 @@ def score_set(design_dir: Path, truth: dict | None) -> dict:
 
     truth = truth or {}
     broke: list[str] = []
-    design = pdf_designs(Path(design_dir))[0]
+    design = folder_design(Path(design_dir))
 
     sheets, _, _ = inventory(design.drawings_pdf, with_scale=True)
     readable = [s for s in sheets if s.readable]
@@ -154,7 +155,24 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--split", choices=["dev", "holdout"], default="dev")
     ap.add_argument("--out", type=Path, default=ROOT / "out" / "blind.json")
+    ap.add_argument(
+        "--dir",
+        type=Path,
+        help="score every subfolder of DIR as one set, without truth (e.g. the Landmark sets)",
+    )
     args = ap.parse_args(argv)
+
+    if args.dir:
+        # Printed only: these sets may be confidential, so nothing is written.
+        rows = [score_set(d, None) for d in sorted(args.dir.expanduser().iterdir()) if d.is_dir()]
+        for row in rows:
+            print(
+                f"{row['set']:16} sheets {row['sheets_ok']:.0%}  scale {row['scale_ok']}"
+                f"  asm {row['assemblies_found']}  cov {row['coverage_pct']}%"
+            )
+            for b in row["broke"]:
+                print(f"    {b}")
+        return 0
 
     sources = yaml.safe_load((ROOT / "corpus" / "sources.yaml").read_text(encoding="utf-8"))
     truth_file = ROOT / "corpus" / f"{args.split}_truth.yaml"

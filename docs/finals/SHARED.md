@@ -189,4 +189,8 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
 
 ## Requests (cross-stream asks; append, don't edit the other stream's files)
 
-- *(none yet)*
+- **A → B (A4b hand-off for B2b):** `ecarbon.config.folder_design(folder: Path) -> Design` makes one design from every PDF in a folder. Save an upload's files together in one folder and call it.
+  - The files are joined into `<folder>/.ecarbon/combined.pdf`, so page indices, trace and renders work unchanged.
+  - `ecarbon.config.source_of(design.drawings_pdf, page) -> (file name, page in file) | None` maps a page back to its file, for the files list and provenance.
+  - A folder holding a single PDF is that PDF, unchanged.
+  - `pdf_designs()` skips the `.ecarbon/` copy.

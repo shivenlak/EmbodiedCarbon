@@ -367,6 +367,17 @@ def _inventory_cached(
                 revit_title=title_from_name,
                 repair=ds.repair,
             )
+            if stype is SheetType.UNKNOWN:
+                # A set delivered as several files (config.folder_design): the
+                # file's name is the last resort, and says so in the title.
+                from ecarbon.config import source_of
+                from ecarbon.intake.classify import type_from_file_name
+
+                origin = source_of(path, p.page)
+                hinted = type_from_file_name(origin[0]) if origin else SheetType.UNKNOWN
+                if hinted is not SheetType.UNKNOWN:
+                    stype, src = hinted, BasisSource.DEFAULT_RULE
+                    title = f"{title or Path(origin[0]).stem} (from file name)"
 
             scale_mm_per_pt: float | None = None
             scale_src = None

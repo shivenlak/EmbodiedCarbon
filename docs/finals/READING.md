@@ -14,8 +14,8 @@ Tick each box in the PR that lands it.
 
 ## A1. Corpus, scoring, failure list (Thu 19 – Fri 20)
 
-- [ ] `python scripts/fetch_corpus.py --split dev` fetches into `~/ec-data/global/`.
-- [ ] **Dev truth.** Write `corpus/dev_truth.yaml`, one entry per dev set, about 15 minutes each, read by eye off the drawings:
+- [x] `python scripts/fetch_corpus.py --split dev` fetches into `~/ec-data/global/`.
+- [x] **Dev truth.** *(4 Escondido sets; the two AU sets need a browser download, then truth)* Write `corpus/dev_truth.yaml`, one entry per dev set, about 15 minutes each, read by eye off the drawings:
   ```yaml
   us-boise-adu-1:
     footprint_m: [7.32, 9.75]      # W x D from the overall dimension strings, converted
@@ -28,7 +28,7 @@ Tick each box in the PR that lands it.
   ```
   - Facts only; no drawings in git.
   - Record `null` where the set doesn't state something. Concept sets won't have wall types.
-- [ ] **`scripts/score_blind.py`**:
+- [x] **`scripts/score_blind.py`**:
   - `score_set(design_dir, truth) -> dict` (the C6 row) runs `config.pdf_designs(dir)` then `build_takeoff`, and scores each stage:
     - sheets classified
     - a trustworthy scale found
@@ -42,8 +42,8 @@ Tick each box in the PR that lands it.
   - CLI: `python scripts/score_blind.py --split dev` writes `out/blind.json` and prints a table.
   - B imports `score_set`, so keep it import-safe: no work at import time.
 - [x] **C1 stub.** `ecarbon/intake/locale.py` with the `Locale` dataclass and `detect_locale()` returning all-`None`. PR it on day 1 so B can build against it. Tick C1 "stub" in SHARED.md.
-- [ ] **Baseline.** Run `scripts/run_pipeline.py` on CMHC and save `out/baseline.json`. If `--json` doesn't exist yet, add a minimal one: per design, coverage % and total. This is the "must not regress" line.
-- [ ] **Failure list.** Rank the `broke` strings across dev sets by how many sets each one blocks. Paste the top 10 into this file under "Findings". That list orders A3.
+- [ ] **Baseline.** *(`--json` added; needs the full catalogue, so run on Shiven's machine: `run_pipeline.py --json out/baseline.json`)* Run `scripts/run_pipeline.py` on CMHC and save `out/baseline.json`. If `--json` doesn't exist yet, add a minimal one: per design, coverage % and total. This is the "must not regress" line.
+- [x] **Failure list.** Rank the `broke` strings across dev sets by how many sets each one blocks. Paste the top 10 into this file under "Findings". That list orders A3.
 
 ## A2. `intake/locale.py`, the real version (Fri 20)
 
@@ -146,11 +146,11 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
 
 Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Building Details, Schedule A, Final Blueprint, Foundation, and Mech & Electrical. See SHARED.md "Landmark Homes sets" for the **confidentiality rules**: vision is allowed, but nothing goes in git.
 
-- [ ] **One design from a folder.** `config.pdf_designs(folder)` (or a new `folder_design`) makes **one** `Design` from all the PDFs in a folder, so the inventory sees every sheet across every file. Pages need a stable global index, plus a `(file, page)` mapping for provenance and trace. Check how `Design.drawings_pdf` is used (`config.py:44`, `intake/inventory.py`, `trace.render_page`), and keep single-PDF behaviour unchanged.
-- [ ] **Sheet classification across files.** File names are a strong hint ("Foundation.pdf", "Roof Layout.pdf"). Use them only when the title block is unreadable, and record that as the basis.
-- [ ] **Skip trades we don't count.** Mechanical/electrical sheets are recognised and skipped, with an info note.
+- [x] **One design from a folder.** `config.pdf_designs(folder)` (or a new `folder_design`) makes **one** `Design` from all the PDFs in a folder, so the inventory sees every sheet across every file. Pages need a stable global index, plus a `(file, page)` mapping for provenance and trace. Check how `Design.drawings_pdf` is used (`config.py:44`, `intake/inventory.py`, `trace.render_page`), and keep single-PDF behaviour unchanged.
+- [x] **Sheet classification across files.** File names are a strong hint ("Foundation.pdf", "Roof Layout.pdf"). Use them only when the title block is unreadable, and record that as the basis.
+- [ ] **Skip trades we don't count.** *(recognised as MECHANICAL/ELECTRICAL from the file name; the info note is still to do)* Mechanical/electrical sheets are recognised and skipped, with an info note.
 - [ ] **Score the Landmark sets** with `score_blind.py` (rules only), using `~/ec-data/landmark/` as a dev source. Put the "what broke" items into the A3 queue. Scores go in Findings without any Landmark quantities quoted.
-- [ ] **Hand-off for B2b:** tell B the function to call, e.g. `folder_design(path) -> Design`, under Requests in SHARED.md.
+- [x] **Hand-off for B2b:** tell B the function to call, e.g. `folder_design(path) -> Design`, under Requests in SHARED.md.
 
 ## A5. Image-only sets (Tue 24)
 
@@ -179,3 +179,13 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
     - (2) Scale must come from dimension chains in feet-inches (`parse_imperial` already exists), or from vision task 2.
     - (3) This is A4b's multi-PDF case: Townhome's foundation sheet is a separate PDF **with no text layer**, a natural first vision target.
   - Inspect the files locally in `~/ec-data/landmark/`. Don't paste their text into the repo.
+- **19 Nov, A1 failure list, dev split (4 Escondido ADU sets, US, imperial):**
+  - Before the US title-block fix, 0 sheets were typed on all four. After, 82% of readable sheets are (sheet numbers `A-901`, `A3-101`, `T24-301`; titles set vertically).
+  - Still 0 quantities on all four. Every one of these blocks all four sets:
+    1. `sheets: no section classified`: sections share "ELEVATIONS & SECTIONS" sheets, which type as elevation.
+    2. `sheets: no assembly schedule classified`: the wall types are a legend of notes on the floor plan.
+    3. `levels: no floor datum read`: the datum is `PLATE HEIGHT 8'-1"`.
+    4. `foundation: slab thickness not stated`: it says `4" CONCRETE SLAB ON GRADE`.
+    5. `openings: no schedule read`: there are window and door schedules on the floor plan sheet.
+    6. `assemblies: none read`.
+  - `footprint: area off by more than 10%` on 3 of 4 (+377 to +543%). The takeoff refuses it anyway, so no number is wrong in a bill.

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 import pymupdf
 
@@ -30,9 +31,7 @@ from ecarbon.models import BasisSource, Discipline, SheetType
 # US sets hyphenate or dot the number instead: A-901, S-1, G-001, A2.1, and
 # prefix it with a plan or series number: A3-101, T24-301. A bare single digit
 # (A1) stays out: it is the shape of a grid or detail bubble.
-SHEET_NO_RE = re.compile(
-    r"^([A-Z]{1,2})(\d{2,4}|\d{0,2}-\d{1,4}|\d{1,2}\.\d{1,2})([a-zA-Z])?$"
-)
+SHEET_NO_RE = re.compile(r"^([A-Z]{1,2})(\d{2,4}|\d{0,2}-\d{1,4}|\d{1,2}\.\d{1,2})([a-zA-Z])?$")
 
 # Boilerplate that appears in every title block and is never the sheet title.
 TITLE_BLOCK_NOISE = (
@@ -200,6 +199,24 @@ def _by_cooccurrence(up: str) -> SheetType:
         if all(w in up for w in words):
             return kind
     return SheetType.UNKNOWN
+
+
+def type_from_file_name(name: str) -> SheetType:
+    """A sheet type from the name of the file a set was delivered in.
+
+    Builders send a set as "Floor Layout.pdf", "Roof Layout.pdf",
+    "Foundation.pdf", "Mech & Electrical.pdf". Weaker than a title block, so
+    callers use it only when the page itself named nothing.
+    """
+    up = re.sub(r"[_\-\s]+", " ", Path(name).stem.upper())
+    if "MECH" in up or "PLUMBING" in up or "HVAC" in up:
+        return SheetType.MECHANICAL
+    if "ELECTRICAL" in up:
+        return SheetType.ELECTRICAL
+    up = up.replace("LAYOUT", "PLAN")
+    if ("FOUNDATION" in up or "FOOTING" in up) and "PLAN" not in up:
+        up += " PLAN"
+    return sheet_type_of(up)
 
 
 def _is_noise(text: str) -> bool:
