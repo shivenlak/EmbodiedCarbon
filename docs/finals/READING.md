@@ -142,6 +142,16 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - Per provider, record: answers accepted by the validator, answers right against `dev_truth.yaml`, wrong answers that got through, answers dropped by the validator, $ per set, and seconds per set.
   - Choose the default by **accepted-and-right per dollar**. Put the table under "Findings"; it goes in the deck.
 
+## A4b. Plan sets delivered as several PDFs (Landmark), by Mon 23
+
+Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Building Details, Schedule A, Final Blueprint, Foundation, and Mech & Electrical. See SHARED.md "Landmark Homes sets" for the **confidentiality rules**: no vision API on them for now, and nothing in git.
+
+- [ ] **One design from a folder.** `config.pdf_designs(folder)` (or a new `folder_design`) makes **one** `Design` from all the PDFs in a folder, so the inventory sees every sheet across every file. Pages need a stable global index, plus a `(file, page)` mapping for provenance and trace. Check how `Design.drawings_pdf` is used (`config.py:44`, `intake/inventory.py`, `trace.render_page`), and keep single-PDF behaviour unchanged.
+- [ ] **Sheet classification across files.** File names are a strong hint ("Foundation.pdf", "Roof Layout.pdf"). Use them only when the title block is unreadable, and record that as the basis.
+- [ ] **Skip trades we don't count.** Mechanical/electrical sheets are recognised and skipped, with an info note.
+- [ ] **Score the Landmark sets** with `score_blind.py` (rules only), using `~/ec-data/landmark/` as a dev source. Put the "what broke" items into the A3 queue. Scores go in Findings without any Landmark quantities quoted.
+- [ ] **Hand-off for B2b:** tell B the function to call, e.g. `folder_design(path) -> Design`, under Requests in SHARED.md.
+
 ## A5. Image-only sets (Tue 24)
 
 - [ ] Run vision on the 8 NOR CMHC sets with no text, and on any image-only sets in the dev corpus. **Target:** "nothing read" becomes a bill with every line `INFERRED` and traced. Record before/after.

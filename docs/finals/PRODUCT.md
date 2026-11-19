@@ -48,6 +48,15 @@ Tick each box in the PR that lands it.
 - [ ] Tests for each mode, plus: no overrides means identical totals.
 - [ ] Tick C2 in SHARED.md.
 
+## B2b. Upload several PDFs as one project (by Tue 24; needs A4b)
+
+Real builders, Landmark included, send a folder of PDFs: floor layout, roof, foundation, details, schedule.
+
+- [ ] **Upload dialog** (`App.jsx` `Upload`): accept several files, or a dropped folder. Show the files list, with the sheet types once they're read.
+- [ ] **`POST /projects/upload`:** take several `file` parts, save them together, and build one design with A4b's `folder_design()`. Keep the size limit across the whole set (raise it if needed), and check the `%PDF-` header on each file.
+- [ ] **Progress stages** count across files ("sheets: 23 across 6 files").
+- [ ] **Confidentiality:** test with the Landmark sets **on localhost only**. Never on the live site, and never in screenshots that get committed.
+
 ## B3. "Help it read this", the guided fallback UI (Sat 21 – Sun 22)
 
 - [ ] **Entry point.** Review notes with code `SCALE_NOT_FOUND`, a missing footprint (`GEOMETRY_AMBIGUOUS` / no footprint) or `STOREY_HEIGHT_UNKNOWN` get a **Help it read this** button. So does the upload result, when the bill came back thin.
@@ -90,6 +99,7 @@ Tick each box in the PR that lands it.
   - **Coverage before → after:** `out/baseline.json` vs `run_pipeline.py --json` now.
   - **Dev corpus:** `out/blind.json` from Stream A.
   - **Holdout:** score each holdout set with Stream A's `score_set` against `holdout_truth.yaml`. Run it once after the freeze and record it as-is.
+  - **Landmark** (once the sponsor's material lists and takeoffs arrive): compare our quantities line by line with Landmark's own, for each of RPL, RSL and Townhome. This is the strongest evidence for the "quantity takeoff accuracy" criterion. Publish only **aggregate** errors (e.g. "walls within X% across three Landmark projects"), never their quantities or drawings. Keep the per-line comparison in `~/ec-data/landmark/`, not in the repo.
 - [ ] **"How accurate is it" panel** in the app (a glass sheet like the others):
   - the CMHC error table
   - countries and unit systems tested
