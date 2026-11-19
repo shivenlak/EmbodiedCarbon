@@ -280,6 +280,41 @@ class TestSheetTyping:
         assert sheet_type_of("WIDGET DIAGRAM") is SheetType.UNKNOWN
 
 
+class TestUsTitleBlocks:
+    """US sets number sheets A-901 / A3-101 and set the title vertically."""
+
+    @pytest.mark.parametrize(
+        "token", ["A101", "A101a", "A-901", "S-1", "G-001", "A2.1", "A3-101", "T24-301"]
+    )
+    def test_sheet_number_shapes(self, token):
+        from ecarbon.intake.classify import SHEET_NO_RE, discipline_of
+
+        assert SHEET_NO_RE.match(token)
+        # T24 is California's Title 24 energy sheet: no discipline, so "?".
+        assert discipline_of(token).value == ("?" if token[0] == "T" else token[0])
+
+    @pytest.mark.parametrize("token", ["A1", "B4", "12", "A-", "2X6"])
+    def test_bubbles_and_noise_are_not_sheet_numbers(self, token):
+        from ecarbon.intake.classify import SHEET_NO_RE
+
+        assert not SHEET_NO_RE.match(token)
+
+    def test_a_vertical_title_beats_nearer_boilerplate(self):
+        """Escondido's 'PUBLIC SET' sits beside the number; the title is a column away."""
+        import pymupdf
+
+        from ecarbon.intake.classify import from_title_block
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=2592, height=1728)
+        page.insert_text((2400, 1680), "A3-101", fontsize=37.5)
+        page.insert_text((2330, 1686), "PUBLIC SET", fontsize=19, rotate=90)
+        page.insert_text((2505, 1160), "FLOOR PLAN 3", fontsize=25, rotate=90)
+        page.insert_text((200, 600), "WALL LEGEND", fontsize=25)
+        page.insert_text((200, 900), "body text", fontsize=8)
+        assert from_title_block(page) == ("A3-101", "FLOOR PLAN 3")
+
+
 class TestSheetNumberRanges:
     """The List of Drawings lists repeated detail sheets as ranges."""
 

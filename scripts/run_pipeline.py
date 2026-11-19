@@ -4,6 +4,7 @@
     python scripts/run_pipeline.py              # all 53
     python scripts/run_pipeline.py AB_Sixplex   # one
     python scripts/run_pipeline.py ~/ec-data/landmark/   # any folder or PDF
+    python scripts/run_pipeline.py --json out/baseline.json   # also save per design
 
 This is the end-to-end check behind two rubric bars: that the intake opens any
 set in the catalogue without crashing, and that a set runs through to a carbon
@@ -17,6 +18,7 @@ counted separately.
 
 from __future__ import annotations
 
+import json
 import statistics
 import sys
 import time
@@ -60,6 +62,11 @@ def facts_for(design) -> ProjectFacts:
 
 
 def main(argv: list[str]) -> int:
+    json_out = None
+    if "--json" in argv:
+        i = argv.index("--json")
+        json_out = Path(argv[i + 1])
+        argv = argv[:i] + argv[i + 2 :]
     if argv and Path(argv[0]).expanduser().exists():
         designs = pdf_designs(Path(argv[0]).expanduser())
     else:
@@ -75,6 +82,7 @@ def main(argv: list[str]) -> int:
     coverages: list[float] = []
     intensities: list[float] = []
     seconds: list[float] = []
+    record: dict[str, dict] = {}
 
     for d in designs:
         key = d.key.split("_Technical")[0][:30]
@@ -114,6 +122,7 @@ def main(argv: list[str]) -> int:
             )
             continue
 
+        record[key] = {"coverage_pct": round(100 * covered, 1), "kg_co2e": round(carbon.total_kg_co2e)}
         coverages.append(covered)
         if carbon.intensity_kg_co2e_per_m2:
             intensities.append(carbon.intensity_kg_co2e_per_m2)
@@ -158,6 +167,13 @@ def main(argv: list[str]) -> int:
     if silent:
         print(f"\nProduced no quantities but reported why ({len(silent)}):")
         print("   " + ", ".join(silent))
+
+    if json_out:
+        for key in silent:
+            record.setdefault(key, {"coverage_pct": 0.0, "kg_co2e": None})
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(json.dumps(record, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"\nwrote {json_out}")
 
     return 1 if crashed else 0
 

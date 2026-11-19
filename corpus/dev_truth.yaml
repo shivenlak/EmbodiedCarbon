@@ -1,0 +1,51 @@
+# Dev-split truth for scripts/score_blind.py, read by eye off each set's
+# drawings. Facts only: the drawings themselves never enter git.
+#
+# footprint_m:        overall W x D in metres, off the overall dimension strings
+#                     (face of framing, as the plans dimension it)
+# footprint_area_m2:  only where the footprint is not a rectangle
+# storey_heights_m:   plate height per storey
+# windows / doors:    rows of the base schedule; optional and alternate rows
+#                     (the "OPTIONAL EXTERIOR DOORS" tables) are left out
+# null:               the set does not state it
+
+us-escondido-adu-1:
+  footprint_m: [6.706, 6.706]   # 22'-0" x 22'-0"; title sheet: 484 SF
+  storeys: 1
+  storey_heights_m: [2.464]     # PLATE HEIGHT 8'-1" (A1-201)
+  windows: 6
+  doors: 7
+  slab_mm: 102                  # 4" concrete slab on grade
+  exterior_wall: '5 1/2" wood stud w/ plywood sheathing and finish (stucco / lap / board & batt by option), one layer gyp. wall board int.'
+  notes: "A1-101 floor plan; sections share sheets with elevations (A1-201 ELEVATIONS & SECTIONS); no assembly schedule, the wall legend on A1-101 is a list of notes"
+
+us-escondido-adu-2:
+  footprint_m: [14.021, 4.267]  # 46'-0" x 14'-0"; title sheet: 644 SF
+  storeys: 1
+  storey_heights_m: [2.464]
+  windows: 7
+  doors: 9
+  slab_mm: 102
+  exterior_wall: '5 1/2" wood stud w/ plywood sheathing and finish, one layer gyp. wall board int.'
+  notes: "A2-101"
+
+us-escondido-adu-3:
+  footprint_m: [8.230, 9.601]   # 27'-0" x 31'-6"; title sheet: 842 SF
+  storeys: 1
+  storey_heights_m: [2.464]
+  windows: 10
+  doors: 11
+  slab_mm: 102
+  exterior_wall: '5 1/2" wood stud w/ plywood sheathing and finish, one layer gyp. wall board int.'
+  notes: "A3-101"
+
+us-escondido-adu-4:
+  footprint_m: [12.802, 7.620]  # 42'-0" x 25'-0" overall
+  footprint_area_m2: 92.90      # less a 5'-0" x 10'-0" porch notch = 1,000 SF, as the title sheet states
+  storeys: 1
+  storey_heights_m: [2.464]
+  windows: 11
+  doors: 10
+  slab_mm: 102
+  exterior_wall: '5 1/2" wood stud w/ plywood sheathing and finish, one layer gyp. wall board int.'
+  notes: "A4-101; A4-102 is a sheet of plan options"

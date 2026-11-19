@@ -27,7 +27,12 @@ from ecarbon.intake.textrepair import FontRepair, looks_broken
 from ecarbon.models import BasisSource, Discipline, SheetType
 
 # A000, A101a, S102, M000, E201A. Two letters occur on civil/landscape sheets.
-SHEET_NO_RE = re.compile(r"^([A-Z]{1,2})(\d{2,4})([a-zA-Z])?$")
+# US sets hyphenate or dot the number instead: A-901, S-1, G-001, A2.1, and
+# prefix it with a plan or series number: A3-101, T24-301. A bare single digit
+# (A1) stays out: it is the shape of a grid or detail bubble.
+SHEET_NO_RE = re.compile(
+    r"^([A-Z]{1,2})(\d{2,4}|\d{0,2}-\d{1,4}|\d{1,2}\.\d{1,2})([a-zA-Z])?$"
+)
 
 # Boilerplate that appears in every title block and is never the sheet title.
 TITLE_BLOCK_NOISE = (
@@ -254,6 +259,33 @@ def from_title_block(
     block = [s for s in near if abs(s.size - closest.size) < 0.6]
     block.sort(key=lambda s: (round(s.y / max(closest.size, 1.0)), s.x))
     title = re.sub(r"\s+", " ", " ".join(s.text for s in block)).strip(" -–,")
+
+    if sheet_type_of(title) is SheetType.UNKNOWN:
+        # US title blocks set the title vertically in a column of its own,
+        # further from the number than boilerplate such as "PUBLIC SET". Only
+        # when the nearest text names no sheet type, take the closest large
+        # span that does, within a wider radius, with its same-size neighbours.
+        wide = sorted(
+            (
+                s
+                for s in spans
+                if s is not num
+                and s.size >= 0.5 * num.size
+                and not _is_noise(s.text)
+                and dist(s) <= 0.3 * diag
+            ),
+            key=dist,
+        )
+        hit = next((s for s in wide if sheet_type_of(s.text) is not SheetType.UNKNOWN), None)
+        if hit:
+            group = [
+                s
+                for s in wide
+                if abs(s.size - hit.size) < 0.6
+                and abs(s.x - hit.x) + abs(s.y - hit.y) <= 5 * hit.size
+            ]
+            group.sort(key=lambda s: (round(s.y / max(hit.size, 1.0)), s.x))
+            title = re.sub(r"\s+", " ", " ".join(s.text for s in group)).strip(" -–,")
     return sheet_no, title or None
 
 
