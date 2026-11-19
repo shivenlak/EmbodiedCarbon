@@ -157,6 +157,13 @@ class TestSharedCavity:
         # Together they fill the cavity exactly once.
         assert framing + fill == pytest.approx(100 * 0.140, abs=0.01)
 
+    def test_framing_with_an_empty_cavity_is_still_studs_not_solid_timber(self):
+        """A real regression: a partition's gypsum/stud/gypsum has no fill, so
+        its studs were priced as 89 mm of solid timber over the whole wall."""
+        lay = layer("WOOD STUD FRAMING @ 406MM O/C", 89.0)
+        assert lay.shares_cavity_with is None
+        assert lay.volume_m3(100.0, 0.15) == pytest.approx(100 * 0.089 * 0.15, abs=0.01)
+
     def test_built_depth_counts_a_shared_cavity_once(self):
         assert self.build().total_thickness_mm == 140.0
 
@@ -450,3 +457,27 @@ class TestAssemblyNameFilter:
         asm.layers = [layer("GYPSUM BOARD", 16.0, 0), layer("WOOD STUD FRAMING", 140.0, 1)]
         reason = asm.implausible()
         assert reason and "material rather than an assembly" in reason
+
+
+class TestDeferralSaysWhereItIsCounted:
+    """"Counted there" was said of joists and trusses that no line counts."""
+
+    def gap_for(self, tag, material):
+        asm = Assembly(tag=tag, name="X")
+        lay = layer(material, None, 0)
+        lay.deferred_to = "Structural"
+        asm.layers = [lay]
+        return asm.gaps()[0]
+
+    def test_foundation_concrete_is_counted_on_the_structural_line(self):
+        assert "is counted there" in self.gap_for("F1", "CAST-IN-PLACE CONCRETE SLAB-ON-GRADE")
+
+    def test_wood_wall_framing_is_counted_over_the_wall_area(self):
+        assert "framing over the exterior wall area" in self.gap_for("W1", "WOOD STUD FRAMING")
+
+    def test_joists_trusses_and_steel_studs_say_they_are_missing(self):
+        for tag, material in (("F2", "ENGINEERED WOOD JOIST OR I-JOIST"),
+                              ("R2", "PRE FABRICATED ROOF TRUSS"),
+                              ("W2", "METAL STUD FRAMING"),
+                              ("FW1.1", "CAST-IN-PLACE CONCRETE")):
+            assert "not counted" in self.gap_for(tag, material), material

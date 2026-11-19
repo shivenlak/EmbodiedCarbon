@@ -222,13 +222,17 @@ class TestAlbertaQuantities:
         # Excluding partitions. 37,536 until wall framing stopped being priced
         # as solid timber 150 mm thick over the whole wall area: it now takes a
         # 140 mm stud at a 15% framing fraction, and the wall line alone fell
-        # from 2,877 to 403. Nothing else moved.
-        assert carbon.total_kg_co2e - partitions == pytest.approx(35061, rel=0.02)
+        # from 2,877 to 403. Then 35,061 until W2's 'METAL STUD FRAMING' stopped
+        # being priced as timber: the store has no steel stud factor, so those
+        # 403 are now uncounted and named rather than wrong.
+        assert carbon.total_kg_co2e - partitions == pytest.approx(34659, rel=0.02)
         # 48,613 until partitions stopped being counted once per storey: the run
         # is summed over both plans, so it stands one storey tall, not two.
-        # 43,075 before the framing fraction above.
-        assert carbon.total_kg_co2e == pytest.approx(40600, rel=0.02)
-        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(132.7, rel=0.02)
+        # 43,075 before the framing fraction above; 40,600 until the partition
+        # studs took it too. P1 has no cavity fill, so its 89 mm studs were
+        # priced as solid timber over the whole partition: 2,497 now 375.
+        assert carbon.total_kg_co2e == pytest.approx(38075, rel=0.02)
+        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(124.4, rel=0.02)
 
     def test_interior_partitions_are_measured_and_say_how_certain(self, takeoff):
         from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX

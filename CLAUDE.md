@@ -7,7 +7,7 @@ Landmark Homes.
 **Read [docs/HANDOFF.md](docs/HANDOFF.md) before changing anything.** It
 carries the context that is not recoverable from the code.
 
-State: **722 tests passing, ruff clean**, deployed at https://ecarbon.fly.dev
+State: **747 tests (202 need the full catalogue), ruff clean**, deployed at https://ecarbon.fly.dev
 (press *Continue as a guest*; each visitor gets a private workspace, and the API is open without a token).
 
 ---
@@ -60,7 +60,7 @@ Deep links exist so dialogs can be reviewed at all: `?plan=`, `?trace=`,
 ## Commands
 
 ```bash
-.venv/bin/python -m pytest                 # 722 tests, ~10 min
+.venv/bin/python -m pytest                 # 747 tests, ~10 min
 .venv/bin/python -m ruff check ecarbon scripts tests deploy
 .venv/bin/python scripts/run_pipeline.py   # all 53 sets
 .venv/bin/python scripts/audit_discards.py # what each stage throws away

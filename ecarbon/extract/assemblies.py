@@ -128,6 +128,8 @@ _DEFER_RE = re.compile(r"\(?\s*REFER\s+TO\s+(\w+)[^)]*\)?", re.I)
 # Share of a stud cavity the studs and plates take, at 400 mm centres; the
 # fill takes the rest. Also used where framing is carried only as a wall area.
 FRAMING_FRACTION = 0.15
+_CONCRETE_RE = re.compile(r"\bCONCRETE\b", re.I)
+STEEL_RE = re.compile(r"\b(METAL|STEEL)\b", re.I)
 
 _FRAMING_RE = re.compile(r"\b(STUD|JOIST|TRUSS|RAFTER)\s+FRAMING\b|\bFRAMING\b", re.I)
 # A layer the schedule states is intermittent rather than continuous:
@@ -329,15 +331,18 @@ class Layer:
     def volume_m3(self, area_m2: float, framing_fraction: float = FRAMING_FRACTION) -> float | None:
         """Volume of this layer over `area_m2` of the assembly.
 
-        A layer sharing a cavity takes only its share of it: the framing takes
-        `framing_fraction` and the fill takes the rest. Without that split the
-        pair would together claim twice the cavity's actual depth.
+        Framing takes `framing_fraction` of its depth whether or not anything
+        fills the rest: a stud layer is studs at centres, not a solid sheet of
+        timber, even in an empty partition cavity. A fill sharing the cavity
+        takes the rest; without that split the pair would claim twice its depth.
         """
         if not self.quantifiable:
             return None
         share = 1.0
-        if self.shares_cavity_with is not None:
-            share = framing_fraction if self.is_framing else (1.0 - framing_fraction)
+        if self.is_framing:
+            share = framing_fraction
+        elif self.shares_cavity_with is not None:
+            share = 1.0 - framing_fraction
         return round(area_m2 * (self.thickness_mm / 1000.0) * share * self.coverage[0], 3)
 
 
@@ -447,6 +452,27 @@ class Assembly:
         """Layers no quantity can be produced for, and why."""
         return [x for x in self.layers if not x.quantifiable]
 
+    def _deferral_gap(self, layer: Layer) -> str:
+        """Where a deferred layer is counted, which is not always anywhere.
+
+        Only slab and footing concrete is read off the structural drawings, and
+        wall framing is priced over the exterior wall area. Joists, trusses,
+        steel studs and foundation-wall concrete are counted nowhere, and
+        saying "counted there" for them claimed carbon the total does not hold.
+        """
+        head = (f"{self.tag} layer {layer.index + 1} '{layer.material}' defers to the "
+                f"{layer.deferred_to.lower()} drawings")
+        if _CONCRETE_RE.search(layer.material) and not self.tag.upper().startswith("FW"):
+            return f"{head} and is counted there, not here"
+        if layer.is_framing and self.tag.upper().startswith("W"):
+            if STEEL_RE.search(layer.material):
+                # Named once, on the exterior wall line, so it is not listed twice.
+                return (f"{head}; the factor store has no steel stud factor, so the "
+                        f"exterior wall framing line is not counted")
+            return f"{head}; it is counted once, as framing over the exterior wall area"
+        return (f"{head}, which are not quantified for it, so it is not counted: "
+                f"its carbon is missing from the total")
+
     def gaps(self) -> list[str]:
         out: list[str] = []
         for layer in self.layers:
@@ -457,15 +483,13 @@ class Assembly:
                     f"can be assigned to it"
                 )
             elif layer.deferred_to:
-                out.append(
-                    f"{self.tag} layer {layer.index + 1} '{layer.material}' defers to "
-                    f"the {layer.deferred_to.lower()} drawings and is counted there, "
-                    f"not here"
-                )
+                out.append(self._deferral_gap(layer))
             elif layer.thickness_mm is None:
+                said = ("gives its thickness as VAR (varies)" if layer.stated_no_thickness
+                        else "states no thickness")
                 out.append(
-                    f"{self.tag} layer {layer.index + 1} '{layer.material}' states no "
-                    f"thickness, so no volume can be computed for it"
+                    f"{self.tag} layer {layer.index + 1} '{layer.material}' {said}, "
+                    f"so no volume can be computed for it"
                 )
             elif layer.coverage[0] == 0.0:
                 out.append(f"{self.tag} layer {layer.index + 1} '{layer.material}' is "

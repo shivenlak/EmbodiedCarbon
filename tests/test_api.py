@@ -172,8 +172,9 @@ class TestUploadingAPlanSet:
         assert pid.startswith("upload-")
         # The same drawings through a different door must give the same answer.
         assert body["n_lines"] == 20
-        # 40,600 since wall framing is priced at its stud share (was 43,075).
-        assert body["total_kg_co2e"] == pytest.approx(40600, rel=0.02)
+        # The Alberta gate's figure: 38,075 since framing, partitions included,
+        # is priced at its stud share and steel studs are left uncounted.
+        assert body["total_kg_co2e"] == pytest.approx(38075, rel=0.02)
 
         for endpoint in ("takeoff", "carbon", "intake", "substitutions", "unspecified"):
             assert client.get(f"/projects/{pid}/{endpoint}").status_code == 200

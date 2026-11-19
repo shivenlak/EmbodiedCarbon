@@ -165,6 +165,26 @@ class TestPrintableReport:
         shares = [int(x) for x in re.findall(r"</b> (\d+)%", page.split("Rests on:")[1][:400])]
         assert shares and abs(sum(shares) - 100) <= len(shares)
 
+    def test_it_lists_what_the_total_leaves_out(self, pair):
+        """Uncounted rows and deferred layers, gathered where a reader looks."""
+        from ecarbon.models import Gap, GapCode, GapSeverity
+        from ecarbon.report import _prose
+
+        takeoff, carbon = pair
+        takeoff = takeoff.model_copy(deep=True)
+        takeoff.gaps.append(Gap(
+            code=GapCode.ASSEMBLY_SCHEDULE_MISSING, severity=GapSeverity.WARNING,
+            message="R2 layer 5 'PRE FABRICATED ROOF TRUSS' defers to the structural "
+                    "drawings, which are not quantified for it, so it is not counted: "
+                    "its carbon is missing from the total",
+        ))
+        page = report_html(takeoff, carbon)
+        section = page.split("<h2>Not in the total</h2>")[1].split("<h2>")[0]
+        assert "ROOF TRUSS" in section
+        for c in carbon.lines:
+            if c.kg_co2e is None and c.missing_reason:
+                assert _prose(c.missing_reason)[:30] in section
+
     def test_it_is_a_complete_document(self, pair):
         takeoff, carbon = pair
         page = report_html(takeoff, carbon)
