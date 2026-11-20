@@ -17,7 +17,6 @@ import {
   useCountUp,
   Confidence,
   Said,
-  UNIT_LABEL,
   CLASS_LABEL,
   PARTITION_PREFIX,
   HEAT,
@@ -34,6 +33,7 @@ import {
   AppFooter,
 } from "./App.jsx";
 import { canHelp, modeFor } from "./HelpRead.jsx";
+import { useUnits } from "./units.js";
 import "./showcase.css";
 
 const STILL =
@@ -101,6 +101,7 @@ export default function Showcase({
   exportHref,
   reportHref,
 }) {
+  const U = useUnits();
   // The pages that open as a sheet over the model, in their order.
   const SHEETS = [
     { id: "quantities", label: "Bill of quantities" },
@@ -555,7 +556,8 @@ export default function Showcase({
     const { hotI, coolI } = heatView;
     return Math.max(0, Math.min(1, (v - coolI) / (hotI - coolI || hotI || 1)));
   };
-  const heatFmt = (v) => (heatMode === "share" ? `${int(v)} kg` : `${dec(v, 1)} kg/m²`);
+  const heatFmt = (v) =>
+    heatMode === "share" ? `${int(v)} kg` : `${dec(U.perArea(v), U.imperial ? 2 : 1)} kg/${U.areaLabel}`;
 
   const counts = useMemo(() => {
     const c = { measured: 0, inferred: 0, assumed: 0 };
@@ -590,7 +592,7 @@ export default function Showcase({
   // Cut at a clause break, but end on a full stop: a note ending "here:" or
   // "schedule;" reads as text that failed to load.
   const firstSentence = (t) => {
-    const s = prose(t);
+    const s = U.text(prose(t));
     const i = s.search(/[.;:](\s|$)/);
     return i > 40 && i < 220 ? `${s.slice(0, i)}.` : s.length > 200 ? `${s.slice(0, 200)}…` : s;
   };
@@ -691,6 +693,19 @@ export default function Showcase({
           </label>
         </div>
         <div className="sc-top-actions">
+          <div className="glass sc-units" role="group" aria-label="Units">
+            {[["metric", "m"], ["imperial", "ft"]].map(([sys, lab]) => (
+              <button
+                key={sys}
+                className={U.system === sys ? "is-on" : ""}
+                aria-pressed={U.system === sys}
+                onClick={() => U.setSystem(sys)}
+                title={sys === "metric" ? "Metres, m², m³" : "Feet, ft², yd³"}
+              >
+                {lab}
+              </button>
+            ))}
+          </div>
           {exportHref && (
             <a className="glass sc-btn sc-hide-phone" href={exportHref} download>
               Download CSV
@@ -728,8 +743,8 @@ export default function Showcase({
         </div>
         <div className="sc-sub">
           <span>
-            <b>{dec(carbon?.intensity_kg_co2e_per_m2, 1)}</b> kg/m² over{" "}
-            {p.gfa_m2 ? dec(p.gfa_m2, 0) : "—"} m²
+            <b>{dec(U.perArea(carbon?.intensity_kg_co2e_per_m2), U.imperial ? 2 : 1)}</b> kg/{U.areaLabel} over{" "}
+            {p.gfa_m2 ? int(U.v(p.gfa_m2, "m2")) : "—"} {U.areaLabel}
           </span>
           {partitions > 0 && (
             <span>
@@ -853,7 +868,7 @@ export default function Showcase({
           {areaView?.intensity[hover.cls] != null && (
             <span className="sc-tip-heat">
               <i style={{ background: heatSwatch(hover.cls) }} />
-              {dec(areaView.intensity[hover.cls], 1)} kgCO₂e/m² of surface
+              {dec(U.perArea(areaView.intensity[hover.cls]), U.imperial ? 2 : 1)} kgCO₂e/{U.areaLabel} of surface
             </span>
           )}
           {heat && unmeasured.includes(hover.cls) && (
@@ -890,7 +905,7 @@ export default function Showcase({
                 show up as a wrong shape.
               </p>
               <dl className="sc-facts">
-                <div><dt>Footprint</dt><dd>{dec(massing?.width_m, 1)} × {dec(massing?.depth_m, 1)} m</dd></div>
+                <div><dt>Footprint</dt><dd>{dec(U.v(massing?.width_m, "m"), 1)} × {dec(U.v(massing?.depth_m, "m"), 1)} {U.label("m")}</dd></div>
                 <div><dt>Storeys</dt><dd>{heights.length || p.storeys || "—"}</dd></div>
                 <div><dt>Units</dt><dd>{p.units ?? "—"}</dd></div>
                 <div><dt>Partitions</dt><dd>{massing?.walls?.length ?? "—"} walls</dd></div>
@@ -918,8 +933,8 @@ export default function Showcase({
                 {modelLines.map((line) => {
                   const isPart = line.id.startsWith(PARTITION_PREFIX);
                   const walls = massing?.walls?.length;
-                  const qty = isPart && walls ? walls : line.user_override ?? line.quantity;
-                  const unit = isPart && walls ? "walls" : UNIT_LABEL[line.unit] || line.unit;
+                  const qty = isPart && walls ? walls : U.v(line.user_override ?? line.quantity, line.unit);
+                  const unit = isPart && walls ? "walls" : U.label(line.unit);
                   const cls = line.element_class;
                   return (
                     <li key={line.id}>
@@ -964,7 +979,7 @@ export default function Showcase({
                 <div className="sc-legend">
                   <div className="sc-mode" role="group" aria-label="Colour the model by">
                     <button className={heatMode === "area" ? "is-on" : ""} onClick={() => setHeatMode("area")}>
-                      Per m² of surface
+                      Per {U.areaLabel} of surface
                     </button>
                     <button className={heatMode === "share" ? "is-on" : ""} onClick={() => setHeatMode("share")}>
                       Share of total
@@ -1030,7 +1045,7 @@ export default function Showcase({
                         <s style={{ width: `${(kg / topKg) * 100}%`, background: swatch || undefined }} />
                       </span>
                       <b>{int(kg)}</b>
-                      <em>{dens != null ? `${dec(dens, 1)}/m²` : "not drawn"}</em>
+                      <em>{dens != null ? `${dec(U.perArea(dens), U.imperial ? 2 : 1)}/${U.areaLabel}` : "not drawn"}</em>
                     </li>
                   );
                 })}
@@ -1293,7 +1308,7 @@ export default function Showcase({
         <aside className="sc-hints glass" aria-label="Getting started">
           {[
             ["Press a sheet tag", "to see where a number came from", 1],
-            ["Heat map", "what is heaviest per m²", 2],
+            ["Heat map", `what is heaviest per ${U.areaLabel}`, 2],
             ["Your spec", "price a choice before it is locked", 4],
           ].map(([b, rest, to], i) => (
             <button
@@ -1415,10 +1430,11 @@ function slotHeight(n) {
 // One line of the bill, worked: what was read, times its factor, is its
 // carbon. The quantity can be corrected in place.
 function PartLine({ line, carbonLine, onOverride, onTrace }) {
+  const U = useUnits();
   const [draft, setDraft] = useState(null);
   const edited = line.user_override != null;
-  const qty = edited ? line.user_override : line.quantity;
-  const unit = UNIT_LABEL[line.unit] || line.unit;
+  const qty = U.v(edited ? line.user_override : line.quantity, line.unit);
+  const unit = U.label(line.unit);
   const f = carbonLine?.factor;
   const converted = carbonLine?.conversion_note && !/directly matches/i.test(carbonLine.conversion_note);
   // When the factor is declared in another unit, the multiplication is shown
@@ -1426,11 +1442,13 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
   const inFactorUnit = f && f.gwp_value ? (carbonLine.kg_co2e || 0) / f.gwp_value : null;
 
   async function commit() {
-    const value = parseFloat(draft);
+    const shown = parseFloat(draft);
     setDraft(null);
-    if (!Number.isFinite(value) || value < 0) return;
-    // Typing back the figure we read is an undo.
-    if (value === line.quantity) {
+    if (!Number.isFinite(shown) || shown < 0) return;
+    // Typed in the units on screen; stored in SI.
+    const value = U.back(shown, line.unit);
+    // Typing back the figure we read is an undo, at the precision shown.
+    if (Math.abs(shown - U.v(line.quantity, line.unit)) < 0.005) {
       if (edited) await onOverride(line.id, null);
       return;
     }
@@ -1441,7 +1459,7 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
   return (
     <li className="bd-line">
       <div className="bd-line-head">
-        <span>{line.description}</span>
+        <span>{U.text(line.description)}</span>
         <Confidence value={line.confidence} />
         <Said line={line} />
       </div>
@@ -1452,7 +1470,7 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
             inputMode="decimal"
             value={draft ?? dec(qty, line.unit === "each" ? 0 : 2)}
             onFocus={(e) => {
-              setDraft(String(qty));
+              setDraft(String(+qty.toFixed(3)));
               requestAnimationFrame(() => e.target.select());
             }}
             onChange={(e) => setDraft(e.target.value)}
@@ -1471,14 +1489,14 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
           <>
             {converted && inFactorUnit != null && (
               <span className="bd-conv" title={carbonLine.conversion_note}>
-                → {dec(inFactorUnit, inFactorUnit < 10 ? 2 : 1)}
-                <em>{UNIT_LABEL[f.declared_unit] || f.declared_unit}</em>
+                → {dec(U.v(inFactorUnit, f.declared_unit), U.v(inFactorUnit, f.declared_unit) < 10 ? 2 : 1)}
+                <em>{U.label(f.declared_unit)}</em>
               </span>
             )}
             <span className="bd-op">×</span>
             <span className="bd-factor">
-              {dec(f.gwp_value, f.gwp_value < 10 ? 2 : 0)}
-              <em>kg/{UNIT_LABEL[f.declared_unit] || f.declared_unit}</em>
+              {dec(U.perUnit(f.gwp_value, f.declared_unit), U.perUnit(f.gwp_value, f.declared_unit) < 10 ? 2 : 0)}
+              <em>kg/{U.label(f.declared_unit)}</em>
             </span>
             <span className="bd-op">=</span>
             <b className="bd-result">{int(carbonLine.kg_co2e)}</b>

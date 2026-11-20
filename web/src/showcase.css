@@ -928,3 +928,12 @@ a.sc-btn { display: inline-flex; align-items: center; text-decoration: none; col
 .sc-region-pick span { text-decoration: underline; text-underline-offset: 3px; }
 .sc-region-pick select { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 16px; }
 .sc-region-pick:focus-within span { outline: 2px solid var(--cedar); outline-offset: 2px; border-radius: 2px; }
+
+/* Units switch in the top bar */
+.sc-units { display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px; }
+.sc-units button {
+  border: 0; background: transparent; color: var(--frost); cursor: pointer; min-width: 34px; min-height: 30px;
+  padding: 0 10px; border-radius: 999px; font: 600 12.5px var(--mono); transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+.sc-units button.is-on { background: var(--snow); color: var(--night); }
+.sc-units button:focus-visible { outline: 2px solid var(--cedar); outline-offset: 2px; }
