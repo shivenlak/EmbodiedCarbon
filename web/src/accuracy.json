@@ -73,9 +73,9 @@
  },
  "carbon_vs_cmhc_a1_a5": {
   "n": 44,
-  "median_ratio": 0.18,
-  "q1": 0.07,
-  "q3": 0.38,
+  "median_ratio": 0.22,
+  "q1": 0.08,
+  "q3": 0.42,
   "note": "Our A1-A3 total over CMHC's reported A1-A5 for the same design. Below 1 is expected (A4 transport and A5 construction are not counted) and the rest of the gap is scope we flag as not counted: cladding and roofing placeholders, joists, trusses, steel studs, foundation walls."
  },
  "element_share_diff_points": {
@@ -85,7 +85,7 @@
   },
   "upper_floors": {
    "n": 38,
-   "median": -8.3
+   "median": -8.7
   },
   "roofs": {
    "n": 43,
@@ -119,7 +119,7 @@
     "within_10pct": 2
    },
    "with_carbon": 7,
-   "carbon_ratio_median": 0.6
+   "carbon_ratio_median": 0.71
   },
   "ATL": {
    "designs": 9,
@@ -161,7 +161,7 @@
     "within_10pct": 0
    },
    "with_carbon": 7,
-   "carbon_ratio_median": 0.13
+   "carbon_ratio_median": 0.23
   },
   "QC": {
    "designs": 7,

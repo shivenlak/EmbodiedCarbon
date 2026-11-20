@@ -228,16 +228,20 @@ class TestAlbertaQuantities:
         # the deferred F3 I-joists and R2 trusses were estimated from a stated
         # standard (takeoff/framing.py) instead of left at zero: +426 kg, the
         # joists 245 and the trusses 181. Wood is low-carbon, so the largest
-        # timber quantity in the building moves the total about 1%.
-        assert carbon.total_kg_co2e - partitions == pytest.approx(35085, rel=0.02)
+        # timber quantity in the building moves the total about 1%. Then 35,085
+        # until W2's 'METAL STUD FRAMING' was estimated rather than left out,
+        # once the store had a steel factor (SFIA 2026, 2.62 kg/kg): a 600S162-43
+        # standard at 400 mm, 8.22 kg/m2 over 309.36 m2 = 2,544 kg, +6,666.
+        assert carbon.total_kg_co2e - partitions == pytest.approx(41751, rel=0.02)
         # 48,613 until partitions stopped being counted once per storey: the run
         # is summed over both plans, so it stands one storey tall, not two.
         # 43,075 before the framing fraction above; 40,600 until the partition
         # studs took it too. P1 has no cavity fill, so its 89 mm studs were
         # priced as solid timber over the whole partition: 2,497 now 375.
-        # 38,075 before the joist and truss estimates (+426, see above).
-        assert carbon.total_kg_co2e == pytest.approx(38501, rel=0.02)
-        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(125.8, rel=0.02)
+        # 38,075 before the joist and truss estimates (+426), 38,501 before the
+        # steel-stud estimate (+6,666, see above).
+        assert carbon.total_kg_co2e == pytest.approx(45167, rel=0.02)
+        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(147.6, rel=0.02)
 
     def test_deferred_framing_is_estimated_and_says_so(self, takeoff):
         """I-joists and trusses the assemblies defer to the structure are
@@ -254,7 +258,10 @@ class TestAlbertaQuantities:
             assert lines[lid].assumptions
         # The truss rise is the section's measured roof datum, not a pitch.
         assert "1.87 m above the top plate" in lines["ln-roof-trusses-r2"].basis.note
-        # And the old "not counted" warning now points at the estimate.
+        steel = lines["ln-exterior-wall-steel-studs-w2"]
+        assert steel.unit.value == "kg" and steel.confidence.value == "assumed"
+        assert steel.quantity == pytest.approx(2544, rel=0.01)
+        # And the old "not counted" warnings now point at the estimates.
         notes = [g.message for g in takeoff.gaps if "PRE FABRICATED ROOF TRUSS" in g.message]
         assert notes and all("ln-roof-trusses-r2" in m for m in notes)
 

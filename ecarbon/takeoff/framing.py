@@ -53,6 +53,25 @@ DEFAULT_PITCH = 4.0 / 12.0
 
 LUMBER = "CMHC_Wood Framing"
 OSB = "sheathing_osb_13mm"
+STEEL = "cold_formed_steel_framing"
+
+# Cold-formed steel wall framing, the standard section for a 140 mm envelope
+# stud: 600S162-43 (6 in web, 1-5/8 in flange, 1/2 in lip, 18 ga, 1.146 mm
+# design thickness) at 400 mm centres, 600T125-43 tracks top and bottom of
+# each storey, +15% for jambs, headers, kings and bridging.
+STEEL_DENSITY = 7850.0
+STUD_DEVELOPED_MM = (152.4 + 2 * 41.3 + 2 * 12.7)  # web + 2 flanges + 2 lips
+TRACK_DEVELOPED_MM = (152.4 + 2 * 31.75)  # web + 2 legs
+CFS_T_MM = 1.146
+STEEL_EXTRAS = 0.15
+
+
+def steel_kg_per_m2_wall(storey_height_m: float = 3.0) -> float:
+    """Steel per m2 of wall: studs at 400 mm, two tracks per storey, extras."""
+    kg_m = lambda dev_mm: dev_mm / 1000 * CFS_T_MM / 1000 * STEEL_DENSITY  # noqa: E731
+    studs = kg_m(STUD_DEVELOPED_MM) * (1000.0 / JOIST_SPACING_MM)
+    tracks = kg_m(TRACK_DEVELOPED_MM) * 2 / max(storey_height_m, 2.0)
+    return (studs + tracks) * (1 + STEEL_EXTRAS)
 
 _JOIST_RE = re.compile(r"\bJOIST", re.I)
 _IJOIST_RE = re.compile(r"\bI-?\s?JOIST|ENGINEERED WOOD JOIST", re.I)
@@ -118,9 +137,11 @@ def _line(id_, cls, qty, material, desc, note, assumptions, prov) -> TakeoffLine
     )
 
 
-def framing_lines(inputs) -> tuple[list[TakeoffLine], dict[str, str]]:
-    """Estimated joist and roof framing lines, and {deferral marker: line id}
-    so the caller can replace each "not counted" note with a pointer."""
+def framing_lines(inputs, built=()) -> tuple[list[TakeoffLine], dict[str, str]]:
+    """Estimated joist, roof and steel-stud framing lines, and {note marker:
+    line id} so the caller can replace each "not counted" note with a
+    pointer. `built` is the bill so far (the steel estimate needs the wall
+    area the wall line measured)."""
     fp = inputs.footprint
     if fp is None:
         return [], {}
@@ -240,4 +261,50 @@ def framing_lines(inputs) -> tuple[list[TakeoffLine], dict[str, str]]:
                 prov(rasm, rlayer),
             ))
             covered[marker] = fid
+
+    # ---- steel studs in the exterior wall ----------------------------------
+    # The wall line is left uncounted when its assembly frames in steel (the
+    # store had no steel factor, and pricing steel as timber would be wrong).
+    # Now there is one (SFIA), so the steel is estimated from the standard
+    # section over the wall area the wall line measured.
+    wall = next((ln for ln in built if ln.id == "ln-exterior-wall"), None)
+    wasm = inputs.assembly_for("W")
+    steel = None
+    if wasm is not None:
+        steel = next(
+            (x for x in wasm.layers if x.is_framing and re.search(r"\b(METAL|STEEL)\b", x.material or "", re.I)),
+            None,
+        )
+    if wall is not None and steel is not None and wall.quantity > 0:
+        hs = inputs.heights.storey_heights_m() if inputs.heights else []
+        h = sum(hs) / len(hs) if hs else 3.0
+        per = steel_kg_per_m2_wall(h)
+        std = (
+            f"600S162-43 (6 in, 18 ga) studs at {JOIST_SPACING_MM:.0f} mm centres with "
+            f"600T125-43 tracks top and bottom of each {h:.2f} m storey, "
+            f"+{STEEL_EXTRAS:.0%} for jambs, headers and bridging: {per:.1f} kg/m2"
+        )
+        fid = f"ln-exterior-wall-steel-studs-{wasm.tag.lower()}"
+        lines.append(TakeoffLine(
+            id=fid,
+            element_class=ElementClass.EXTERIOR_WALL,
+            quantity=round(per * wall.quantity, 1),
+            unit=Unit.KG,
+            confidence=Confidence.ASSUMED,
+            material=STEEL,
+            description=f"Steel studs and tracks ({wasm.tag}), estimated: {per:.1f} kg/m2 of wall",
+            basis=Basis(
+                sources=[BasisSource.DEFAULT_RULE, BasisSource.VECTOR_PATH],
+                note=f"Assumed standard: {std}, over the {wall.quantity:.1f} m2 of exterior wall measured.",
+            ),
+            assumptions=[
+                f"The drawings frame {wasm.tag} with '{steel.material}' "
+                f"({steel.thickness_mm or 140:.0f} mm) but give no gauge, spacing or member; "
+                f"this is a standard section, not a reading.",
+                "A load-bearing wall in a heavier gauge (16 ga, 1.438 mm) would carry about 25% "
+                "more steel; a 20 ga (0.836 mm) infill wall about 27% less.",
+            ],
+            provenance=prov(wasm, steel),
+        ))
+        covered["no steel stud factor"] = fid
     return lines, covered

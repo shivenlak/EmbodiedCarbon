@@ -172,11 +172,11 @@ class TestUploadingAPlanSet:
         assert pid.startswith("upload-")
         # The same drawings through a different door must give the same answer.
         # 20 lines until the deferred I-joists (flanges, webs) and trusses were
-        # estimated (takeoff/framing.py): 23.
-        assert body["n_lines"] == 23
+        # estimated (takeoff/framing.py): 23; 24 with the W2 steel-stud estimate.
+        assert body["n_lines"] == 24
         # The Alberta gate's figure: 38,501 since the joist and truss estimates
-        # (38,075 before; framing at its stud share, steel studs uncounted).
-        assert body["total_kg_co2e"] == pytest.approx(38501, rel=0.02)
+        # (38,075 before; framing at its stud share); 45,167 with steel studs.
+        assert body["total_kg_co2e"] == pytest.approx(45167, rel=0.02)
 
         for endpoint in ("takeoff", "carbon", "intake", "substitutions", "unspecified"):
             assert client.get(f"/projects/{pid}/{endpoint}").status_code == 200
@@ -322,8 +322,8 @@ class TestUploadingSeveralFiles:
         assert resp.status_code == 201, resp.text
         body = resp.json()
         # The same drawings in two files give the same bill as one file.
-        assert body["n_lines"] == 23
-        assert body["total_kg_co2e"] == pytest.approx(38501, rel=0.02)
+        assert body["n_lines"] == 24
+        assert body["total_kg_co2e"] == pytest.approx(45167, rel=0.02)
         pages = client.get(f"/projects/{body['id']}/pages").json()
         assert len(pages) == src.page_count
 
