@@ -1693,7 +1693,10 @@ const UPLOAD_STAGES = [
 ];
 
 function Upload({ onDone, onClose }) {
-  const [file, setFile] = useState(null);
+  // One PDF, or several that make one set (floor layout, roof, foundation,
+  // details): how builders actually deliver drawings.
+  const [files, setFiles] = useState([]);
+  const file = files[0] || null;
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stages, setStages] = useState(null);
@@ -1713,17 +1716,21 @@ function Upload({ onDone, onClose }) {
     jurisdiction: "",
   });
 
-  const take = (f) => {
+  const take = (list) => {
     setError(null);
-    if (!f) return;
-    if (!/\.pdf$/i.test(f.name)) {
+    const picked = [...(list || [])];
+    if (!picked.length) return;
+    const bad = picked.filter((f) => !/\.pdf$/i.test(f.name));
+    if (bad.length) {
       setError(
-        "This reads vector PDF drawing sets. A scan or an image export carries no geometry to measure.",
+        `${bad.map((f) => f.name).join(", ")} ${bad.length > 1 ? "are" : "is"} not a PDF. This reads vector PDF drawing sets; a scan or an image export carries no geometry to measure.`,
       );
       return;
     }
-    setFile(f);
-    setFacts((x) => ({ ...x, name: x.name || f.name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").trim() }));
+    picked.sort((a, b) => a.name.localeCompare(b.name));
+    setFiles(picked);
+    const first = picked[0].name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").trim();
+    setFacts((x) => ({ ...x, name: x.name || (picked.length > 1 ? "" : first) }));
   };
 
   async function submit(e) {
@@ -1732,7 +1739,8 @@ function Upload({ onDone, onClose }) {
     setBusy(true);
     setError(null);
     const body = new FormData();
-    body.append("file", file);
+    if (files.length === 1) body.append("file", file);
+    else for (const f of files) body.append("files", f);
     for (const [k, v] of Object.entries(facts)) if (v !== "") body.append(k, v);
     setStages([]);
     setSince(Date.now());
@@ -1795,24 +1803,39 @@ function Upload({ onDone, onClose }) {
             onDrop={(e) => {
               e.preventDefault();
               setOver(false);
-              take(e.dataTransfer.files?.[0]);
+              take(e.dataTransfer.files);
             }}
           >
             <input
               type="file"
               accept="application/pdf,.pdf"
+              multiple
               hidden
-              onChange={(e) => take(e.target.files?.[0])}
+              onChange={(e) => take(e.target.files)}
             />
-            {file ? (
+            {files.length > 1 ? (
+              <>
+                <b>{files.length} files, read as one set</b>
+                <span className="upload-files">
+                  {files.slice(0, 6).map((f) => f.name).join(" · ")}
+                  {files.length > 6 ? ` · and ${files.length - 6} more` : ""}
+                </span>
+                <span>
+                  {(files.reduce((n, f) => n + f.size, 0) / 1e6).toFixed(1)} MB · click to choose again
+                </span>
+              </>
+            ) : file ? (
               <>
                 <b>{file.name}</b>
                 <span>{(file.size / 1e6).toFixed(1)} MB · click to choose another</span>
               </>
             ) : (
               <>
-                <b>Drop a vector PDF here</b>
-                <span>or click to choose · a Revit or AutoCAD export; a scanned set has no text to read</span>
+                <b>Drop a vector PDF here, or several</b>
+                <span>
+                  or click to choose · one set, or its files together (floor plans, roof, foundation,
+                  details) · a scanned set has no text to read
+                </span>
               </>
             )}
           </label>

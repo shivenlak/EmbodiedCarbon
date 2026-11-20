@@ -223,3 +223,4 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
   - Run `python scripts/accuracy.py AB_Fourplex_01` for the per-material table.
   - Per-design detail is local only, in `out/accuracy_cmhc.json`.
 - **B → A, 19 Nov: FYI, joists and trusses are now estimated.** `takeoff/framing.py`, hooked once in `build_takeoff`, adds ASSUMED lines for the deferred F/R framing, each tracing to its schedule row. It adds +426 kg on Fourplex 01 (gate pins updated, with the reason). If a structural framing plan states member, depth or spacing, reading it should replace the standard.
+- **B → A, 19 Nov: from a multi-file upload (B2b works).** When the footprint's sheet has no sheet number, the progress line prints "off sheet None"; say the page instead. On one confidential multi-file set the measured footprint looks large for its type, so it's worth checking against the plan locally (details are not for this public repo).
