@@ -43,6 +43,7 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
   const [mode, setMode] = useState(initialMode);
   const [points, setPoints] = useState([]); // scale: up to two clicks
   const [corners, setCorners] = useState([]); // outline
+  const [levels, setLevels] = useState([]); // heights: y of each floor line clicked
   const [length, setLength] = useState("");
   const [heights, setHeights] = useState(() => {
     const hs = massing?.storey_heights_m;
@@ -57,24 +58,43 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
   const svgRef = useRef(null);
   const drag = useRef(null);
 
+  // The sheet each mode wants: a plan for the scale and the outline, a
+  // section (or failing that an elevation) for the levels. When nothing was
+  // recognised, the first page with drawing on it, and the pager is right there.
+  const pickFor = (list, m) => {
+    const want = m === "heights" ? ["section", "elevation"] : ["floor_plan", "foundation_plan"];
+    // For the levels, a sheet whose scale is known first: clicks on it
+    // become heights straight away.
+    if (m === "heights") {
+      for (const t of want) {
+        const i = list.findIndex((p) => p.sheet_type === t && p.scale_mm_per_pt);
+        if (i >= 0) return i;
+      }
+    }
+    for (const t of want) {
+      const i = list.findIndex((p) => p.sheet_type === t);
+      if (i >= 0) return i;
+    }
+    return Math.min(1, list.length - 1);
+  };
+
+  const loadPages = useCallback(
+    () => api.get(`/projects/${projectId}/pages`).then((list) => {
+      setPages(list);
+      return list;
+    }),
+    [api, projectId],
+  );
+
   useEffect(() => {
     let live = true;
-    api
-      .get(`/projects/${projectId}/pages`)
-      .then((list) => {
-        if (!live) return;
-        setPages(list);
-        // Start on a floor plan when one was recognised; otherwise the first
-        // page with drawing on it is as good a guess as any, and the pager
-        // is right there.
-        const plan = list.findIndex((p) => p.sheet_type === "floor_plan");
-        setPageAt(plan >= 0 ? plan : Math.min(1, list.length - 1));
-      })
+    loadPages()
+      .then((list) => live && setPageAt(pickFor(list, initialMode)))
       .catch((e) => live && setError(`Could not load the sheets: ${e.message}`));
     return () => {
       live = false;
     };
-  }, [api, projectId]);
+  }, [loadPages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const page = pages?.[pageAt];
   useEffect(() => {
@@ -82,6 +102,7 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
     setView({ x: 0, y: 0, w: page.width, h: page.height });
     setPoints([]);
     setCorners([]);
+    setLevels([]);
   }, [page?.page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -145,11 +166,12 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
   const onUp = (e) => {
     const d = drag.current;
     drag.current = null;
-    if (!d || d.moved || mode === "heights") return;
+    if (!d || d.moved) return;
     const p = toPage(e);
     setError(null);
     setDone(null);
     if (mode === "scale") setPoints((ps) => (ps.length >= 2 ? [p] : [...ps, p]));
+    else if (mode === "heights") setLevels((ls) => (ls.length >= 9 ? ls : [...ls, p[1]]));
     else setCorners((cs) => [...cs, p]);
   };
 
@@ -170,6 +192,7 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
     try {
       const r = await api.post(`/projects/${projectId}/calibrate`, body);
       setStated(r.stated);
+      loadPages().catch(() => {});
       setDone(
         `${what} The total is now ${Math.round(r.carbon.total_kg_co2e || 0).toLocaleString()} kgCO₂e from ${r.lines} lines. Lines built from it show a “you said” chip.`,
       );
@@ -182,6 +205,16 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
       setBusy(false);
     }
   };
+
+  // Floor lines clicked on a section, lowest on the sheet first, become one
+  // height per storey through the sheet's scale.
+  const sheetScale = page?.scale_mm_per_pt || null;
+  useEffect(() => {
+    if (mode !== "heights" || levels.length < 2 || !sheetScale) return;
+    const ys = [...levels].sort((a, b) => b - a);
+    const hs = ys.slice(1).map((y, i) => ((ys[i] - y) * sheetScale) / 1000);
+    setHeights(hs.map((h) => h.toFixed(2)));
+  }, [levels, sheetScale, mode]);
 
   const ptsLen = points.length === 2 ? Math.hypot(points[1][0] - points[0][0], points[1][1] - points[0][1]) : 0;
 
@@ -221,13 +254,17 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
                 onClick={() => {
                   setMode(m.id);
                   setError(null);
+                  const cur = pages?.[pageAt]?.sheet_type;
+                  const fits =
+                    m.id === "heights" ? ["section", "elevation"].includes(cur) : !["section", "elevation"].includes(cur);
+                  if (pages && !fits) setPageAt(pickFor(pages, m.id));
                 }}
               >
                 {m.label}
               </button>
             ))}
           </div>
-          {pages && mode !== "heights" && (
+          {pages && (
             <div className="help-pager">
               <button onClick={() => setPageAt((i) => Math.max(0, i - 1))} disabled={pageAt === 0} aria-label="Previous page">
                 ‹
@@ -252,6 +289,25 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
           )}
         </div>
 
+        {pages && pages.length > 1 && (
+          <div className="help-strip" role="listbox" aria-label="Pages">
+            {pages.map((p, i) => (
+              <button
+                key={p.page}
+                role="option"
+                aria-selected={i === pageAt}
+                className={i === pageAt ? "is-on" : ""}
+                onClick={() => setPageAt(i)}
+                title={`Page ${p.page + 1}${p.sheet_no ? ` · ${p.sheet_no}` : ""}`}
+                ref={i === pageAt ? (el) => el?.scrollIntoView?.({ block: "nearest", inline: "nearest" }) : undefined}
+              >
+                <img src={api.url(p.image_url + "?dpi=10")} alt="" loading="lazy" />
+                <span>{p.sheet_no || p.page + 1}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <p className="help-ask">
           {mode === "scale" &&
             (points.length < 2
@@ -261,11 +317,21 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
             (scaleOnPage || corners.length
               ? "Click each outside corner of the building, in order. Press Done when you are back at the start."
               : "Click each outside corner of the building, in order. If it says the page has no scale, set the scale first.")}
-          {mode === "heights" && "One height per storey, floor to floor, lowest first. Metres or feet both work: 3.0 or 9'-10\"."}
+          {mode === "heights" &&
+            (!sheetScale
+              ? "Open a section or elevation, where the floors are drawn as level lines. This sheet has no scale yet: set one first (one dimension), or type the heights below."
+              : levels.length === 0
+                ? `On a section, click the main floor line, then each floor above it, then the top of the wall. Each gap becomes a storey height.${
+                    page?.scale_estimated
+                      ? ` (Scale read from this sheet as about 1:${Math.round(sheetScale / PT_TO_MM)}; check the heights look right.)`
+                      : ""
+                  }`
+                : levels.length === 1
+                  ? "Now click the next floor line up."
+                  : "Keep clicking floor lines, or check the heights below and save. You can edit any of them.")}
         </p>
 
-        {mode !== "heights" ? (
-          <div className="help-stage">
+        <div className="help-stage">
             {!page || !view ? (
               <div className="skeleton help-skel" />
             ) : (
@@ -298,9 +364,20 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
                     vectorEffect="non-scaling-stroke"
                   />
                 )}
-                {(mode === "scale" ? points : corners).map((p, i) => (
+                {(mode === "scale" ? points : mode === "outline" ? corners : []).map((p, i) => (
                   <circle key={i} className="help-dot" cx={p[0]} cy={p[1]} r={6 * unit} vectorEffect="non-scaling-stroke" />
                 ))}
+                {mode === "heights" &&
+                  [...levels]
+                    .sort((a, b) => b - a)
+                    .map((y, i) => (
+                      <g key={i}>
+                        <line className="help-level" x1={view.x} x2={view.x + view.w} y1={y} y2={y} vectorEffect="non-scaling-stroke" />
+                        <text className="help-level-tag" x={view.x + 12 * unit} y={y - 6 * unit} fontSize={13 * unit}>
+                          {i === 0 ? "floor 1" : `level ${i + 1}`}
+                        </text>
+                      </g>
+                    ))}
               </svg>
             )}
             <div className="help-zoom">
@@ -317,8 +394,8 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
                 ⤢
               </button>
             </div>
-          </div>
-        ) : (
+        </div>
+        {mode === "heights" && (
           <div className="help-heights">
             {heights.map((h, i) => (
               <label key={i}>
@@ -338,6 +415,12 @@ export default function HelpRead({ projectId, takeoff, massing, initialMode = "s
               <button onClick={() => setHeights((hs) => hs.slice(0, -1))} disabled={heights.length <= 1}>
                 Remove one
               </button>
+              {levels.length > 0 && (
+                <button onClick={() => setLevels((ls) => ls.slice(0, -1))}>Undo last line</button>
+              )}
+              {!sheetScale && (
+                <button onClick={() => setMode("scale")}>Set this sheet&apos;s scale</button>
+              )}
             </div>
           </div>
         )}

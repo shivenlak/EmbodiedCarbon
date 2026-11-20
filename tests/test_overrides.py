@@ -187,6 +187,14 @@ class TestCalibrateEndpoint:
         pages = client.get(f"/projects/{self.PID}/pages").json()
         assert len(pages) > 20
         assert all(p["width"] > 0 and p["height"] > 0 for p in pages)
+        # A section with a usable scale exists, so heights can be clicked.
+        assert any(p["sheet_type"] == "section" and p["scale_mm_per_pt"] for p in pages)
+        # An estimated scale is only offered at building-section scales.
+        for p in pages:
+            if p["scale_estimated"]:
+                assert 25 <= p["scale_mm_per_pt"] / (25.4 / 72) <= 200
+        thumb = client.get(pages[0]["image_url"] + "?dpi=10")
+        assert thumb.status_code == 200 and len(thumb.content) < 200_000
         png = client.get(pages[0]["image_url"] + "?dpi=40")
         assert png.status_code == 200 and png.content[:4] == b"\x89PNG"
 

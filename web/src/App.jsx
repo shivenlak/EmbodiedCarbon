@@ -20,11 +20,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { canHelp, modeFor } from "./HelpRead.jsx";
 
 // Same origin in a build, because the service serves this bundle itself.
 // Hardcoding the dev address once shipped an interface that called the
 // *viewer's* localhost: every request failed for anyone but the developer,
 // while curl against the deployment worked perfectly and hid it.
+
 const API = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 
 // The interface: the measured building, full screen, with every page as a
@@ -2254,6 +2256,14 @@ export default function App() {
             }
             setProjectId(id);
             setPage("model");
+            // A fresh upload that could not be read is the moment to ask for
+            // help, in the mode it needs. Browsing a bundled set never pops this.
+            try {
+              const t = await getJSON(`/projects/${id}/takeoff`);
+              if (canHelp(t.gaps)) setHelping(modeFor(t.gaps));
+            } catch {
+              /* the review notes still offer it */
+            }
           }}
         />
       )}

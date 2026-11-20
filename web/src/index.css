@@ -1608,7 +1608,10 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink-2); cursor: pointer;
 }
 .help-pager button:disabled { opacity: 0.4; cursor: default; }
-.help-ask { margin: var(--s3) var(--s5) 0; font-size: 13.5px; color: var(--ink-2); }
+.help-ask { margin: var(--s3) var(--s5) 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2);
+  /* Room for the longest prompt, so the sheet never jumps under the pointer
+     when the prompt changes between clicks. */
+  min-height: 3em; }
 .help-stage { position: relative; margin: var(--s3) var(--s5) 0; border: 1px solid var(--rule); border-radius: var(--r); background: #f8fafc; overflow: hidden; }
 .help-sheet { display: block; width: 100%; height: min(58dvh, 620px); cursor: crosshair; touch-action: none; user-select: none; }
 .help-skel { height: min(58dvh, 620px); }
@@ -1645,6 +1648,7 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 @media (max-width: 640px) {
   .help-bar, .help-foot { padding-left: var(--s3); padding-right: var(--s3); }
   .help-ask, .help-stage, .help-heights, .help-msg { margin-left: var(--s3); margin-right: var(--s3); }
+  .help-ask { min-height: 6em; }
   .help-pager { margin-left: 0; width: 100%; }
   .help-pager select { flex: 1; max-width: none; }
   .help-modes { width: 100%; }
@@ -1652,3 +1656,18 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   .help-sheet, .help-skel { height: 50dvh; }
   .help-len { min-width: 0; width: 100%; }
 }
+.help-level { stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 8 5; }
+.help-level-tag { fill: #5b21b6; font-family: var(--mono); font-weight: 600; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+.help-strip {
+  display: flex; gap: 8px; overflow-x: auto; padding: var(--s3) var(--s5) 4px;
+  scrollbar-width: thin; overscroll-behavior-x: contain;
+}
+.help-strip button {
+  flex: none; display: grid; gap: 3px; justify-items: center; padding: 3px; cursor: pointer;
+  border: 2px solid transparent; border-radius: var(--r-sm); background: transparent;
+  font: 10.5px var(--mono); color: var(--muted);
+}
+.help-strip button.is-on { border-color: #7c3aed; color: var(--ink); }
+.help-strip button:hover img { outline: 1px solid var(--rule-strong); }
+.help-strip img { display: block; height: 52px; width: auto; min-width: 40px; background: #fff; border-radius: 2px; }
+@media (max-width: 640px) { .help-strip { padding-left: var(--s3); padding-right: var(--s3); } }

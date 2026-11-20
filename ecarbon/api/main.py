@@ -134,6 +134,7 @@ _MASSING: dict[str, object] = {}
 # and about 3 s to produce.
 _TRACE: dict[tuple[str, str], object] = {}
 _SHEET_PNG: dict[tuple[str, str, int, int, bool], bytes] = {}
+_THUMB_PNG: dict[tuple[str, str, int, int, bool], bytes] = {}
 
 # The open decisions re-read the assemblies schedule to find the layers the
 # drawings decline to specify -- about 5 s, every call, because unlike the
@@ -759,6 +760,14 @@ class PageOut(BaseModel):
     readable: bool
     width: float = Field(description="page width in PDF points, as rendered")
     height: float = Field(description="page height in PDF points, as rendered")
+    # Real mm per PDF point: one the user stated wins over one read off the
+    # sheet. None when neither exists, so a click cannot become a length yet.
+    scale_mm_per_pt: float | None = None
+    scale_stated: bool = False
+    # True when the scale is only an estimate from the sheet's own dimensions
+    # (a standard ratio, not corroborated). Good enough for a person to click
+    # levels against and check the result; not trusted by extraction.
+    scale_estimated: bool = False
     image_url: str
 
 
@@ -770,11 +779,27 @@ def get_pages(project_id: str) -> list[PageOut]:
     p = _get(project_id)
     design = _design_for_any(project_id, p)
     info = {s.page: s for s in p.takeoff.sheets}
+    stated = dict(getattr(p.overrides, "scale_mm_per_pt", {}) or {})
+    from ecarbon.geometry.scale import calibrate
+
     out = []
     doc = pymupdf.open(design.drawings_pdf)
     try:
         for i, page in enumerate(doc):
             s = info.get(i)
+            scale = stated.get(i) or getattr(s, "scale", None)
+            estimated = False
+            kind = getattr(getattr(s, "sheet_type", None), "value", "unknown")
+            if scale is None and kind in ("section", "elevation"):
+                try:
+                    est = calibrate(page)
+                    # Whole-building sections are drawn between about 1:25
+                    # and 1:200 (1:50, 1:100, 1/4" and 1/8" = 1'-0"); outside
+                    # that, the estimate is a detail sheet or a misread.
+                    if est.mm_per_pt and est.is_standard and 25 <= (est.ratio or 0) <= 200:
+                        scale, estimated = est.mm_per_pt, True
+                except Exception:
+                    pass
             out.append(
                 PageOut(
                     page=i,
@@ -784,6 +809,9 @@ def get_pages(project_id: str) -> list[PageOut]:
                     readable=getattr(s, "readable", True),
                     width=round(page.rect.width, 2),
                     height=round(page.rect.height, 2),
+                    scale_mm_per_pt=scale,
+                    scale_stated=i in stated,
+                    scale_estimated=estimated,
                     image_url=f"/projects/{project_id}/pages/{i}.png",
                 )
             )
@@ -806,17 +834,20 @@ def get_page_image(project_id: str, page: int, dpi: int = 110):
 
     p = _get(project_id)
     design = _design_for_any(project_id, p)
-    dpi = max(40, min(dpi, 300))
+    dpi = max(8, min(dpi, 300))
+    # Thumbnails are a few kilobytes and a set has dozens of pages, so they
+    # get their own, larger cache rather than evicting the full-size sheets.
+    store = _THUMB_PNG if dpi <= 20 else _SHEET_PNG
     key = (project_id, "__page__", page, dpi, False)
-    png = _SHEET_PNG.get(key)
+    png = store.get(key)
     if png is None:
         try:
             png = render_page(design, page, [], dpi=dpi)
         except IndexError as exc:
             raise HTTPException(404, str(exc)) from None
-        if len(_SHEET_PNG) > 24:
-            _SHEET_PNG.clear()
-        _SHEET_PNG[key] = png
+        if len(store) > (400 if store is _THUMB_PNG else 24):
+            store.clear()
+        store[key] = png
     return Response(content=png, media_type="image/png")
 
 
