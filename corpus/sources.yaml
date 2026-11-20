@@ -124,6 +124,229 @@ sets:
     licence: "As au-vic-futurehomes-a."
     local_only: true
 
+  # ---- Added 19 Nov by the crawler (public program downloads) ---------------
+  - id: us-oc-adu-craftsman-558
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 1 Bedroom 558 sf (Craftsman)"
+    kind: "full construction set, vector, 22 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Craftsman%20-%201%20Bedroom%20558sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 744ea8be8488598a
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-craftsman-748
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 2 Bedroom 748 sf (Craftsman)"
+    kind: "full construction set, vector, 22 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Craftsman%20-%202%20Bedroom%20748sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: cd4bb5f6cc944b05
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-craftsman-800
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 2 Bedroom 800 sf (Craftsman)"
+    kind: "full construction set, vector, 22 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Craftsman%20-%202%20Bedroom%20800sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 842441d6d637d13d
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-craftsman-1200
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 3 Bedroom 1200 sf (Craftsman)"
+    kind: "full construction set, vector, 23 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Craftsman%20-%203%20Bedroom%201200sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 9615130cf55e1bae
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-craftsman-972
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 3 Bedroom 972 sf (Craftsman)"
+    kind: "full construction set, vector, 21 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Craftsman%20-%203%20Bedroom%20972sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 7db2fee4e1313df4
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-craftsman-393
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU Studio 393 sf (Craftsman)"
+    kind: "full construction set, vector, 21 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Craftsman%20-%20Studio%20393sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 22268ec3b90e1d7a
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-ranch-558
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 1 Bedroom 558 sf (Ranch)"
+    kind: "full construction set, vector, 22 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Ranch%20-%201%20Bedroom%20558sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: d381a18bf16d3afe
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-ranch-748
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 2 Bedroom 748 sf (Ranch)"
+    kind: "full construction set, vector, 22 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Ranch%20-%202%20Bedroom%20748sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 318f2a45d98b54bf
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-ranch-800
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 2 Bedroom 800 sf (Ranch)"
+    kind: "full construction set, vector, 22 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Ranch%20-%202%20Bedroom%20800sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 2eaf3f94ab2218ee
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-ranch-1200
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 3 Bedroom 1200 sf (Ranch)"
+    kind: "full construction set, vector, 23 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Ranch%20-%203%20Bedroom%201200sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 8997e3a0d197aca2
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-ranch-972
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU 3 Bedroom 972 sf (Ranch)"
+    kind: "full construction set, vector, 21 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Ranch%20-%203%20Bedroom%20972sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 3f507bc0c4a8866f
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-oc-adu-ranch-393
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU Studio 393 sf (Ranch)"
+    kind: "full construction set, vector, 21 pages"
+    url: https://pwds.oc.gov/sites/ocpwocds/files/2026-11/Ranch%20-%20Studio%20393sf.pdf
+    page: https://pwds.oc.gov/service-areas/oc-development-services/planning-development/pre-approved-accessory-dwelling-unit-adu
+    fetch: direct
+    sha256: 4a07c3b86d965693
+    licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
+    local_only: true
+  - id: us-santacruz-adu-2
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set, image-heavy (vision test), 40 pages"
+    url: https://cdi.santacruzcountyca.gov/Portals/35/CDI/UnifiedPermitCenter/Building/Building%20Permits%20Index/Pre-Designed%20ADUs/ADU%20Plan%202%20Public%20Fillable.pdf
+    page: https://cdi.santacruzcountyca.gov/Planning/Housing/ADU/Pre-DesignedADUPlans.aspx
+    fetch: direct
+    sha256: 49ccc79761a9d0d7
+    licence: "Santa Cruz County pre-designed ADU plans, public download. Redistribution not granted."
+    local_only: true
+  - id: us-santacruz-adu-3
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set, image-heavy (vision test), 40 pages"
+    url: https://cdi.santacruzcountyca.gov/Portals/35/CDI/UnifiedPermitCenter/Building/Building%20Permits%20Index/Pre-Designed%20ADUs/ADU%20Plan%203%20Public%20Fillable.pdf
+    page: https://cdi.santacruzcountyca.gov/Planning/Housing/ADU/Pre-DesignedADUPlans.aspx
+    fetch: direct
+    sha256: 8c2471b3e449b18a
+    licence: "Santa Cruz County pre-designed ADU plans, public download. Redistribution not granted."
+    local_only: true
+  - id: au-nsw-manor-homes-01
+    split: dev
+    country: AU
+    region: AU-NSW
+    units: metric
+    type: "manor house (multi-dwelling)"
+    kind: "pattern-book design set, vector, 39 pages"
+    url: https://www.planning.nsw.gov.au/sites/default/files/2025-07/manor-homes-01-by-studio-johnston.pdf
+    page: https://www.planning.nsw.gov.au/government-architect-nsw/housing-design/nsw-housing-pattern-book/pattern-designs
+    fetch: direct
+    sha256: a687a72eb9c07fba
+    licence: "NSW Government Housing Pattern Book; government terms of use apply."
+    local_only: true
+  - id: us-citrusheights-catalog
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU catalogue"
+    kind: "catalogue, little text (robustness only), 33 pages"
+    url: https://www.citrusheights.net/DocumentCenter/View/16396/PRADUCatalog
+    page: https://www.citrusheights.net/1108/Permit-Ready-ADU-Program
+    fetch: direct
+    sha256: 0f14642fc8ec6083
+    licence: "City of Citrus Heights, public download."
+    local_only: true
+  - id: ca-bc-std-catalogue
+    split: dev
+    country: CA
+    region: CA-BC
+    units: metric
+    type: "standardized housing design catalogue"
+    kind: "catalogue (robustness only), 82 pages"
+    url: https://www2.gov.bc.ca/assets/gov/farming-natural-resources-and-industry/construction-industry/building-codes-and-standards/guides/bc_std_des_catalogue_v1.pdf
+    page: https://www2.gov.bc.ca/
+    fetch: direct
+    sha256: b65ffb85a9751539
+    licence: "Province of British Columbia, public download."
+    local_only: true
+
   # ---- Found, not yet downloaded (sites block scripts; fetch in a browser) ----
   # Holdout candidates should come from programs not used in dev.
   - id: us-boise-adu
