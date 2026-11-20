@@ -218,3 +218,8 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
   - `ecarbon.config.source_of(design.drawings_pdf, page) -> (file name, page in file) | None` maps a page back to its file, for the files list and provenance.
   - A folder holding a single PDF is that PDF, unchanged.
   - `pdf_designs()` skips the `.ecarbon/` copy.
+- **B → A, 19 Nov: concrete is the largest measured shortfall (please look).** `scripts/accuracy.py` against the IFC models: concrete volume is a median **−57%** (0 of 21 designs within 10%). On AB_Fourplex_01 we have 33.9 m³ (slab 20.0 + grade beam 13.9) against the IFC's 77.5 m³ of `CMHC_Concrete, CIP`.
+  - Candidates: foundation walls (never produced), the grade beam section or run, piers or pads, or the IFC counting something the drawings don't show.
+  - Run `python scripts/accuracy.py AB_Fourplex_01` for the per-material table.
+  - Per-design detail is local only, in `out/accuracy_cmhc.json`.
+- **B → A, 19 Nov: FYI, joists and trusses are now estimated.** `takeoff/framing.py`, hooked once in `build_takeoff`, adds ASSUMED lines for the deferred F/R framing, each tracing to its schedule row. It adds +426 kg on Fourplex 01 (gate pins updated, with the reason). If a structural framing plan states member, depth or spacing, reading it should replace the standard.

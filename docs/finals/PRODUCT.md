@@ -94,13 +94,13 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
 
 ## B6. Accuracy you can demonstrate (Mon 23 – Wed 25)
 
-- [ ] **`scripts/accuracy.py`** writes `web/src/accuracy.json` (numbers only, no drawing content) from:
+- [x] **`scripts/accuracy.py`** writes `web/src/accuracy.json` (numbers only, no drawing content) from:
   - **CMHC against the IFC models:** per-element error for footprint (`bench/ifc_truth.building_bbox`), exterior wall area, slab volume and roof area (`bench/ifc_quantities.model_quantities`). Report the median and spread per element, and per region.
   - **Coverage before → after:** `out/baseline.json` vs `run_pipeline.py --json` now.
   - **Dev corpus:** `out/blind.json` from Stream A.
   - **Holdout:** score each holdout set with Stream A's `score_set` against `holdout_truth.yaml`. Run it once after the freeze and record it as-is.
   - **Landmark** (once the sponsor's material lists and takeoffs arrive): compare our quantities line by line with Landmark's own, for each of RPL, RSL and Townhome. This is the strongest evidence for the "quantity takeoff accuracy" criterion. Publish only **aggregate** errors (e.g. "walls within X% across three Landmark projects"), never their quantities or drawings. Keep the per-line comparison in `~/ec-data/landmark/`, not in the repo.
-- [ ] **Against professional assessments.** This answers the semi-final judges' first question: "how have you validated accuracy against a traditional professional assessment?"
+- [x] **Against professional assessments.** This answers the semi-final judges' first question: "how have you validated accuracy against a traditional professional assessment?"
   - **CMHC Building Performance Reports** are CMHC's own professional LCA for every design (73 reports, parsed by `ecarbon/bench/bpr.py`). Their scope is A1–A5, B4–B5, C2–C4, so **never compare totals directly**. Report:
     - (a) **element shares**: our % by element vs theirs (foundations, walls, roofs, floors…) across every scoreable design, with the spread
     - (b) **the bounds check**: our A1–A3 is below their total in every design, and the ratio sits in a plausible band (the IStructE guide puts A1–A3 at roughly half of A1–C4)
@@ -108,7 +108,7 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
     - *quantity error:* against the IFC models and against Landmark's own takeoffs
     - *factor error:* run one design's quantities through **BEAM** (free; used by practitioners), compare per element, and record the BEAM version
   - Put a one-line, honest claim at the top of the panel and the deck. For example: "quantities within X% of the builder's own takeoff; carbon within Y% of BEAM on the same quantities; element shares track CMHC's professional reports to within Z points". Use only numbers we have actually measured.
-- [ ] **"How accurate is it" panel** in the app (a glass sheet like the others):
+- [x] **"How accurate is it" panel** in the app (a glass sheet like the others):
   - the CMHC error table
   - countries and unit systems tested
   - holdout results, labelled "blind"
