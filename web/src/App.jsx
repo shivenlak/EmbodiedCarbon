@@ -1969,6 +1969,7 @@ export default function App() {
   // `?trace=`: a dialog that only opens on click cannot be screenshotted in
   // review, and a demo wants to link straight to the moment that matters.
   const [massing, setMassing] = useState(null);
+  const [region, setRegion] = useState(null);
   // "Help it read this": null, or the mode to open in. `?help=scale` (or
   // outline / heights) opens it on load, so it can be reviewed by screenshot.
   const [helping, setHelping] = useState(() => {
@@ -2055,6 +2056,11 @@ export default function App() {
         setDecisions([]);
       }
       try {
+        setRegion(await getJSON(`/projects/${id}/region`));
+      } catch {
+        setRegion(null);
+      }
+      try {
         // Null for most of the catalogue: a design without a footprint or
         // storey datums has no geometry to draw, and drawing a guess would
         // be the one thing this view exists not to do.
@@ -2093,6 +2099,15 @@ export default function App() {
       setMassing(null);
     }
   }, [projectId]);
+  // Price with another region's factors: carbon changes, quantities do not.
+  const chooseRegion = useCallback(
+    async (geography) => {
+      if (!projectId) return;
+      setRegion(await postJSON(`/projects/${projectId}/region`, { geography }));
+      setCarbon(await getJSON(`/projects/${projectId}/carbon`));
+    },
+    [projectId],
+  );
   const helpApi = useMemo(() => ({ get: getJSON, post: postJSON, url: authedUrl }), []);
 
   const override = useCallback(
@@ -2291,6 +2306,8 @@ export default function App() {
           onPage={setPage}
           onUpload={() => setUploading(true)}
           onHelp={(mode) => setHelping(mode || "scale")}
+          region={region}
+          onRegion={chooseRegion}
           who={who}
           onSignOut={signOut}
           exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}

@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from ecarbon.carbon.store import FactorProvider, LocalSnapshotProvider
+from ecarbon.carbon.store import FactorProvider, LocalSnapshotProvider, same_country
 from ecarbon.extract.assemblies import FRAMING_FRACTION
 from ecarbon.models import (
     CarbonLine,
@@ -160,13 +160,27 @@ def _framing_layer(takeoff: TakeoffResult, line: TakeoffLine) -> TakeoffLine | N
     )
 
 
+# Added to a line's uncertainty when its factor is from another country than
+# the project: the material is the same, the supply chain and grid are not.
+FOREIGN_FACTOR_EXTRA_PCT = 10.0
+
+
 def calculate_carbon(
     takeoff: TakeoffResult,
     provider: FactorProvider | None = None,
     allowed_modules: Sequence[str] = DEFAULT_MODULES,
+    geography: str | None = None,
 ) -> CarbonResult:
-    """Derive whole-building embodied carbon from a takeoff result."""
+    """Derive whole-building embodied carbon from a takeoff result.
+
+    `geography` is where the building is ("US", "US-CA", "GB", "CA-BC"). Each
+    material takes that region's factor when the store has one. When it does
+    not, the default (Canadian) factor is used and the line says so, with a
+    wider range, rather than passing off a Canadian number as local.
+    None means the default factors, exactly as before.
+    """
     prov = provider or LocalSnapshotProvider()
+    country = geography.upper().split("-")[0] if geography else None
 
     carbon_lines: list[CarbonLine] = []
     uncounted_ids: list[str] = []
@@ -180,10 +194,12 @@ def calculate_carbon(
 
     for line in takeoff.lines:
         factor = None
-        if line.material:
-            factor = prov.find_by_material(line.material)
-        elif line.element_class:
-            factor = prov.find_by_material(line.element_class.value)
+        key = line.material or (line.element_class.value if line.element_class else None)
+        if key:
+            factor = (
+                prov.find_by_material(key, geography) if geography else prov.find_by_material(key)
+            )
+        foreign = bool(country and factor and not same_country(factor.geography, country))
 
         framing = _is_framing_by_area(line, factor)
         layer = _framing_layer(takeoff, line) if framing else None
@@ -215,6 +231,12 @@ def calculate_carbon(
                     f"{FRAMING_FRACTION:.0%} framing fraction (studs at 400 mm centres, "
                     f"assumed; the schedule gives no framing quantity)."
                 )
+        if foreign and cline.kg_co2e is not None:
+            note = (
+                f"No {country} factor for {factor.name}; the {factor.geography} factor is "
+                f"used, with its range widened by {FOREIGN_FACTOR_EXTRA_PCT:.0f} points."
+            )
+            cline.conversion_note = f"{cline.conversion_note} {note}" if cline.conversion_note else note
         carbon_lines.append(cline)
 
         if cline.is_counted and cline.kg_co2e is not None:
@@ -234,6 +256,8 @@ def calculate_carbon(
 
             # Uncertainty
             u_pct = cline.factor.uncertainty_pct if (cline.factor and cline.factor.uncertainty_pct) else 15.0
+            if foreign:
+                u_pct += FOREIGN_FACTOR_EXTRA_PCT
             sigma = cline.kg_co2e * (u_pct / 100.0)
             variance_sum += sigma**2
         else:

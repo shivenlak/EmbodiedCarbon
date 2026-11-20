@@ -439,6 +439,94 @@
       "data_type": "industry_avg",
       "uncertainty_pct": 20.0,
       "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "nrmca-v4-4000-00",
+      "material_key": "concrete_gu_30",
+      "name": "Concrete, US industry average, 4,000 psi, no fly ash or slag (non-air-entrained)",
+      "source": "NRMCA Member Industry-Average EPD for Ready Mixed Concrete, Version 4 (EPD-IES-0034276)",
+      "source_id": "4000-00-FA/SL, A1-A3 accumulated, p.43",
+      "declared_unit": "m3",
+      "density_kg_m3": null,
+      "gwp_value": 330.17,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "US",
+      "valid_from": "2026-10-09",
+      "valid_to": "2031-10-09",
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "National Ready Mixed Concrete Association; GWP-total per 1 m3 of fresh concrete, U.S. national average. 4,000 psi (27.6 MPa) is the nearest declared strength to the 30 MPa Canadian row."
+    },
+    {
+      "factor_id": "nrmca-v4-4000-40fa",
+      "material_key": "concrete_gul_40fa_25",
+      "name": "Concrete, US industry average, 4,000 psi, 40% fly ash (non-air-entrained)",
+      "source": "NRMCA Member Industry-Average EPD for Ready Mixed Concrete, Version 4 (EPD-IES-0034276)",
+      "source_id": "4000-40-FA, A1-A3 accumulated, p.43",
+      "declared_unit": "m3",
+      "density_kg_m3": null,
+      "gwp_value": 239.26,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "US",
+      "valid_from": "2026-10-09",
+      "valid_to": "2031-10-09",
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "National Ready Mixed Concrete Association; GWP-total per 1 m3, U.S. national average. Declared at 4,000 psi; the Canadian row is 25 MPa."
+    },
+    {
+      "factor_id": "awc-cwc-na-softwood-lumber-2020",
+      "material_key": "wood_framing_spf",
+      "name": "Softwood lumber, North American industry average",
+      "source": "AWC/CWC North American Softwood Lumber EPD (UL Environment, issued 2020-07-01)",
+      "source_id": "Table 9, GWP-TRACI total A1-A3, p.15",
+      "declared_unit": "m3",
+      "density_kg_m3": null,
+      "gwp_value": 63.12,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "US",
+      "valid_from": "2020-07-01",
+      "valid_to": "2025-07-01",
+      "data_type": "industry_avg",
+      "uncertainty_pct": 20.0,
+      "attribution": "American Wood Council and Canadian Wood Council. Fossil GWP; biogenic carbon reported separately. EXPIRED 2025-07-01 and not yet replaced by a national average (AWC's 2024-25 EPDs are regional: Southern 90.39, Pacific Coast 73.81, Inland NW 71.35 kg/m3), so uncertainty is raised to 20%."
+    },
+    {
+      "factor_id": "ga-type-x-2020",
+      "material_key": "gypsum_board",
+      "name": "Gypsum board, 5/8 in Type X, North American industry average",
+      "source": "Gypsum Association industry-average EPD (NSF EPD 10270, issued 2020-04-28)",
+      "source_id": "Table 3, GWP 100 A1-A3, p.17",
+      "declared_unit": "m3",
+      "density_kg_m3": 670.9,
+      "gwp_value": 187.53,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "US",
+      "valid_from": "2020-04-28",
+      "valid_to": "2026-04-15",
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Gypsum Association. Declared as 277 kg CO2e per 92.9 m2 of 15.9 mm board (991 kg), converted to 187.53 kg CO2e/m3 and 670.9 kg/m3. EXPIRED 2026-04-15; the most recent industry average."
     }
   ],
   "cmhc_mappings": {

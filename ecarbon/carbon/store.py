@@ -24,6 +24,13 @@ SEED_FILE = Path(__file__).resolve().parent / "seed_factors.json"
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "factors.sqlite3"
 
 
+def same_country(geography: str | None, country: str | None) -> bool:
+    """True when a factor's geography ("CA-AB", "US") lies in `country` ("CA")."""
+    if not geography or not country:
+        return False
+    return geography.upper().split("-")[0] == country.upper().split("-")[0]
+
+
 class FactorProvider(ABC):
     """Abstract interface for carbon factor resolution."""
 
@@ -33,8 +40,11 @@ class FactorProvider(ABC):
         pass
 
     @abstractmethod
-    def find_by_material(self, material_name: str) -> FactorRef | None:
-        """Find default factor matching a CMHC material string or key."""
+    def find_by_material(
+        self, material_name: str, geography: str | None = None
+    ) -> FactorRef | None:
+        """Find the factor for a CMHC material string or key, preferring one
+        for `geography` when given."""
         pass
 
     @abstractmethod
@@ -271,7 +281,48 @@ class LocalSnapshotProvider(FactorProvider):
         finally:
             conn.close()
 
-    def find_by_material(self, material_name: str) -> FactorRef | None:
+    def find_by_material(
+        self, material_name: str, geography: str | None = None
+    ) -> FactorRef | None:
+        """The factor for a material, for a project in `geography` when given.
+
+        Without a geography this is exactly the lookup it always was. With one
+        (ISO-3166 style: "US", "US-CA", "GB", "AU-VIC", "CA-BC"), a row for the
+        same material in that region is preferred, then one anywhere in the
+        same country, and only then the default row. The caller can tell a
+        fallback happened because the returned factor's geography is not in
+        the project's country (see `same_country`).
+        """
+        base = self._find_default(material_name)
+        if base is None or not geography:
+            return base
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            # FactorRef (a frozen contract) carries no material_key, so the
+            # equivalence key is read back from the store by factor id.
+            cur.execute(
+                "SELECT * FROM factors WHERE material_key = "
+                "(SELECT material_key FROM factors WHERE factor_id = ?)",
+                (base.factor_id,),
+            )
+            rows = [self._row_to_factor(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+        want = geography.upper()
+        country = want.split("-")[0]
+        exact = [f for f in rows if f.geography.upper() == want]
+        if exact:
+            return exact[0]
+        national = [f for f in rows if f.geography.upper() == country]
+        if national:
+            return national[0]
+        regional = [f for f in rows if same_country(f.geography, country)]
+        if regional:
+            return regional[0]
+        return base
+
+    def _find_default(self, material_name: str) -> FactorRef | None:
         conn = self._get_conn()
         try:
             cur = conn.cursor()
@@ -348,7 +399,9 @@ class EC3Provider(FactorProvider):
     def get_factor(self, factor_id: str) -> FactorRef | None:
         raise NotImplementedError("Live EC3 API requires professional account token; use LocalSnapshotProvider.")
 
-    def find_by_material(self, material_name: str) -> FactorRef | None:
+    def find_by_material(
+        self, material_name: str, geography: str | None = None
+    ) -> FactorRef | None:
         raise NotImplementedError("Live EC3 API requires professional account token; use LocalSnapshotProvider.")
 
     def list_factors(self) -> list[FactorRef]:
