@@ -74,7 +74,7 @@ If you need a change in a file the other stream owns, write it under "Requests" 
 | ID | Contract | Owner | Status |
 |---|---|---|---|
 | C1 | `ecarbon/intake/locale.py`: `detect_locale(design) -> Locale` | A | ☑ stub ☐ real |
-| C2 | `ecarbon/takeoff/overrides.py` `Overrides`, threaded through `gather()` / `build_takeoff()` | B | ☐ |
+| C2 | `ecarbon/takeoff/overrides.py` `Overrides`, threaded through `gather()` / `build_takeoff()` | B | ☑ landed (B2) |
 | C3 | Line labels: `"vision: "` and `"stated: "` note prefixes | A writes vision lines; B writes stated lines and renders both | ☐ |
 | C4 | Upload stage `"vision"` | A emits, B displays | ☐ |
 | C5 | `locale` exposed by the API | B | ☐ |
@@ -126,6 +126,20 @@ class Overrides:
 ```
 - `scripts/score_blind.py` exposes `score_set(design_dir, truth) -> dict`.
 - B's `scripts/accuracy.py` imports it to score the holdout, so both splits are scored identically.
+
+## Getting the plan sets (data repo)
+
+All plan-set data the team may use is in the **private** repo `shivenlak/ecarbon-plansets` (ask Shiven for access):
+
+```bash
+git clone https://github.com/shivenlak/ecarbon-plansets.git ~/ec-data
+```
+
+- `~/ec-data/cmhc/` holds all 52 CMHC packages. That is `EC_DATA`'s default, so the full suite (Alberta gate included) stops skipping.
+- `~/ec-data/global/` holds the **dev** corpus. `fetch_corpus.py --split dev` sees it as already present.
+- `~/ec-data/landmark/` holds the confidential Landmark sets.
+- **Holdout sets are deliberately not in that repo** (blind protocol below).
+- Never copy anything from it into this repo. This repo is public, and the guard grep rejects `.pdf` and `landmark`.
 
 ## The global corpus and the blind protocol
 

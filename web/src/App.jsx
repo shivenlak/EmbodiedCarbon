@@ -20,11 +20,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { canHelp, modeFor } from "./HelpRead.jsx";
 
 // Same origin in a build, because the service serves this bundle itself.
 // Hardcoding the dev address once shipped an interface that called the
 // *viewer's* localhost: every request failed for anyone but the developer,
 // while curl against the deployment worked perfectly and hid it.
+
 const API = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 
 // The interface: the measured building, full screen, with every page as a
@@ -32,6 +34,7 @@ const API = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 // wait on three.js.
 const Showcase = lazy(() => import("./Showcase.jsx"));
 const Welcome = lazy(() => import("./Welcome.jsx"));
+const HelpRead = lazy(() => import("./HelpRead.jsx"));
 
 // Mirrors PARTITION_LINE_PREFIX in ecarbon/takeoff/builder.py.
 const PARTITION_PREFIX = "ln-interior-partition";
@@ -106,7 +109,18 @@ async function postJSON(path, body) {
     body: JSON.stringify(body),
   });
   if (res.status === 401) throw new Unauthorized("Credentials required");
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // The server explains a refusal ("the two points are too close"); show
+    // that rather than a bare status code.
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = typeof body.detail === "string" ? body.detail : "";
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
   return res.json();
 }
 
@@ -238,6 +252,29 @@ const CONFIDENCE = {
 
 function Confidence({ value }) {
   return <span className={`chip ${CONFIDENCE[value] || "chip-assumed"}`}>{value}</span>;
+}
+
+// Where a line rests on something other than the drawing alone (contract
+// C3): "stated: " is what the user typed in "Help it read this", "vision: "
+// is what a vision model read off an image. Shown beside the confidence chip
+// so neither can pass for measured.
+export function Said({ line }) {
+  const note = line?.basis?.note || "";
+  if (note.startsWith("stated: ")) {
+    return (
+      <span className="chip chip-said" title={note.slice(8)}>
+        you said
+      </span>
+    );
+  }
+  if (note.startsWith("vision: ")) {
+    return (
+      <span className="chip chip-ai" title={note.slice(8)}>
+        read by AI
+      </span>
+    );
+  }
+  return null;
 }
 
 // The sheet tag is the trace control. It is styled like the stamp it refers
@@ -746,7 +783,7 @@ function BillOfQuantities({
                   )}
                 </td>
 
-                <td><Confidence value={line.confidence} /></td>
+                <td><Confidence value={line.confidence} /> <Said line={line} /></td>
 
                 <td>
                   <Citation
@@ -1932,6 +1969,12 @@ export default function App() {
   // `?trace=`: a dialog that only opens on click cannot be screenshotted in
   // review, and a demo wants to link straight to the moment that matters.
   const [massing, setMassing] = useState(null);
+  // "Help it read this": null, or the mode to open in. `?help=scale` (or
+  // outline / heights) opens it on load, so it can be reviewed by screenshot.
+  const [helping, setHelping] = useState(() => {
+    const m = new URLSearchParams(window.location.search).get("help");
+    return m ? (["scale", "outline", "heights"].includes(m) ? m : "scale") : null;
+  });
   const [uploading, setUploading] = useState(
     () => new URLSearchParams(window.location.search).get("upload") === "1",
   );
@@ -2037,6 +2080,20 @@ export default function App() {
     setScenario(EMPTY_SCENARIO);
   }, [projectId, load]);
 
+
+  // After "Help it read this": the takeoff, carbon and model change together,
+  // without the full-page "loading" state a project switch shows.
+  const refresh = useCallback(async () => {
+    if (!projectId) return;
+    setTakeoff(await getJSON(`/projects/${projectId}/takeoff`));
+    setCarbon(await getJSON(`/projects/${projectId}/carbon`));
+    try {
+      setMassing(await getJSON(`/projects/${projectId}/massing`));
+    } catch {
+      setMassing(null);
+    }
+  }, [projectId]);
+  const helpApi = useMemo(() => ({ get: getJSON, post: postJSON, url: authedUrl }), []);
 
   const override = useCallback(
     async (lineId, quantity) => {
@@ -2172,6 +2229,20 @@ export default function App() {
   const dialogs = (
     <>
       <TracePanel trace={trace} onClose={() => setTrace(null)} />
+      {helping && projectId && (
+        <Suspense fallback={null}>
+          <HelpRead
+            key={projectId}
+            projectId={projectId}
+            takeoff={takeoff}
+            massing={massing}
+            initialMode={helping}
+            api={helpApi}
+            onApplied={refresh}
+            onClose={() => setHelping(null)}
+          />
+        </Suspense>
+      )}
       {uploading && (
         <Upload
           onClose={() => setUploading(false)}
@@ -2185,6 +2256,14 @@ export default function App() {
             }
             setProjectId(id);
             setPage("model");
+            // A fresh upload that could not be read is the moment to ask for
+            // help, in the mode it needs. Browsing a bundled set never pops this.
+            try {
+              const t = await getJSON(`/projects/${id}/takeoff`);
+              if (canHelp(t.gaps)) setHelping(modeFor(t.gaps));
+            } catch {
+              /* the review notes still offer it */
+            }
           }}
         />
       )}
@@ -2211,6 +2290,7 @@ export default function App() {
           page={page}
           onPage={setPage}
           onUpload={() => setUploading(true)}
+          onHelp={(mode) => setHelping(mode || "scale")}
           who={who}
           onSignOut={signOut}
           exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
