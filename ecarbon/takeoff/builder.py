@@ -71,7 +71,12 @@ from ecarbon.models import (
     TakeoffResult,
     Unit,
 )
-from ecarbon.takeoff.framing import framing_lines, mark_assumed_heights, single_storey_fallback
+from ecarbon.takeoff.framing import (
+    framing_lines,
+    mark_assumed_heights,
+    single_storey_fallback,
+    standard_assembly_lines,
+)
 from ecarbon.takeoff.overrides import (
     StatedStoreyHeights,
     footprint_from_polygon,
@@ -1083,7 +1088,12 @@ def build_takeoff(
     # Floor joists and roof framing the assemblies defer to the structure,
     # estimated from a stated standard over measured geometry (framing.py).
     # Each one replaces its "not counted" note with a pointer to its line.
-    framed, covered = framing_lines(inputs, lines)
+    # Elements whose own assembly could not be read take a standard Part 9
+    # build-up, ASSUMED (framing.py); the drawn assembly wins where read.
+    std_lines, std_gaps, std_used = standard_assembly_lines(inputs, lines, _assembly_lines)
+    lines += std_lines
+    gaps += std_gaps
+    framed, covered = framing_lines(inputs, lines, std_used)
     lines += framed
     for gap in gaps:
         for marker, line_id in covered.items():
