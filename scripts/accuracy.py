@@ -126,6 +126,26 @@ def score(design, truth: dict, provider) -> dict:
     total = carbon.total_kg_co2e or 0.0
     ours_share = {k: round(100.0 * v / total, 1) for k, v in by_elem.items()} if total else {}
     bpr_share = truth.get("bpr_element_pct") or {}
+
+    # The architect's own quantities at OUR factors: separates "we measured
+    # less" from "CMHC used other factors and modules". Framing layers are
+    # left out, because the IFC models them as solid timber the full depth of
+    # the cavity, which is not a timber volume.
+    ifc_kg, ifc_priced = 0.0, []
+    for mat, vol in ifc_vol.items():
+        if not vol or "Framing" in mat:
+            continue
+        f = provider.find_by_material(mat)
+        if f is None or f.declared_unit != "m3":
+            continue
+        ifc_kg += vol * f.gwp_value
+        ifc_priced.append(mat)
+    ours_same_scope = sum(
+        cl.kg_co2e
+        for cl in carbon.lines
+        if cl.kg_co2e is not None
+        and lines[cl.line_id].material in ifc_priced
+    )
     a1_a5_kg = (truth.get("bpr_a1_a5_t") or 0) * 1000.0 or None
 
     return {
@@ -157,6 +177,9 @@ def score(design, truth: dict, provider) -> dict:
             "ours_a1_a3_kg": round(total, 0),
             "bpr_a1_a5_kg": a1_a5_kg,
             "ratio_to_a1_a5": round(total / a1_a5_kg, 3) if a1_a5_kg and total else None,
+            "ifc_at_our_factors_kg": round(ifc_kg, 0) if ifc_priced else None,
+            "ours_same_materials_kg": round(ours_same_scope, 0) if ifc_priced else None,
+            "ifc_materials_priced": ifc_priced,
             "ours_share_pct": ours_share,
             "bpr_share_pct": bpr_share,
         },
@@ -204,6 +227,28 @@ def summarise(rows: list[dict]) -> dict:
     ]
 
     ratios = [r["carbon"]["ratio_to_a1_a5"] for r in rows if r["carbon"]["ratio_to_a1_a5"]]
+    same = [
+        (r["carbon"]["ours_same_materials_kg"], r["carbon"]["ifc_at_our_factors_kg"])
+        for r in rows
+        if r["carbon"].get("ifc_at_our_factors_kg")
+    ]
+    ratios_same = [o / i for o, i in same if i and o]
+    out["carbon_vs_ifc_same_factors"] = (
+        {
+            "n": len(ratios_same),
+            "median_ratio": round(statistics.median(ratios_same), 2),
+            "q1": round(sorted(ratios_same)[len(ratios_same) // 4], 2),
+            "q3": round(sorted(ratios_same)[(3 * len(ratios_same)) // 4], 2),
+            "note": (
+                "Our carbon over the architect's IFC quantities priced with OUR factors, "
+                "for the materials both name (concrete, gypsum, insulation, sheathing; "
+                "framing excluded because the IFC models it as solid layers). This "
+                "isolates quantity error from factor and module differences."
+            ),
+        }
+        if ratios_same
+        else None
+    )
     out["carbon_vs_cmhc_a1_a5"] = (
         {
             "n": len(ratios),

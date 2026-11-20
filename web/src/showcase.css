@@ -249,7 +249,8 @@
 
 .sc-tabs {
   display: flex;
-  gap: 4px;
+  /* Six tabs since "Accuracy": tight enough that none is clipped. */
+  gap: 2px;
   padding: 10px 10px 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -258,7 +259,7 @@
 .sc-tabs button {
   flex: 1 0 auto;
   min-height: 32px;
-  padding: 0 9px;
+  padding: 0 6px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -937,3 +938,17 @@ a.sc-btn { display: inline-flex; align-items: center; text-decoration: none; col
 }
 .sc-units button.is-on { background: var(--snow); color: var(--night); }
 .sc-units button:focus-visible { outline: 2px solid var(--cedar); outline-offset: 2px; }
+
+/* How accurate is it */
+.sc-acc h3 { margin: 14px 0 6px; font: 600 12px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--frost); }
+.sc-acc-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sc-acc-table th { text-align: left; font-weight: 500; color: var(--dim); padding: 4px 6px 6px 0; border-bottom: 1px solid rgb(255 255 255 / 0.12); }
+.sc-acc-table td { padding: 6px 6px 6px 0; border-bottom: 1px solid rgb(255 255 255 / 0.06); color: var(--snow); vertical-align: top; }
+.sc-acc-table td em { display: block; font-style: normal; color: var(--dim); font-size: 11.5px; }
+.sc-acc-table td:nth-child(2), .sc-acc-table td:nth-child(3) { font-family: var(--mono); white-space: nowrap; }
+.sc-acc-table td.is-good { color: #86efac; }
+.sc-acc-table td.is-off { color: #fcd34d; }
+.sc-acc-fig { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: baseline; margin: 6px 0; font-size: 12.5px; color: var(--frost); }
+.sc-acc-fig b { font: 600 22px var(--display); color: var(--snow); }
+.sc-acc-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--frost); display: grid; gap: 3px; }
+.sc-acc-note { font-size: 11.5px; color: var(--dim); margin: 10px 0 0; }

@@ -171,10 +171,12 @@ class TestUploadingAPlanSet:
         pid = body["id"]
         assert pid.startswith("upload-")
         # The same drawings through a different door must give the same answer.
-        assert body["n_lines"] == 20
-        # The Alberta gate's figure: 38,075 since framing, partitions included,
-        # is priced at its stud share and steel studs are left uncounted.
-        assert body["total_kg_co2e"] == pytest.approx(38075, rel=0.02)
+        # 20 lines until the deferred I-joists (flanges, webs) and trusses were
+        # estimated (takeoff/framing.py): 23.
+        assert body["n_lines"] == 23
+        # The Alberta gate's figure: 38,501 since the joist and truss estimates
+        # (38,075 before; framing at its stud share, steel studs uncounted).
+        assert body["total_kg_co2e"] == pytest.approx(38501, rel=0.02)
 
         for endpoint in ("takeoff", "carbon", "intake", "substitutions", "unspecified"):
             assert client.get(f"/projects/{pid}/{endpoint}").status_code == 200

@@ -34,6 +34,7 @@ import {
 } from "./App.jsx";
 import { canHelp, modeFor } from "./HelpRead.jsx";
 import { useUnits } from "./units.js";
+import ACCURACY from "./accuracy.json";
 import "./showcase.css";
 
 const STILL =
@@ -53,6 +54,7 @@ const PANELS = [
   { id: "carbon", label: "Carbon" },
   { id: "notes", label: "Questions" },
   { id: "spec", label: "Your spec" },
+  { id: "accuracy", label: "Accuracy" },
 ];
 
 // The element each class is billed under, for "press a surface, see its line".
@@ -1141,6 +1143,9 @@ export default function Showcase({
                 All {swaps?.length || 0} swaps, ranked, with their caveats →
               </button>
             </section>
+
+            {/* 6. accuracy */}
+            <AccuracyPanel />
           </div>
 
           <div className="sc-deck-foot">
@@ -1523,5 +1528,96 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
         </button>
       </div>
     </li>
+  );
+}
+
+
+// How accurate is it: the benchmark, as the judges asked for it. Every
+// figure is read from accuracy.json, which scripts/accuracy.py writes from
+// three references made by professionals; nothing here is typed in.
+function AccuracyPanel() {
+  const a = ACCURACY || {};
+  const q = a.quantity_error_pct || {};
+  const pick = (k) => q[k];
+  const rows = [
+    ["Footprint", "energy model", pick("footprint vs energy model ceiling")],
+    ["Exterior wall area", "architect's BIM model", pick("exterior wall area vs IFC model")],
+    ["Window area", "energy model", pick("window area vs energy model")],
+    ["Gypsum board", "BIM model", pick("Gypsum Board volume vs IFC model")],
+    ["Concrete", "BIM model", pick("Concrete, CIP volume vs IFC model")],
+  ].filter((r) => r[2]);
+  const same = a.carbon_vs_ifc_same_factors;
+  const cmhc = a.carbon_vs_cmhc_a1_a5;
+  const sign = (x) => (x > 0 ? `+${x}` : `${x}`);
+  return (
+    <section className="sc-panel sc-acc" aria-label="How accurate is it">
+      <h2>How accurate is it</h2>
+      <p className="sc-lede">
+        Checked against references made by professionals for all {a.designs} CMHC designs:
+        the architect&apos;s BIM model, the energy advisor&apos;s model, and CMHC&apos;s own
+        carbon report. Measurement error and missing scope are kept apart.
+      </p>
+      <h3>Measurements</h3>
+      <table className="sc-acc-table">
+        <thead>
+          <tr>
+            <th>Quantity</th>
+            <th>Median error</th>
+            <th>Within 10%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([name, ref, r]) => (
+            <tr key={name}>
+              <td>
+                {name} <em>vs {ref}</em>
+              </td>
+              <td className={Math.abs(r.median) <= 10 ? "is-good" : "is-off"}>{sign(r.median)}%</td>
+              <td>
+                {r.within_10pct} of {r.n}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h3>Carbon</h3>
+      {same && (
+        <p className="sc-acc-fig">
+          <b>{Math.round(same.median_ratio * 100)}%</b>
+          <span>
+            of the BIM model&apos;s carbon for the same materials at the same factors (median of{" "}
+            {same.n}). The shortfall is quantity we read less of, mostly foundation concrete.
+          </span>
+        </p>
+      )}
+      {cmhc && (
+        <p className="sc-acc-fig">
+          <b>{Math.round(cmhc.median_ratio * 100)}%</b>
+          <span>
+            of CMHC&apos;s reported A1–A5 (median of {cmhc.n}). The rest is transport and
+            construction (A4–A5), CMHC&apos;s own factors, and the items below.
+          </span>
+        </p>
+      )}
+      <h3>Left out or estimated, and said so on every bill</h3>
+      <ul className="sc-acc-list">
+        <li>Left out: foundation walls and basements</li>
+        <li>Left out: steel studs (no steel-stud factor in the store yet)</li>
+        <li>Priced as a range, not counted: cladding and roofing the drawings leave as placeholders</li>
+        <li>Estimated, not read: floor joists and roof trusses (a stated standard over measured spans, marked assumed)</li>
+      </ul>
+      {a.blind_holdout ? (
+        <p className="sc-acc-note">Blind test: {JSON.stringify(a.blind_holdout)}</p>
+      ) : (
+        <p className="sc-acc-note">
+          Blind test on plan sets the tool was never tuned on: scored after the feature freeze.
+        </p>
+      )}
+      <p className="sc-acc-note">
+        The references are not perfect either: one BIM model omits the 76 mm sub-slab
+        insulation its own drawings specify. That is why every number here traces to its sheet.
+        Updated {a.generated}.
+      </p>
+    </section>
   );
 }
