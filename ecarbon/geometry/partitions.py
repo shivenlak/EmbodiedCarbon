@@ -178,8 +178,14 @@ def partitions_on_page(
     depths_mm: list[float],
     stroke_width: float,
     sheet: str | None = None,
+    outline: tuple[float, float, float, float] | None = None,
 ) -> PartitionRun | None:
-    """Measure interior partition run length on one floor plan."""
+    """Measure interior partition run length on one floor plan.
+
+    `outline` is the footprint's extent in points. Walls are drawn
+    at the same lineweight as a partition, so without it a fixture legend
+    beside the plan counts as partition too, as on BC_ADU_02's second floor.
+    """
     if scale.mm_per_pt is None or not depths_mm:
         return None
     mm = scale.mm_per_pt
@@ -211,14 +217,21 @@ def partitions_on_page(
                 overlap = max(0.0, min(a1, b1) - max(a0, b0)) * mm
                 if overlap < MIN_WALL_MM:
                     continue
+                lo, hi = sorted((offset_a, offset_b))
+                near, far = max(a0, b0), min(a1, b1)
+                if outline is not None:
+                    # Centred inside the outline. Runs along the perimeter are
+                    # kept: the IFC partition lengths in test_partitions count them.
+                    x0, y0, x1, y1 = outline
+                    cx, cy = ((near + far) / 2, (lo + hi) / 2) if horizontal else ((lo + hi) / 2, (near + far) / 2)
+                    if not (x0 <= cx <= x1 and y0 <= cy <= y1):
+                        continue
                 key = (horizontal, round((offset_a + offset_b) / 2, 1), round(max(a0, b0), 1))
                 if key in seen:
                     continue
                 seen.add(key)
                 total += overlap / 1000.0
                 walls += 1
-                lo, hi = sorted((offset_a, offset_b))
-                near, far = max(a0, b0), min(a1, b1)
                 rects.append(
                     (near, lo, far, hi) if horizontal else (lo, near, hi, far)
                 )
@@ -277,7 +290,7 @@ def partitions_for(design) -> Partitions:
                 continue
             result.stroke_width = footprint.stroke_width
             run = partitions_on_page(
-                page, scale, depths, footprint.stroke_width, s.sheet_no
+                page, scale, depths, footprint.stroke_width, s.sheet_no, footprint.bbox
             )
             if run is not None:
                 result.runs.append(run)

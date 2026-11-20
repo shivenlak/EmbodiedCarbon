@@ -4,7 +4,9 @@
 # footprint_m:        overall W x D in metres, off the overall dimension strings
 #                     (face of framing, as the plans dimension it)
 # footprint_area_m2:  only where the footprint is not a rectangle
-# storey_heights_m:   plate height per storey
+# storey_heights_m:   plate height per storey on a one-storey set; on a
+#                     multi-storey set, floor to floor (what the level ladder
+#                     reads), the top storey to its own plate or roof datum
 # windows / doors:    rows of the base schedule; optional and alternate rows
 #                     (the "OPTIONAL EXTERIOR DOORS" tables) are left out
 # null:               the set does not state it
@@ -49,3 +51,105 @@ us-escondido-adu-4:
   slab_mm: 102
   exterior_wall: '5 1/2" wood stud w/ plywood sheathing and finish, one layer gyp. wall board int.'
   notes: "A4-101; A4-102 is a sheet of plan options"
+
+us-riverside-adu-1:
+  footprint_m: [5.182, 8.839]   # 17'-0" x 29'-0"; 499 SQ. FT.
+  storeys: 1
+  storey_heights_m: [2.438]     # 8'-0" PLATE HEIGHT
+  windows: 5
+  doors: 6
+  slab_mm: 102                  # 4" conc slab
+  notes: "A1.1 craftsman plan (A1.2, A1.3 are the same plan in other styles); schedules on A0.1"
+
+us-riverside-adu-2:
+  footprint_m: [5.182, 11.201]  # 17'-0" x 36'-9"; 625 SQ. FT.
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 6
+  doors: 7
+  slab_mm: 102
+  notes: "A1.1; schedules on A0.1"
+
+us-riverside-adu-3:
+  footprint_m: [5.182, 13.437]  # 17'-0" x 44'-1"; 749 SQ. FT.
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 3                    # window D is optional, in place of doors 3 and 4
+  doors: 11
+  slab_mm: 102
+  notes: "A1.1; schedules on A0.1"
+
+us-riverside-adu-4:
+  footprint_m: [9.449, 12.192]  # 31'-0" x 40'-0" overall, an L
+  footprint_area_m2: 84.45      # 909 SQ. FT. as the plan states
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 5
+  doors: 12
+  slab_mm: 102
+  notes: "A1.1; bedroom wing 31'-0\" x 14'-6\" over a 25'-6\" living wing"
+
+us-santacruz-adu-2:
+  footprint_m: [8.763, 7.696]   # 28'-9" x 25'-3" overall
+  footprint_area_m2: 59.6       # less a 16'-8 1/2" x 5'-1" porch notch, computed off the dimensions
+  storeys: 1
+  storey_heights_m: [2.464]     # PLATE 8'-1" (a 9'-1" plate is an option)
+  windows: 6
+  doors: 7                      # 07 and 08 are alternate-plan doors
+  slab_mm: 102                  # 4" slab
+  notes: "A2-101 plan 2 ground floor plan; schedules on the same sheet"
+
+us-santacruz-adu-3:
+  footprint_m: [13.418, 7.328]  # 44'-0 1/4" x 24'-0 1/2" overall
+  footprint_area_m2: 92.7       # less an 11'-0" x 5'-5 3/4" porch notch, computed off the dimensions
+  storeys: 1
+  storey_heights_m: [2.464]     # PLATE 8'-1"
+  windows: 10                   # 11 is an alternate-plan window
+  doors: 8                      # 08-10 are alternate-plan doors
+  slab_mm: 102
+  notes: "A3-101 plan 3 bungalow; schedules on the same sheet"
+
+au-nsw-manor-homes-01:
+  footprint_m: [11.35, 26.1]    # BUILDING OVERALL on the site plan, A-301 (four 2-bed units)
+  storeys: 2
+  storey_heights_m: [3.2, 2.4]  # FFL ground to FFL first 2,700 + 500; first floor to its low-side FCL 2,400 (skillion rises 1,600)
+  windows: null                 # the Door and window schedule (A-410) is listed but not in this PDF
+  doors: null
+  slab_mm: null                 # "slab-on-ground" stated, thickness not
+  notes: "A-302/A-303 plans dimension rooms not the building; A-331 short section carries the datums as FFL/FCL with dimensions, no RL values"
+
+au-vic-futurehomes-a:
+  footprint_m: null             # irregular block; the plans carry no dimension strings
+  storeys: 3
+  storey_heights_m: [3.4, 3.2, 3.2]  # GROUND 0, LEVEL 1 3400, LEVEL 2 6600, ROOF 9800
+  windows: null
+  doors: null
+  slab_mm: null
+  notes: "A858/A859 sections carry the level datums in mm without a unit"
+
+au-vic-futurehomes-b:
+  footprint_m: null             # no overall dimensions
+  storeys: 3                    # over a basement car park
+  storey_heights_m: null        # the sections state no levels
+  windows: null
+  doors: null
+  slab_mm: null
+  notes: "design intent set; most sheets are apartment types at 1:50"
+
+ca-bc-std-catalogue:
+  footprint_m: [7.60, 6.40]     # ADU 01, the first design: 25'-0" x 21'-0" [7.60 x 6.40]
+  storeys: 2
+  storey_heights_m: null
+  windows: null
+  doors: null
+  slab_mm: null
+  notes: "a catalogue of many designs in one PDF, not one building; truth is the first design (ADU 01). Each design states its unit footprint and storeys on a statistics page"
+
+us-citrusheights-catalog:
+  footprint_m: [9.449, 4.877]   # first design, 496 SF ADU: 31'-0" x 16'-0"
+  storeys: 1
+  storey_heights_m: [2.743]     # floor plan note: typical wall height is 9'
+  windows: 5
+  doors: 3
+  slab_mm: null
+  notes: "a catalogue of several designs; truth is the first (sheet A1, 496 SF). All lettering is vector outlines, so the text layer is empty: a vision case"
