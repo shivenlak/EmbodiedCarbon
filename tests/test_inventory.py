@@ -293,7 +293,7 @@ class TestUsTitleBlocks:
         # T24 is California's Title 24 energy sheet: no discipline, so "?".
         assert discipline_of(token).value == ("?" if token[0] == "T" else token[0])
 
-    @pytest.mark.parametrize("token", ["A1", "B4", "12", "A-", "2X6"])
+    @pytest.mark.parametrize("token", ["A1", "B4", "12", "A-", "2X6", "UP14R", "DN14R"])
     def test_bubbles_and_noise_are_not_sheet_numbers(self, token):
         from ecarbon.intake.classify import SHEET_NO_RE
 
@@ -313,6 +313,56 @@ class TestUsTitleBlocks:
         page.insert_text((200, 600), "WALL LEGEND", fontsize=25)
         page.insert_text((200, 900), "body text", fontsize=8)
         assert from_title_block(page) == ("A3-101", "FLOOR PLAN 3")
+
+
+class TestTypedFromTheDrawing:
+    """Builders' sets whose title block names nothing (Landmark: 'SHEET NO. 5/16')."""
+
+    @pytest.mark.parametrize(
+        ("text", "want"),
+        [
+            ("BASEMENT\nMAIN FLOOR AREA\n896 SF\nKITCHEN", SheetType.FLOOR_PLAN),
+            ("8\" WIDE CONC. FOUNDATION WALL\nSTRIP FOOTING\nFOOTING\nFOOTING", SheetType.FOUNDATION_PLAN),
+            ("KITCHEN\nSECTION A\nREFER TO TRUSS LAYOUT", SheetType.SECTION),
+            ("Main Floor Joist Placement Plan", SheetType.FRAMING_PLAN),
+            ("SWITCH SWITCH OUTLET OUTLET SMOKE SMOKE", SheetType.ELECTRICAL),
+            ("DRAWING INDEX\nROOF PLAN\nSITE PLAN", SheetType.COVER),
+            ("ROOF PLAN LEGEND", SheetType.ROOF_PLAN),
+        ],
+    )
+    def test_content_rules(self, text, want):
+        from ecarbon.intake.classify import type_from_content
+
+        assert type_from_content(text)[0] is want
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "SEE SECTION A ON SHEET 8",  # a reference, not the section's own label
+            "SWITCH OUTLET SMOKE ALARM per spec",  # a specification lists each once
+            "REFER TO TRUSS LAYOUT",
+            "FOOTING",
+        ],
+    )
+    def test_one_common_word_is_not_enough(self, text):
+        from ecarbon.intake.classify import type_from_content
+
+        assert type_from_content(text) is None
+
+    def test_a_large_title_with_no_sheet_number(self):
+        import pymupdf
+
+        from ecarbon.intake.classify import classify_page
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=1224, height=792)
+        page.insert_text((1100, 600), "BUILDING ELEVATIONS I", fontsize=31.5, rotate=90)
+        page.insert_text((1150, 700), "DRAWING:", fontsize=12)
+        for y in range(100, 500, 40):
+            page.insert_text((100, y), "3'-0\" body note", fontsize=9)
+        no, title, kind, _, _ = classify_page(page)
+        assert (no, kind) == (None, SheetType.ELEVATION)
+        assert "ELEVATIONS" in title
 
 
 class TestSheetNumberRanges:

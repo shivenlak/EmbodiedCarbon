@@ -30,8 +30,9 @@ from ecarbon.models import BasisSource, Discipline, SheetType
 # A000, A101a, S102, M000, E201A. Two letters occur on civil/landscape sheets.
 # US sets hyphenate or dot the number instead: A-901, S-1, G-001, A2.1, and
 # prefix it with a plan or series number: A3-101, T24-301. A bare single digit
-# (A1) stays out: it is the shape of a grid or detail bubble.
-SHEET_NO_RE = re.compile(r"^([A-Z]{1,2})(\d{2,4}|\d{0,2}-\d{1,4}|\d{1,2}\.\d{1,2})([a-zA-Z])?$")
+# (A1) stays out: it is the shape of a grid or detail bubble, and so do stair
+# arrows (UP14R, DN14R: up or down, fourteen risers).
+SHEET_NO_RE = re.compile(r"^(?!UP|DN)([A-Z]{1,2})(\d{2,4}|\d{0,2}-\d{1,4}|\d{1,2}\.\d{1,2})([a-zA-Z])?$")
 
 # Boilerplate that appears in every title block and is never the sheet title.
 TITLE_BLOCK_NOISE = (
@@ -213,10 +214,68 @@ def type_from_file_name(name: str) -> SheetType:
         return SheetType.MECHANICAL
     if "ELECTRICAL" in up:
         return SheetType.ELECTRICAL
-    up = up.replace("LAYOUT", "PLAN")
+    if "LAYOUT" in up:
+        # A builder's "Floor Layout" / "Roof Layout" is the joist or truss
+        # supplier's placement plan, not the architect's floor or roof plan.
+        return SheetType.FRAMING_PLAN
     if ("FOUNDATION" in up or "FOOTING" in up) and "PLAN" not in up:
         up += " PLAN"
     return sheet_type_of(up)
+
+
+def _largest_title(spans: list[Span]) -> str | None:
+    """With no sheet number to anchor on, the largest text on the page, when
+    it is set well above the body text and names a sheet type.
+
+    Some builders' title blocks carry no sheet number at all, only a big
+    "BUILDING ELEVATIONS I" beside a "DRAWING:" label.
+    """
+    sizes = sorted(s.size for s in spans)
+    top = sizes[-1]
+    if top < 2 * sizes[len(sizes) // 2]:
+        return None
+    block = [s for s in spans if abs(s.size - top) < 0.6 and not _is_noise(s.text)]
+    block.sort(key=lambda s: (round(s.y / max(top, 1.0)), s.x))
+    title = re.sub(r"\s+", " ", " ".join(s.text for s in block)).strip(" -–,")
+    return title if sheet_type_of(title) is not SheetType.UNKNOWN else None
+
+
+# Read off the drawing itself, for sheets whose title block names nothing
+# (Landmark's carries only "SHEET NO. 5 / 16"). Order matters: an electrical
+# plan repeats the floor plan's labels, and a foundation plan is cut by
+# section markers, so the specific evidence is tested first.
+_ROOM_FLOOR_AREA = re.compile(
+    r"\b(?:BASEMENT|GROUND|MAIN|FIRST|SECOND|THIRD|UPPER|LOWER)\s+FLOOR\s+AREA\b"
+)
+_SECTION_LABEL = re.compile(r"^\s*SECTION\s+[A-Z0-9]{1,2}\s*$", re.M)
+
+
+def type_from_content(text: str) -> tuple[SheetType, str] | None:
+    """(type, the evidence) from a page's own text, or None. Never a guess
+    from one common word: each rule needs a phrase only that sheet carries."""
+    up = text.upper()
+    m = re.search(r"\b(?:DRAWING|SHEET)\s+(?:INDEX|LIST)\b", up)
+    if m:
+        # The index names every other sheet type, so it is tested first.
+        return SheetType.COVER, m.group(0)
+    # "TRUSS LAYOUT" alone is a cross-reference note on plans and sections.
+    m = re.search(r"\b(?:JOIST|TRUSS)\s+PLACEMENT\s+PLAN\b", up)
+    if m:
+        return SheetType.FRAMING_PLAN, m.group(0)
+    # Twice each: a specification lists all three words once.
+    if all(up.count(w) >= 2 for w in ("SWITCH", "OUTLET", "SMOKE")):
+        return SheetType.ELECTRICAL, "switch, outlet and smoke alarm symbols"
+    m = _ROOM_FLOOR_AREA.search(up)
+    if m:
+        return SheetType.FLOOR_PLAN, m.group(0)
+    if up.count("FOOTING") >= 3 and "FOUNDATION WALL" in up:
+        return SheetType.FOUNDATION_PLAN, "foundation wall and footing notes"
+    m = _SECTION_LABEL.search(up)
+    if m:
+        return SheetType.SECTION, m.group(0).strip()
+    if "ROOF PLAN" in up:
+        return SheetType.ROOF_PLAN, "ROOF PLAN"
+    return None
 
 
 def _is_noise(text: str) -> bool:
@@ -240,12 +299,12 @@ def from_title_block(
 
     cands = [s for s in spans if SHEET_NO_RE.match(s.text.upper())]
     if not cands:
-        return None, None
+        return None, _largest_title(spans)
     num = max(cands, key=lambda s: s.size)
     # Guard: a sheet number is set much larger than the cross-reference bubbles
     # that share its shape (10 pt and 8 pt on these sets).
     if num.size < 1.8 * min(s.size for s in spans):
-        return None, None
+        return None, _largest_title(spans)
     sheet_no = num.text.strip()
 
     # The title is the nearest run of large, non-boilerplate text to the sheet
@@ -320,4 +379,11 @@ def classify_page(
         src = BasisSource.VECTOR_PATH if sheet_no else None
 
     disc = discipline_of(sheet_no)
-    return sheet_no, title, sheet_type_of(title, disc), disc, src
+    stype = sheet_type_of(title, disc)
+    if stype is SheetType.UNKNOWN and src is not BasisSource.REVIT_METADATA:
+        found = type_from_content(page.get_text())
+        if found:
+            stype = found[0]
+            title = f"{title or found[1]} (from drawing content)"
+            src = src or BasisSource.VECTOR_PATH
+    return sheet_no, title, stype, disc, src

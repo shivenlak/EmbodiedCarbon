@@ -69,7 +69,7 @@ def test_the_file_name_types_a_page_the_title_block_could_not(tmp_path):
     # Joined in name order: Final Blueprint, Floor Layout, Mech & Electrical.
     assert [s.sheet_type for s in sheets] == [
         SheetType.UNKNOWN,  # "Final Blueprint" names no type: not guessed
-        SheetType.FLOOR_PLAN,
+        SheetType.FRAMING_PLAN,
         SheetType.MECHANICAL,
     ]
     assert sheets[1].classified_by is BasisSource.DEFAULT_RULE
@@ -80,7 +80,8 @@ def test_file_name_types():
     from ecarbon.intake.classify import type_from_file_name
     from ecarbon.models import SheetType
 
-    assert type_from_file_name("Roof Layout.pdf") is SheetType.ROOF_PLAN
+    assert type_from_file_name("Roof Layout.pdf") is SheetType.FRAMING_PLAN
+    assert type_from_file_name("Floor Layout.pdf") is SheetType.FRAMING_PLAN
     assert type_from_file_name("Foundation.pdf") is SheetType.FOUNDATION_PLAN
     assert type_from_file_name("Building Details.pdf") is SheetType.DETAIL
     assert type_from_file_name("Mech & Electrical.pdf") is SheetType.MECHANICAL
