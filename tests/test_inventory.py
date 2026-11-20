@@ -336,6 +336,20 @@ class TestTypedFromTheDrawing:
         assert type_from_content(text)[0] is want
 
     @pytest.mark.parametrize(
+        ("title", "want"),
+        [
+            ("ELEVATIONS & SECTIONS - HIP", SheetType.SECTION),
+            ("BUILDING SECTIONS - EXTERIOR ELEVATIONS", SheetType.SECTION),
+            ("EXTERIOR ELEVATIONS", SheetType.ELEVATION),
+            ("TYPICAL SECTION DETAILS", SheetType.DETAIL),
+        ],
+    )
+    def test_a_sheet_of_elevations_and_sections_is_read_for_its_sections(self, title, want):
+        from ecarbon.intake.classify import sheet_type_of
+
+        assert sheet_type_of(title) is want
+
+    @pytest.mark.parametrize(
         "text",
         [
             "SEE SECTION A ON SHEET 8",  # a reference, not the section's own label

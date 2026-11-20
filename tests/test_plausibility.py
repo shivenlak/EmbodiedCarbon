@@ -180,7 +180,21 @@ class TestAMeasuredAreaIsNotAlwaysBetter:
         )
         return build_takeoff(design, facts), bpr
 
-    def test_a_footprint_too_large_to_be_a_unit_count_is_not_used(self):
+    def test_a_footprint_too_large_to_be_a_unit_count_is_not_used(self, monkeypatch):
+        # The footprint reader now measures this ADU correctly, so replay the
+        # 30 x 30 m sheet-sized reading it used to make: that is the failure
+        # this check guards against.
+        import dataclasses
+
+        from ecarbon.takeoff import builder
+
+        real = builder.detect_footprint
+
+        def misread(*args, **kwargs):
+            fp = real(*args, **kwargs)
+            return fp and dataclasses.replace(fp, width_m=30.222, depth_m=30.044)
+
+        monkeypatch.setattr(builder, "detect_footprint", misread)
         takeoff, bpr = self.built("SKMB_ADU_01")
         assert takeoff.project.gfa_m2 == bpr.best_gfa_m2
         gaps = [g for g in takeoff.gaps if g.message.startswith("Floor area: using")]

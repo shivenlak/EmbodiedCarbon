@@ -34,6 +34,7 @@ look 20% out against half the references in the world.
 
 from __future__ import annotations
 
+import collections
 import re
 from dataclasses import dataclass, field
 
@@ -53,16 +54,22 @@ _LEVEL_LABEL_RE = re.compile(
     r"|BASEMENT|ROOF|TRUSS|PLATE|CEILING|GRADE|LEVEL\s*\d)\b"
 )
 # Labels that mark a reference line rather than a constructed floor level.
-_NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM)\b")
+_NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM|CEILING)\b")
 # Labels that are the top of the structure rather than a floor.
 _ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
+# The top of the wall: a one-storey house's wall height, with no floor above.
+_PLATE_RE = re.compile(r"(?i)\bPLATE\b")
 
 # A datum's elevation sits within this many points below its label.
-ELEV_DY_MAX = 16.0
+ELEV_DY_MAX = 14.0
+# Imperial ladders set the elevation a touch lower (14.04 pt seen).
+IMPERIAL_DY_MAX = 16.0
 ELEV_DX_MAX = 40.0
-# Imperial ladders sit beside dimension strings (1'-0 3/4" floor depth) that
-# are nearer than the datum, so an imperial elevation must start under its label.
-IMPERIAL_DX_MAX = 20.0
+# Imperial ladders centre the elevation under a wider label (up to ~55 pt
+# right of its start) and sit beside floor-depth dimensions that can be nearer
+# than the datum; storey_heights_for's per-label vote drops those strays.
+IMPERIAL_DX_LEFT = 20.0
+IMPERIAL_DX_RIGHT = 60.0
 # Floor datums closer than this are one floor read in two datum systems
 # (a sheet can carry the level set twice, a few inches apart).
 SAME_FLOOR_M = 0.25
@@ -123,6 +130,14 @@ class StoreyHeights:
         AB_Fourplex_01 is 1.87 m of pitch above the top plate.
         """
         floors = self.floors
+        if len(floors) == 1:
+            plates = [
+                lv.elevation_m
+                for lv in self.levels
+                if _PLATE_RE.search(lv.label) and lv.elevation_m > floors[0].elevation_m
+            ]
+            h = round(min(plates) - floors[0].elevation_m, 3) if plates else None
+            return [h] if h is not None and MIN_STOREY_M <= h <= MAX_STOREY_M else []
         if len(floors) < 2:
             return []
         heights = [
@@ -153,6 +168,9 @@ class StoreyHeights:
         hs = self.storey_heights_m()
         if not hs or self.floor_assembly_mm is None:
             return None
+        if len(self.floors) == 1:
+            # A one-storey height runs floor to top plate: no floor to deduct.
+            return hs[0]
         deduction = (self.floor_assembly_mm / 1000.0) * len(hs)
         return round(max(sum(hs) - deduction, 0.0), 3)
 
@@ -164,7 +182,7 @@ class StoreyHeights:
     @property
     def missing(self) -> list[str]:
         gaps: list[str] = []
-        if len(self.floors) < 2:
+        if len(self.floors) < 2 and not self.storey_heights_m():
             gaps.append("fewer than two floor datums found; storey height unknown")
         if self.floor_assembly_mm is None:
             gaps.append("floor assembly depth unknown; net wall height unavailable")
@@ -211,16 +229,37 @@ def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
         best: tuple[float, float] | None = None
         for y2, x2, t2 in spans:
             dy = y2 - y
-            if not (0 < dy <= ELEV_DY_MAX) or abs(x2 - x) > ELEV_DX_MAX:
+            if not (0 < dy <= IMPERIAL_DY_MAX):
                 continue
             elev = _elevation_m(t2)
-            if elev is not None and not _ELEV_RE.match(t2) and abs(x2 - x) > IMPERIAL_DX_MAX:
+            if elev is None:
                 continue
-            if elev is not None and (best is None or dy < best[0]):
+            dx = x2 - x
+            if _ELEV_RE.match(t2):
+                if dy > ELEV_DY_MAX or abs(dx) > ELEV_DX_MAX:
+                    continue
+            elif not -IMPERIAL_DX_LEFT <= dx <= IMPERIAL_DX_RIGHT:
+                continue
+            if best is None or dy < best[0]:
                 best = (dy, elev)
         if best is not None:
             out.append(Level(label=re.sub(r"\s+", " ", text), elevation_m=best[1], sheet=sheet))
     return out
+
+
+def outvote_strays(levels: list[Level]) -> list[Level]:
+    """A label drawn several times keeps the elevation most copies agree on; a
+    copy paired with a nearby dimension instead is outvoted. Ties keep all."""
+
+    def key(lv: Level) -> str:
+        # "-SECOND FLOOR" and "Second Floor" are one label.
+        return re.sub(r"[^A-Z0-9]+", " ", lv.label.upper()).strip()
+
+    votes = collections.Counter((key(lv), lv.elevation_m) for lv in levels)
+    top: dict[str, int] = collections.defaultdict(int)
+    for (label, _), n in votes.items():
+        top[label] = max(top[label], n)
+    return [lv for lv in levels if votes[(key(lv), lv.elevation_m)] == top[key(lv)]]
 
 
 def storey_heights_for(design, floor_assembly_mm: float | None = None) -> StoreyHeights:
@@ -243,6 +282,8 @@ def storey_heights_for(design, floor_assembly_mm: float | None = None) -> Storey
                 )
     finally:
         doc.close()
+
+    result.levels = outvote_strays(result.levels)
 
     hs = result.storey_heights_m()
     if len(hs) >= 2:

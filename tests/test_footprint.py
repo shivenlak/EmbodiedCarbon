@@ -238,3 +238,46 @@ class TestNorSetsAreRefusedNotGuessed:
         finally:
             doc.close()
         assert not confident
+
+
+class TestSeparateDrawingsOnOneSheet:
+    """A US plan sheet draws option vignettes beside the main plan, in the same
+    wall stroke; each is a footprint candidate of its own."""
+
+    @staticmethod
+    def _square(x, y, side, corner=0.0):
+        # Four walls; with `corner` > 0 each wall stops short and a short piece
+        # turns the corner, as drafted walls do.
+        c = corner
+        segs = [
+            Segment(side, x + c, y, x + side - c, y, 0.7),
+            Segment(side, x + side, y + c, x + side, y + side - c, 0.7),
+            Segment(side, x + side - c, y + side, x + c, y + side, 0.7),
+            Segment(side, x, y + side - c, x, y + c, 0.7),
+        ]
+        if c:
+            segs += [
+                Segment(c, x, y, x + c, y, 0.7),
+                Segment(c, x + side - c, y, x + side, y, 0.7),
+                Segment(c, x, y + side, x + c, y + side, 0.7),
+                Segment(c, x + side - c, y + side, x + side, y + side, 0.7),
+                Segment(c, x, y, x, y + c, 0.7),
+                Segment(c, x + side, y, x + side, y + c, 0.7),
+                Segment(c, x, y + side - c, x, y + side, 0.7),
+                Segment(c, x + side, y + side - c, x + side, y + side, 0.7),
+            ]
+        return segs
+
+    def test_two_drawings_far_apart_are_two_clusters(self):
+        from ecarbon.geometry.footprint import _clusters
+
+        parts = _clusters(self._square(0, 0, 100) + self._square(400, 0, 60), gap_pt=10)
+        assert sorted(len(p) for p in parts) == [4, 4]
+
+    def test_short_corner_pieces_join_one_drawing(self):
+        from ecarbon.geometry.footprint import _clusters
+
+        segs = self._square(0, 0, 100, corner=30)
+        long_only = [s for s in segs if s.length_mm == 100]
+        assert len(_clusters(segs, gap_pt=5)) == 1
+        assert len(_clusters(long_only, gap_pt=5)) == 4

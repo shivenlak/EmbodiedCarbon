@@ -188,4 +188,15 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
     4. `foundation: slab thickness not stated`: it says `4" CONCRETE SLAB ON GRADE`.
     5. `openings: no schedule read`: there are window and door schedules on the floor plan sheet.
     6. `assemblies: none read`.
-  - `footprint: area off by more than 10%` on 3 of 4 (+377 to +543%). The takeoff refuses it anyway, so no number is wrong in a bill.
+  - `footprint: area off by more than 10%` on 3 of 4 (+377 to +543%). Correction: the takeoff did *not* refuse these footprints. They reached the bill (fixed below).
+- **19 Nov, Escondido fixes (blockers 1 and 3, plus footprint and scale):**
+  - A combined "ELEVATIONS & SECTIONS" title now types as section.
+  - Imperial datums (`10'-1 1/2"`, signed inches) pair with their labels. A one-storey set takes its height from the top-plate datum.
+  - Footprint: a sheet that draws the main plan beside option vignettes in one stroke now offers the largest drawing as a candidate, but only at the winning lineweight or heavier.
+  - Scale: a stated scale can promote a secondary dimension cluster that it agrees with.
+  - Result: all 4 footprints within 0.4% of the dimensioned truth (were +377 to +543%). All 4 read 1 storey at the plate height.
+  - CMHC: Alberta gate unchanged. IFC footprint median error 3.3% → 3.3%. The only scoreable design that moved is NOR_ADU_Municipal_Garage, whose IFC box (72 × 106 m) is the site rather than a building. It was wrong before and is still wrong. A ceiling datum (`2546 CEILING`) is no longer read as a floor.
+  - CMHC coverage (`run_pipeline.py`, main → branch): no set dropped. SKMB_Fourplex_01 and _02 went 0% → 9% (quantities produced at all). SKMB footprints are now the building, not the site.
+  - Partitions: the footprint now carries its page outline, and a wall outside it (a fixture legend beside the plan) no longer counts. Runs along the perimeter are kept: the Alberta IFC partition lengths in `test_partitions.py` include them, and dropping them took the median error from ≤8% to 30%.
+  - **Known overcount:** BC_ADU_02 A102 partitions read 80.5 m (main: 1.1 m). Its footprint is now right (5.6 × 8.8 m; main read 31.9 × 20.9 m), but at that lineweight the perimeter runs count. The total without partitions is unaffected. No IFC partition truth outside Alberta to settle it.
+  - Dev score after: Escondido within 4.4%. Riverside 1/3/4 footprints are wrong (+72%, +658%, +61%): a detection that succeeds wrongly, so vision (which only runs on no footprint) will not catch it. Next footprint task.
