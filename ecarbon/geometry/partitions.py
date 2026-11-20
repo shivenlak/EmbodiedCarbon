@@ -277,6 +277,7 @@ def partitions_for(design) -> Partitions:
 
     doc = pymupdf.open(design.drawings_pdf)
     try:
+        floors = []
         for members in group_by_storey(plans):
             s = members[0]
             page = doc[s.page]
@@ -288,10 +289,16 @@ def partitions_for(design) -> Partitions:
             # and 112 m on AB_ADU_01's second option sheet.
             if footprint is None or not footprint.stroke_width:
                 continue
-            result.stroke_width = footprint.stroke_width
-            run = partitions_on_page(
-                page, scale, depths, footprint.stroke_width, s.sheet_no, footprint.bbox
-            )
+            floors.append((s, page, scale, footprint))
+        # One wall stroke for the set: the commonest, ties to the heavier. A
+        # floor whose wall cut is too short to rank finds its outline in a
+        # lighter line, which also draws fixtures; QC_ADU_02's main floor
+        # measured 89 m of partitions at 0.48 against 12 m upstairs at 1.32.
+        widths = [fp.stroke_width for *_, fp in floors]
+        wall = max(widths, key=lambda w: (widths.count(w), w)) if widths else None
+        for s, page, scale, footprint in floors:
+            result.stroke_width = wall
+            run = partitions_on_page(page, scale, depths, wall, s.sheet_no, footprint.bbox)
             if run is not None:
                 result.runs.append(run)
     finally:

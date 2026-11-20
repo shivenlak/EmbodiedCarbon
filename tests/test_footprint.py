@@ -281,3 +281,20 @@ class TestSeparateDrawingsOnOneSheet:
         long_only = [s for s in segs if s.length_mm == 100]
         assert len(_clusters(segs, gap_pt=5)) == 1
         assert len(_clusters(long_only, gap_pt=5)) == 4
+
+
+class TestDimensionStrings:
+    def test_a_plan_drawn_twice_is_two_strings(self):
+        """Labels lined up across two copies of a plan are not one chain."""
+        import pymupdf
+
+        from ecarbon.geometry.footprint import _string_totals_m
+        from ecarbon.geometry.scale import find_dimension_labels
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=1000, height=1000)
+        # 10'-0" runs 60 pt apart: 3048 mm / 60 pt = 50.8 mm/pt (1/4" = 1'-0").
+        for top in (100, 600):
+            for i in range(3):
+                page.insert_text((100, top + 60 * i), "10'-0\"", fontsize=8)
+        assert sorted(round(t, 3) for t in _string_totals_m(find_dimension_labels(page), 50.8)) == [9.144, 9.144]

@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.geometry.scale import ScaleEstimate, dimension_chains
+from ecarbon.geometry.scale import DimLabel, ScaleEstimate, _chains, find_dimension_labels
 
 # A wall run shorter than this is a jog, a closet or a hatch line.
 MIN_SEGMENT_MM = 1000.0
@@ -73,6 +73,14 @@ AREA_MIN_MULTIPLE = 0.4
 # stroke, and the whole group's extent spans them all (Escondido ADU 1:
 # 24 x 12 m for a 6.7 x 6.7 m building).
 CLUSTER_GAP_MM = 600.0
+# How far two neighbouring labels' gap may sit from their runs, at the page
+# scale, and still be one dimension string.
+RUN_SCALE_TOL = 0.15
+# A single overall dimension (the US habit: one label outside the wall line)
+# counts for a candidate's side only if it sits within this far outside that
+# side and is centred on it to this fraction of the side's length.
+OVERALL_REACH_MM = 3000.0
+OVERALL_CENTRE_TOL = 0.03
 
 
 @dataclass(frozen=True)
@@ -190,6 +198,31 @@ def _clusters(segs: list[Segment], gap_pt: float) -> list[list[Segment]]:
     return list(out.values())
 
 
+def _string_totals_m(labels: list[DimLabel], mm_per_pt: float) -> list[float]:
+    """Totals of the dimension strings on the page, in metres.
+
+    Labels sharing a coordinate are split wherever two neighbours are not drawn
+    end to end at the page scale: a sheet that draws its plan twice lines up
+    both copies' labels, and their sum is a span neither drawing has
+    (Riverside ADU 3 matched 16 x 32 m against such sums, for 5 x 13 m).
+    """
+    out: list[float] = []
+    for axis in ("vertical", "horizontal"):
+        at = (lambda d: d.y) if axis == "vertical" else (lambda d: d.x)
+        for chain in _chains(labels, axis):
+            run = [chain[0]]
+            for a, b in zip(chain, chain[1:], strict=False):
+                drawn = abs(at(b) - at(a)) * mm_per_pt
+                if abs(drawn / ((a.value_mm + b.value_mm) / 2.0) - 1.0) > RUN_SCALE_TOL:
+                    if len(run) >= 2:
+                        out.append(sum(d.value_mm for d in run) / 1000.0)
+                    run = []
+                run.append(b)
+            if len(run) >= 2:
+                out.append(sum(d.value_mm for d in run) / 1000.0)
+    return out
+
+
 def _closest_chain_match(side_m: float, chain_totals_m: list[float]) -> float | None:
     """Relative error, in percent, to the nearest stated dimension total."""
     if not chain_totals_m:
@@ -228,7 +261,20 @@ def detect_footprint(
         return None
 
     # Independent evidence: totals of the dimension chains parsed from text.
-    chain_totals = [c.total_mm / 1000.0 for c in dimension_chains(page)]
+    labels = find_dimension_labels(page)
+    chain_totals = _string_totals_m(labels, s)
+    reach = OVERALL_REACH_MM / s
+
+    def overall_m(box: tuple[float, float, float, float], across_x: bool) -> list[float]:
+        """Labels centred just outside one side of `box`, as metres."""
+        x0, y0, x1, y1 = box if across_x else (box[1], box[0], box[3], box[2])
+        out = []
+        for lb in labels:
+            u, v = (lb.x, lb.y) if across_x else (lb.y, lb.x)
+            centred = abs(u - (x0 + x1) / 2.0) <= OVERALL_CENTRE_TOL * (x1 - x0)
+            if centred and (y0 - reach <= v < y0 or y1 < v <= y1 + reach):
+                out.append(lb.value_mm / 1000.0)
+        return out
 
     groups: dict[float, list[Segment]] = {}
     for sg in long_segs:
@@ -248,11 +294,17 @@ def detect_footprint(
             if not (AREA_MIN_MULTIPLE <= ratio <= AREA_MAX_MULTIPLE):
                 return None
 
+        box = (
+            min(min(sg.x0, sg.x1) for sg in segs),
+            min(min(sg.y0, sg.y1) for sg in segs),
+            max(max(sg.x0, sg.x1) for sg in segs),
+            max(max(sg.y0, sg.y1) for sg in segs),
+        )
         errs = [
             e
             for e in (
-                _closest_chain_match(w_m, chain_totals),
-                _closest_chain_match(d_m, chain_totals),
+                _closest_chain_match(w_m, chain_totals + overall_m(box, True)),
+                _closest_chain_match(d_m, chain_totals + overall_m(box, False)),
             )
             if e is not None
         ]
@@ -269,12 +321,7 @@ def detect_footprint(
             agreement_pct=round(agreement, 2),
             stroke_width=width,
             n_segments=len(segs),
-            bbox=(
-                min(min(sg.x0, sg.x1) for sg in segs),
-                min(min(sg.y0, sg.y1) for sg in segs),
-                max(max(sg.x0, sg.x1) for sg in segs),
-                max(max(sg.y0, sg.y1) for sg in segs),
-            ),
+            bbox=box,
         )
         # Rank by dimension agreement first, then by how close the area is to
         # the expected floor area per storey, then toward the heavier line --
