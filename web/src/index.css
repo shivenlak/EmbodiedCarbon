@@ -1579,3 +1579,76 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
   color: #a9b8cc;
   font: 500 14px "IBM Plex Sans", system-ui, sans-serif;
 }
+
+/* ------------------------------------------------- help it read this -- */
+
+.chip-said { color: #7c3aed; background: #f5f3ff; }
+.chip-ai   { color: #0f766e; background: #f0fdfa; }
+
+.help { max-width: 1180px; }
+.help-bar {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s3) var(--s5) 0;
+}
+.help-modes { display: inline-flex; padding: 3px; gap: 3px; border-radius: 999px; background: var(--page); }
+.help-modes button {
+  border: 0; background: transparent; color: var(--ink-2); cursor: pointer;
+  font: 500 13px var(--sans); padding: 8px 14px; border-radius: 999px; min-height: 36px;
+  transition: background 150ms var(--ease), color 150ms var(--ease);
+}
+.help-modes button:hover { color: var(--ink); }
+.help-modes button.is-on { background: var(--card); color: var(--ink); box-shadow: var(--shadow-1); }
+.help-pager { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.help-pager select {
+  font: 12.5px var(--sans); padding: 7px 8px; border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm); background: var(--card); color: var(--ink); max-width: 280px;
+}
+.help-pager button, .help-zoom button {
+  font: 15px/1 var(--mono); width: 34px; height: 34px; border-radius: var(--r-sm);
+  border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink-2); cursor: pointer;
+}
+.help-pager button:disabled { opacity: 0.4; cursor: default; }
+.help-ask { margin: var(--s3) var(--s5) 0; font-size: 13.5px; color: var(--ink-2); }
+.help-stage { position: relative; margin: var(--s3) var(--s5) 0; border: 1px solid var(--rule); border-radius: var(--r); background: #f8fafc; overflow: hidden; }
+.help-sheet { display: block; width: 100%; height: min(58dvh, 620px); cursor: crosshair; touch-action: none; user-select: none; }
+.help-skel { height: min(58dvh, 620px); }
+.help-zoom { position: absolute; right: 10px; top: 10px; display: grid; gap: 6px; }
+.help-dot { fill: #7c3aed; fill-opacity: 0.85; stroke: #fff; stroke-width: 2; }
+.help-dim { stroke: #7c3aed; stroke-width: 2.5; stroke-dasharray: 6 4; }
+.help-outline { fill: #7c3aed; fill-opacity: 0.12; stroke: #7c3aed; stroke-width: 2.5; stroke-linejoin: round; }
+.help-heights { margin: var(--s3) var(--s5) 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s3); align-items: end; }
+.help-heights label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+.help-heights input, .help-len input {
+  font: 15px var(--mono); padding: 9px 10px; border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm); background: var(--card); color: var(--ink); min-height: 40px;
+  width: 100%; box-sizing: border-box;
+}
+.help-heights input:focus, .help-len input:focus, .help-pager select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+.help-heights-n { display: flex; gap: var(--s2); grid-column: 1 / -1; }
+.help-foot {
+  display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s4) var(--s5) var(--s4);
+}
+.help-foot button, .help-heights-n button {
+  font: 500 13px var(--sans); padding: 9px 14px; min-height: 40px; border-radius: var(--r);
+  border: 1px solid var(--rule-strong); background: var(--card); color: var(--ink); cursor: pointer;
+}
+.help-foot button:disabled, .help-heights-n button:disabled { opacity: 0.45; cursor: default; }
+.help-foot .btn-primary { background: var(--primary); border-color: var(--primary); color: var(--card); font-weight: 600; }
+.help-foot .help-clear { margin-left: auto; color: var(--muted); }
+.help-len { display: grid; gap: 4px; font-size: 12px; color: var(--muted); min-width: 230px; }
+.help-hint { font-family: var(--mono); font-size: 12px; color: var(--muted); padding-bottom: 11px; }
+.help-msg { margin: 0 var(--s5) var(--s4); padding: var(--s2) var(--s3); border-radius: var(--r); font-size: 13px; }
+.help-msg.is-ok { background: #f5f3ff; color: #5b21b6; }
+.help-msg.is-err { background: var(--danger-soft); color: var(--danger); }
+
+@media (max-width: 640px) {
+  .help-bar, .help-foot { padding-left: var(--s3); padding-right: var(--s3); }
+  .help-ask, .help-stage, .help-heights, .help-msg { margin-left: var(--s3); margin-right: var(--s3); }
+  .help-pager { margin-left: 0; width: 100%; }
+  .help-pager select { flex: 1; max-width: none; }
+  .help-modes { width: 100%; }
+  .help-modes button { flex: 1; padding: 8px 6px; font-size: 12px; }
+  .help-sheet, .help-skel { height: 50dvh; }
+  .help-len { min-width: 0; width: 100%; }
+}

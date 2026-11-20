@@ -63,6 +63,9 @@ class Project:
     # catalogue designs and quietly fail for the customer's own drawings --
     # which are the only ones a pilot actually cares about.
     design: object | None = None
+    # What the user stated where the drawings could not be read (contract C2).
+    # Held so a later calibration adds to earlier ones rather than replacing them.
+    overrides: object | None = None
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
@@ -743,6 +746,181 @@ def get_trace_image(
     return Response(content=png, media_type="image/png")
 
 
+# -- helping it read: user-stated scale, outline and heights (C2) ----------
+
+
+class PageOut(BaseModel):
+    """One page of the drawings, for the "Help it read this" viewer."""
+
+    page: int
+    sheet_no: str | None = None
+    title: str | None = None
+    sheet_type: str
+    readable: bool
+    width: float = Field(description="page width in PDF points, as rendered")
+    height: float = Field(description="page height in PDF points, as rendered")
+    image_url: str
+
+
+@app.get("/projects/{project_id}/pages", response_model=list[PageOut])
+def get_pages(project_id: str) -> list[PageOut]:
+    """Every page, so the user can pick the one to help with."""
+    import pymupdf
+
+    p = _get(project_id)
+    design = _design_for_any(project_id, p)
+    info = {s.page: s for s in p.takeoff.sheets}
+    out = []
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for i, page in enumerate(doc):
+            s = info.get(i)
+            out.append(
+                PageOut(
+                    page=i,
+                    sheet_no=getattr(s, "sheet_no", None),
+                    title=getattr(s, "title", None),
+                    sheet_type=getattr(getattr(s, "sheet_type", None), "value", "unknown"),
+                    readable=getattr(s, "readable", True),
+                    width=round(page.rect.width, 2),
+                    height=round(page.rect.height, 2),
+                    image_url=f"/projects/{project_id}/pages/{i}.png",
+                )
+            )
+    finally:
+        doc.close()
+    return out
+
+
+@app.get("/projects/{project_id}/pages/{page}.png")
+def get_page_image(project_id: str, page: int, dpi: int = 110):
+    """Any page as a PNG, without highlights.
+
+    The trace image only serves pages a line traces to; this one serves any,
+    because the pages that most need help are exactly the ones nothing traced.
+    Same licence caveat as the trace image: for the person running the tool.
+    """
+    from fastapi.responses import Response
+
+    from ecarbon.trace import render_page
+
+    p = _get(project_id)
+    design = _design_for_any(project_id, p)
+    dpi = max(40, min(dpi, 300))
+    key = (project_id, "__page__", page, dpi, False)
+    png = _SHEET_PNG.get(key)
+    if png is None:
+        try:
+            png = render_page(design, page, [], dpi=dpi)
+        except IndexError as exc:
+            raise HTTPException(404, str(exc)) from None
+        if len(_SHEET_PNG) > 24:
+            _SHEET_PNG.clear()
+        _SHEET_PNG[key] = png
+    return Response(content=png, media_type="image/png")
+
+
+class Calibrate(BaseModel):
+    """One thing the user can see on the drawing and the tool could not read.
+
+    Exactly one of: a known dimension (`page`, `p1`, `p2`, `length`), a traced
+    outline (`page`, `corners`), storey heights, or `clear`. Points are in PDF
+    points on the rendered page. Lengths take `7160`, `7.16 m` or `23'-6"`.
+    """
+
+    page: int | None = None
+    p1: tuple[float, float] | None = None
+    p2: tuple[float, float] | None = None
+    length: str | float | None = None
+    corners: list[tuple[float, float]] | None = None
+    storey_heights: list[str | float] | None = None
+    clear: bool = False
+
+
+class CalibrateOut(BaseModel):
+    carbon: CarbonResult
+    gaps: list[Gap]
+    lines: int
+    stated: dict
+
+
+def _design_for_any(project_id: str, p: Project):
+    design = getattr(p, "design", None)
+    return design if design is not None else _design_for(project_id)
+
+
+@app.post("/projects/{project_id}/calibrate", response_model=CalibrateOut)
+def calibrate_project(project_id: str, body: Calibrate) -> CalibrateOut:
+    """Rebuild the takeoff with what the user stated, in their workspace only.
+
+    Corrections already made to individual quantities are carried across the
+    rebuild, so helping it read one sheet does not undo work on another.
+    """
+    from ecarbon.takeoff.builder import build_takeoff
+    from ecarbon.takeoff.overrides import (
+        Overrides,
+        parse_length_mm,
+        scale_from_points,
+    )
+
+    p = _own(project_id)
+    design = _design_for_any(project_id, p)
+    current = p.overrides if p.overrides is not None else Overrides()
+    ov = Overrides(
+        scale_mm_per_pt=dict(current.scale_mm_per_pt),
+        footprint=current.footprint,
+        storey_heights_m=current.storey_heights_m,
+        said=dict(current.said),
+    )
+    try:
+        if body.clear:
+            ov = Overrides()
+        elif body.corners is not None:
+            if body.page is None:
+                raise ValueError("say which page the outline is on")
+            ov.footprint = (body.page, [tuple(c) for c in body.corners])
+            ov.said["footprint"] = (
+                f"the outline you traced on page {body.page + 1} "
+                f"({len(body.corners)} corners)"
+            )
+        elif body.p1 is not None and body.p2 is not None and body.length is not None:
+            if body.page is None:
+                raise ValueError("say which page the dimension is on")
+            mm = parse_length_mm(body.length)
+            ov.scale_mm_per_pt[body.page] = scale_from_points(body.p1, body.p2, mm)
+            ov.said["scale"] = f"the scale you set on page {body.page + 1} ({body.length} between two points)"
+        elif body.storey_heights:
+            hs = [parse_length_mm(h) / 1000.0 for h in body.storey_heights]
+            ov.storey_heights_m = hs
+            ov.said["heights"] = "storey heights you typed (" + ", ".join(
+                str(h) for h in body.storey_heights
+            ) + ")"
+        else:
+            raise ValueError("nothing to apply: give a dimension, an outline, heights, or clear")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+    kept = {ln.id: (ln.user_override, ln.override_note) for ln in p.takeoff.lines if ln.user_override is not None}
+    facts = p.takeoff.project.model_copy(deep=True)
+    try:
+        with _BUILD_LOCK:
+            takeoff = build_takeoff(design, facts, trust_stated_gfa=True, overrides=ov)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    for ln in takeoff.lines:
+        if ln.id in kept:
+            ln.user_override, ln.override_note = kept[ln.id]
+    p.takeoff = takeoff
+    p.overrides = None if ov.empty else ov
+    p.recompute()
+    # Traces were computed against the old takeoff.
+    for key in [k for k in _TRACE if k[0] == project_id]:
+        _TRACE.pop(key, None)
+    return CalibrateOut(
+        carbon=p.carbon, gaps=p.takeoff.gaps, lines=len(p.takeoff.lines), stated=ov.to_dict()
+    )
+
+
 # -- decisions the drawings leave open -------------------------------------
 
 
@@ -1109,10 +1287,14 @@ def get_massing(project_id: str) -> Massing | None:
     Returned as None rather than guessed when the footprint or the storey
     heights are missing, which is most of the catalogue outside Alberta.
     """
-    if project_id in _MASSING:
+    p = _get(project_id)
+    # A workspace that stated a scale, outline or heights sees its own
+    # building; the shared cache holds only the drawings-alone answer.
+    stated = getattr(p, "overrides", None)
+    stated = stated if stated is not None and not stated.empty else None
+    if stated is None and project_id in _MASSING:
         return _MASSING[project_id]
 
-    p = _get(project_id)
     design = getattr(p, "design", None) or _catalogue().get(project_id)
     if design is None:
         return None
@@ -1125,9 +1307,10 @@ def get_massing(project_id: str) -> Massing | None:
         expected = (
             facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
         )
-        inputs, _sheets, _gaps = gather(design, expected)
+        inputs, _sheets, _gaps = gather(design, expected, overrides=stated)
     except Exception:
-        _MASSING[project_id] = None
+        if stated is None:
+            _MASSING[project_id] = None
         return None
 
     footprint = inputs.footprint
@@ -1197,7 +1380,8 @@ def get_massing(project_id: str) -> Massing | None:
             f"wrong shape rather than a number you would have to check."
         ),
     )
-    _MASSING[project_id] = result
+    if stated is None:
+        _MASSING[project_id] = result
     return result
 
 

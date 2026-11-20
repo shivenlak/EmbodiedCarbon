@@ -55,7 +55,10 @@ def fetch(entry: dict, dest: Path) -> str:
     if not entry.get("url"):
         return f"no file URL yet; find it on {entry.get('page')}"
     if entry.get("fetch") == "browser":
-        return f"open {entry['url']} in a browser and save it as {dest}"
+        # Some sites refuse a direct link and only serve the file to a click
+        # from their own page, so name both.
+        return (f"save it as {dest} by clicking it on {entry.get('page')} "
+                f"(file: {entry['url']})")
     dest.parent.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(entry["url"], headers={"User-Agent": UA})
     tmp = dest.with_suffix(".part")

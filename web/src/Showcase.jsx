@@ -16,6 +16,7 @@ import {
   isCounted,
   useCountUp,
   Confidence,
+  Said,
   UNIT_LABEL,
   CLASS_LABEL,
   PARTITION_PREFIX,
@@ -32,6 +33,7 @@ import {
   DetailPage,
   AppFooter,
 } from "./App.jsx";
+import { canHelp, modeFor } from "./HelpRead.jsx";
 import "./showcase.css";
 
 const STILL =
@@ -91,6 +93,7 @@ export default function Showcase({
   page = "model",
   onPage,
   onUpload,
+  onHelp,
   who,
   onSignOut,
   exportHref,
@@ -643,11 +646,18 @@ export default function Showcase({
           <p>
             {glError
               ? `This browser could not start 3D (${glError}). The bill of quantities has every figure.`
-              : "A model needs a measured footprint and the storey datums from the sections, and this set did not state both. Drawing a guess would be the one thing this view exists not to do."}
+              : "A model needs a measured footprint and the storey heights, and this set did not give both. It will not draw a guess, but you can show it what the drawing says."}
           </p>
-          <button className="sc-btn" onClick={() => onPage("quantities")}>
-            Open the bill of quantities
-          </button>
+          <div className="sc-nomodel-actions">
+            {!glError && onHelp && (
+              <button className="sc-btn sc-btn-primary" onClick={() => onHelp(modeFor(takeoff?.gaps))}>
+                Help it read this
+              </button>
+            )}
+            <button className="sc-btn" onClick={() => onPage("quantities")}>
+              Open the bill of quantities
+            </button>
+          </div>
         </div>
       )}
 
@@ -890,6 +900,7 @@ export default function Showcase({
                         <span className="sc-qty-name">
                           {CLASS_LABEL[cls] || titleCase(cls)}
                           <Confidence value={line.confidence} />
+                          <Said line={line} />
                         </span>
                         <span className="sc-qty-num">
                           {dec(qty, line.unit === "each" || unit === "walls" ? 0 : 1)}
@@ -1011,6 +1022,11 @@ export default function Showcase({
                   </li>
                 ))}
               </ul>
+              {onHelp && canHelp(takeoff?.gaps) && (
+                <button className="sc-help" onClick={() => onHelp(modeFor(takeoff?.gaps))}>
+                  Help it read this: show it a scale, an outline or the heights
+                </button>
+              )}
               <button className="sc-link" onClick={() => onPage("gaps")}>
                 Every note, and every sheet →
               </button>
@@ -1393,6 +1409,7 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
       <div className="bd-line-head">
         <span>{line.description}</span>
         <Confidence value={line.confidence} />
+        <Said line={line} />
       </div>
       <div className="bd-math">
         <label className="bd-qty">

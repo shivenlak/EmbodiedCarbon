@@ -54,7 +54,7 @@ from ecarbon.extract.assemblies import (
 from ecarbon.extract.levels import StoreyHeights, storey_heights_for
 from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
 from ecarbon.geometry.footprint import Footprint, detect_footprint
-from ecarbon.geometry.scale import calibrate
+from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
 from ecarbon.intake import coverage_gaps, inventory, readability_gaps
 from ecarbon.models import (
     Basis,
@@ -70,6 +70,11 @@ from ecarbon.models import (
     TakeoffLine,
     TakeoffResult,
     Unit,
+)
+from ecarbon.takeoff.overrides import (
+    StatedStoreyHeights,
+    footprint_from_polygon,
+    label_stated,
 )
 
 PLAN_TYPES = (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN)
@@ -163,8 +168,15 @@ def _roof_area_note(levels) -> str:
     )
 
 
-def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs, list, list[Gap]]:
-    """Run the extraction stages for one design."""
+def gather(
+    design, expected_area_m2: float | None = None, overrides=None
+) -> tuple[TakeoffInputs, list, list[Gap]]:
+    """Run the extraction stages for one design.
+
+    `overrides` (`takeoff.overrides.Overrides`, contract C2) carries what the
+    user stated where the drawings could not be read: a scale per page, a
+    traced footprint, storey heights. None means extraction alone.
+    """
     sheets, _, _ = inventory(design.drawings_pdf, with_scale=True)
     inputs = TakeoffInputs(
         sheet_pages={s.sheet_no.upper(): s.page for s in sheets if s.sheet_no}
@@ -174,6 +186,47 @@ def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs
     doc = pymupdf.open(design.drawings_pdf)
     try:
         plans = [s for s in sheets if s.sheet_type in PLAN_TYPES and s.readable]
+
+        # C2 hook (scale): a page the user set a scale on is read as a plan
+        # even when classification missed it, and with the user's scale.
+        stated_scale = dict(overrides.scale_mm_per_pt) if overrides else {}
+        if stated_scale:
+            by_page = {s.page: s for s in sheets}
+            plans = [by_page[p] for p in stated_scale if p in by_page] + [
+                s for s in plans if s.page not in stated_scale
+            ]
+
+        def scale_for(page_no: int):
+            if page_no in stated_scale:
+                return ScaleEstimate(
+                    mm_per_pt=stated_scale[page_no],
+                    source=ScaleSource.NONE,
+                    note="stated by the user from a dimension they read",
+                )
+            return calibrate(doc[page_no])
+
+        # C2 hook (footprint): a traced outline replaces detection outright.
+        if overrides is not None and overrides.footprint is not None:
+            fp_page, corners = overrides.footprint
+            mm_per_pt = stated_scale.get(fp_page) or calibrate(doc[fp_page]).mm_per_pt
+            if mm_per_pt:
+                by_page = {s.page: s for s in sheets}
+                inputs.footprint = footprint_from_polygon(corners, mm_per_pt)
+                inputs.footprint_page = fp_page
+                inputs.footprint_sheet = getattr(by_page.get(fp_page), "sheet_no", None)
+                plans = []
+            else:
+                gaps.append(
+                    Gap(
+                        code=GapCode.SCALE_NOT_FOUND,
+                        severity=GapSeverity.BLOCKING,
+                        message=(
+                            f"The outline traced on page {fp_page + 1} cannot be measured "
+                            f"until that page has a scale. Set the scale from a dimension "
+                            f"you can read on it first."
+                        ),
+                    )
+                )
 
         # The stated floor area corroborates a measured footprint, and a
         # mismatch is usually a wrong measurement. But not always: on a
@@ -188,7 +241,7 @@ def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs
         # recorded so the caller knows the area was never corroborated.
         for expectation in (expected_area_m2, None):
             for s in plans:
-                fp = detect_footprint(doc[s.page], calibrate(doc[s.page]), expectation)
+                fp = detect_footprint(doc[s.page], scale_for(s.page), expectation)
                 if fp and fp.confident:
                     inputs.footprint, inputs.footprint_sheet, inputs.footprint_page = (
                         fp,
@@ -259,6 +312,9 @@ def gather(design, expected_area_m2: float | None = None) -> tuple[TakeoffInputs
     # The floor assembly depth is what separates a gross wall height from a
     # thermal one; without it only the gross basis is available.
     inputs.heights = storey_heights_for(design, floor_assembly_mm=333.0)
+    # C2 hook (heights): what the user typed replaces the section datums.
+    if overrides is not None and overrides.storey_heights_m:
+        inputs.heights = StatedStoreyHeights(overrides.storey_heights_m, floor_assembly_mm=333.0)
 
     if inputs.footprint is None:
         gaps.append(
@@ -888,6 +944,7 @@ def build_takeoff(
     project: ProjectFacts | None = None,
     trust_stated_gfa: bool = False,
     progress=None,
+    overrides=None,
 ) -> TakeoffResult:
     """Produce a bill of quantities for one design, from measured geometry.
 
@@ -900,13 +957,16 @@ def build_takeoff(
 
     `progress(stage, detail)` is told as each stage finishes, with what it
     found, so an upload can show its real progress rather than a spinner.
+
+    `overrides` are user-stated inputs (contract C2); every line resting on
+    one is labelled as stated rather than measured.
     """
     tell = progress or (lambda stage, detail: None)
     facts = project or ProjectFacts(name=design.key)
     expected = (
         facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
     )
-    inputs, sheets, gaps = gather(design, expected)
+    inputs, sheets, gaps = gather(design, expected, overrides=overrides)
     tell(
         "sheets",
         f"{len(sheets)} sheets classified, {sum(1 for s in sheets if s.readable)} readable",
@@ -1136,6 +1196,8 @@ def build_takeoff(
                 affects=[ln.id for ln in lines],
             )
         )
+
+    label_stated(lines, overrides)
 
     return TakeoffResult(
         project=facts,
