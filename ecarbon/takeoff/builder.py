@@ -1079,16 +1079,17 @@ def build_takeoff(
     # Floor joists and roof framing the assemblies defer to the structure,
     # estimated from a stated standard over measured geometry (framing.py).
     # Each one replaces its "not counted" note with a pointer to its line.
-    framed, covered = framing_lines(inputs)
+    framed, covered = framing_lines(inputs, lines)
     lines += framed
     for gap in gaps:
         for marker, line_id in covered.items():
             if marker in gap.message and "not counted" in gap.message:
+                what = gap.message.split(" defers to ")[0].split(";")[0]
                 gap.message = (
-                    f"{marker} defers to the structural drawings, which give no quantity "
-                    f"for it, so it is estimated from a stated standard on {line_id} "
-                    f"(assumed) rather than left out. Replace it with the structural "
-                    f"framing plan's member, depth and spacing where those are known."
+                    f"{what}: the drawings give no quantity for it, so it is estimated "
+                    f"from a stated standard on {line_id} (assumed) rather than left "
+                    f"out. Replace it with the structural drawings' member, gauge, "
+                    f"depth and spacing where those are known."
                 )
                 gap.severity = GapSeverity.INFO
                 gap.affects = [line_id]

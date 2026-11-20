@@ -527,6 +527,28 @@
       "data_type": "industry_avg",
       "uncertainty_pct": 15.0,
       "attribution": "Gypsum Association. Declared as 277 kg CO2e per 92.9 m2 of 15.9 mm board (991 kg), converted to 187.53 kg CO2e/m3 and 670.9 kg/m3. EXPIRED 2026-04-15; the most recent industry average."
+    },
+    {
+      "factor_id": "sfia-cfs-framing-2026",
+      "material_key": "cold_formed_steel_framing",
+      "name": "Cold-formed steel framing members (studs, tracks), North American industry average",
+      "source": "SFIA Industry-Average Cold-Formed Steel Framing LCA Report (WAP Sustainability, 2026), basis of the UL EPD issued 2026-08-13",
+      "source_id": "Table 14, GWP-total A1-A3 per metric ton (report p.24)",
+      "declared_unit": "kg",
+      "density_kg_m3": 7850.0,
+      "gwp_value": 2.62,
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "US",
+      "valid_from": "2026-08-13",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Steel Framing Industry Association. 2,620 kg CO2e per metric ton of industry-average cold-formed steel framing (A1 2,460, A2 118, A3 35)."
     }
   ],
   "cmhc_mappings": {
