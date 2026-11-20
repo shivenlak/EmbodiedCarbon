@@ -13,13 +13,14 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 # Bump when a prompt or schema changes; it is part of the cache key.
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 
 class Task(StrEnum):
     SHEET = "sheet"
     SCALE = "scale"
     FOOTPRINT = "footprint"
+    LEVELS = "levels"
 
 
 class Quoted(BaseModel):
@@ -44,6 +45,16 @@ class FootprintAnswer(BaseModel):
     depth: Quoted | None = None
 
 
+class Datum(BaseModel):
+    label: Quoted
+    elevation: Quoted
+
+
+class LevelsAnswer(BaseModel):
+    found: bool
+    datums: list[Datum] = []
+
+
 _NOT_THERE = (
     "If it is not printed on this sheet, answer found: false. That is the right "
     "answer whenever it is not there; never estimate, measure or convert. "
@@ -66,10 +77,16 @@ PROMPTS: dict[Task, str] = {
         "(width and depth), not a room or partial run. Quote each dimension "
         "string as printed. " + _NOT_THERE
     ),
+    Task.LEVELS: (
+        "This is a building section or elevation. List every level datum: the label "
+        "(e.g. 'MAIN FLOOR', 'T/O PLATE', 'SECOND FLOOR') and the elevation printed "
+        "with it (e.g. '3.000 m' or 10'-1 1/2\"), each quoted separately as printed. " + _NOT_THERE
+    ),
 }
 
 SCHEMAS: dict[Task, type[BaseModel]] = {
     Task.SHEET: SheetAnswer,
     Task.SCALE: ScaleAnswer,
     Task.FOOTPRINT: FootprintAnswer,
+    Task.LEVELS: LevelsAnswer,
 }

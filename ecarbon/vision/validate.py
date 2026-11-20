@@ -84,7 +84,41 @@ def _value(task: Task, field: str, quote: str) -> float | str | None:
         return parse_scale_text(quote)
     if task is Task.FOOTPRINT:
         return parse_dimension(quote)[0]
+    if task is Task.LEVELS:
+        from ecarbon.extract.levels import _LEVEL_LABEL_RE, _elevation_m
+
+        if field == "label":
+            return quote if _LEVEL_LABEL_RE.search(quote) else None
+        return _elevation_m(quote)
     return quote.strip() or None
+
+
+def _check(page, spans, where: str, task: Task, field: str, q, dpi: int) -> Reading | None:
+    """One quoted field, located in the page text (or capped on a raster page)."""
+    if not isinstance(q, dict) or not q.get("quote") or len(q.get("box") or []) != 4:
+        return None
+    quote = q["quote"].strip()
+    value = _value(task, field, quote)
+    if value is None:
+        log.info("vision drop %s/%s: %r does not parse", task, field, quote)
+        return None
+    near = box_to_points(page, q["box"], dpi)
+    if not spans:
+        return Reading(
+            field,
+            quote,
+            value,
+            tuple(near),
+            Confidence.INFERRED,
+            f"vision: {where}: '{quote}' ({RASTER_NOTE})",
+        )
+    found = locate(spans, quote, near)
+    if found is None:
+        log.info("vision drop %s/%s: %r not printed near %s", task, field, quote, tuple(near))
+        return None
+    return Reading(
+        field, quote, value, tuple(found), Confidence.INFERRED, f"vision: {where}: '{quote}'"
+    )
 
 
 def validate(
@@ -93,42 +127,21 @@ def validate(
     if not answer or not answer.get("found"):
         return []
     spans = page_spans(page)
-    raster = not spans
-    out: list[Reading] = []
-    for field, q in answer.items():
-        if not isinstance(q, dict) or not q.get("quote") or len(q.get("box") or []) != 4:
-            continue
-        quote = q["quote"].strip()
-        value = _value(task, field, quote)
-        if value is None:
-            log.info("vision drop %s/%s: %r does not parse", task, field, quote)
-            continue
-        near = box_to_points(page, q["box"], dpi)
-        where = sheet_no or f"page {page.number + 1}"
-        if raster:
-            out.append(
-                Reading(
-                    field,
-                    quote,
-                    value,
-                    tuple(near),
-                    Confidence.INFERRED,
-                    f"vision: {where}: '{quote}' ({RASTER_NOTE})",
+    where = sheet_no or f"page {page.number + 1}"
+    if task is Task.LEVELS:
+        # A datum counts only when both its label and its elevation check out;
+        # the reading is the elevation, named by its label.
+        out = []
+        for datum in answer.get("datums") or []:
+            label = _check(page, spans, where, task, "label", datum.get("label"), dpi)
+            elev = _check(page, spans, where, task, "elevation", datum.get("elevation"), dpi)
+            if label and elev:
+                note = f"vision: {where}: '{label.quote}' '{elev.quote}'"
+                if not spans:
+                    note += f" ({RASTER_NOTE})"
+                out.append(
+                    Reading(label.quote, elev.quote, elev.value, elev.bbox, elev.confidence, note)
                 )
-            )
-            continue
-        found = locate(spans, quote, near)
-        if found is None:
-            log.info("vision drop %s/%s: %r not printed near %s", task, field, quote, tuple(near))
-            continue
-        out.append(
-            Reading(
-                field,
-                quote,
-                value,
-                tuple(found),
-                Confidence.INFERRED,
-                f"vision: {where}: '{quote}'",
-            )
-        )
-    return out
+        return out
+    readings = (_check(page, spans, where, task, f, q, dpi) for f, q in answer.items())
+    return [r for r in readings if r is not None]

@@ -51,7 +51,7 @@ from ecarbon.extract.assemblies import (
     cmhc_material,
     dominant_tag,
 )
-from ecarbon.extract.levels import StoreyHeights, storey_heights_for
+from ecarbon.extract.levels import Level, StoreyHeights, storey_heights_for
 from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
 from ecarbon.geometry.footprint import Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
@@ -74,6 +74,7 @@ from ecarbon.models import (
 from ecarbon.takeoff.framing import framing_lines
 from ecarbon.takeoff.overrides import (
     _FROM_FOOTPRINT,
+    _FROM_HEIGHTS,
     StatedStoreyHeights,
     footprint_from_polygon,
     label_stated,
@@ -140,6 +141,8 @@ class TakeoffInputs:
     sheet_pages: dict[str, int] = field(default_factory=dict)
     # What vision read (contract C3), and which model; empty when it did not run.
     vision: list[Reading] = field(default_factory=list)
+    vision_levels: list[Reading] = field(default_factory=list)
+    vision_levels_page: int | None = None
     vision_by: str | None = None
     vision_sheets: int = 0
 
@@ -343,6 +346,8 @@ def gather(
     # C2 hook (heights): what the user typed replaces the section datums.
     if overrides is not None and overrides.storey_heights_m:
         inputs.heights = StatedStoreyHeights(overrides.storey_heights_m, floor_assembly_mm=333.0)
+    elif not inputs.heights.storey_heights_m():
+        _vision_levels(design, sheets, inputs)
 
     if inputs.footprint is None:
         gaps.append(
@@ -375,40 +380,81 @@ def gather(
     return inputs, sheets, gaps
 
 
-def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
-    """Mark every line resting on a vision-read footprint, in place (C3).
-
-    Those lines were written as if the footprint were measured off the
-    linework; it was not, so the claim is replaced rather than appended to.
-    """
-    if not inputs.vision:
+def _vision_levels(design, sheets, inputs: TakeoffInputs) -> None:
+    """A4: vision for the level datums, only where the sections gave no height."""
+    provider = provider_from_env()
+    budget = max_pages() - inputs.vision_sheets
+    if provider is None or budget <= 0:
         return
-    quotes = "; ".join(r.note for r in inputs.vision)
+    inputs.vision_by = f"{provider.name} ({provider.model})"
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for s in [s for s in sheets if s.sheet_type is SheetType.SECTION][:budget]:
+            inputs.vision_sheets += 1
+            got = read_page(provider, doc[s.page], s.sheet_no, Task.LEVELS)
+            found = StoreyHeights(
+                levels=[Level(r.field, r.value, s.sheet_no) for r in got],
+                floor_assembly_mm=inputs.heights.floor_assembly_mm,
+                sources=[r.note for r in got],
+            )
+            if found.storey_heights_m():
+                inputs.heights, inputs.vision_levels = found, got
+                inputs.vision_levels_page = s.page
+                return
+    finally:
+        doc.close()
+
+
+def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
+    """Mark every line resting on a vision-read value, in place (C3).
+
+    A line on a vision footprint was written as if the footprint were
+    measured off the linework; it was not, so that claim is replaced. A line
+    on vision-read heights keeps its own note behind the vision quotes.
+    """
     for line in lines:
-        if line.element_class not in _FROM_FOOTPRINT or line.quantity == 0:
+        fp = bool(inputs.vision) and line.element_class in _FROM_FOOTPRINT
+        lv = bool(inputs.vision_levels) and line.element_class in _FROM_HEIGHTS
+        if not (fp or lv) or line.quantity == 0:
             continue
+        note, sources, agreement = line.basis.note, list(line.basis.sources), line.basis.agreement
+        assumptions, bbox = list(line.assumptions), line.provenance.bbox
+        if fp:
+            imperial = "'" in inputs.vision[0].quote
+            sources = [BasisSource.DIM_TEXT_IMPERIAL if imperial else BasisSource.DIM_TEXT_METRIC]
+            agreement = None
+            note = (
+                "; ".join(r.note for r in inputs.vision)
+                + f". Footprint {inputs.footprint.width_m:.2f} x {inputs.footprint.depth_m:.2f} m "
+                "from the overall dimension strings; the linework did not confirm it."
+            )
+            assumptions.append(
+                f"Footprint read by {inputs.vision_by} from the overall dimensions on "
+                f"{inputs.footprint_sheet}; each quote was located in the drawing's text."
+            )
+            if line.provenance.page == inputs.footprint_page:
+                bbox = inputs.vision[0].bbox
+        if lv:
+            if BasisSource.SECTION_NOTE not in sources:
+                sources.append(BasisSource.SECTION_NOTE)
+            heights = ", ".join(f"{h:.2f}" for h in inputs.heights.storey_heights_m())
+            note = (
+                "; ".join(r.note for r in inputs.vision_levels)
+                + f". Storey heights {heights} m from these datums. {note}"
+            ).strip()
+            assumptions.append(
+                f"Level datums read by {inputs.vision_by}; each label and elevation "
+                "was located in the drawing's text."
+            )
+            if bbox is None and line.provenance.page == inputs.vision_levels_page:
+                bbox = inputs.vision_levels[0].bbox
         line.basis = line.basis.model_copy(
-            update={
-                "sources": [
-                    BasisSource.DIM_TEXT_IMPERIAL
-                    if "'" in inputs.vision[0].quote
-                    else BasisSource.DIM_TEXT_METRIC
-                ],
-                "agreement": None,
-                "note": f"{quotes}. Footprint {inputs.footprint.width_m:.2f} x "
-                f"{inputs.footprint.depth_m:.2f} m from the overall dimension strings; "
-                f"the linework did not confirm it.",
-            }
+            update={"sources": sources, "agreement": agreement, "note": note}
         )
-        line.assumptions = [
-            *line.assumptions,
-            f"Footprint read by {inputs.vision_by} from the overall dimensions on "
-            f"{inputs.footprint_sheet}; each quote was located in the drawing's text.",
-        ]
+        line.assumptions = assumptions
+        line.provenance = line.provenance.model_copy(update={"bbox": bbox})
         if line.confidence is Confidence.MEASURED:
             line.confidence = Confidence.INFERRED
-        if line.provenance.page == inputs.footprint_page:
-            line.provenance = line.provenance.model_copy(update={"bbox": inputs.vision[0].bbox})
 
 
 def _prov(inputs: TakeoffInputs, sheet: str | None = None, detail: str | None = None) -> Provenance:

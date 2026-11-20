@@ -134,3 +134,63 @@ def test_a_line_on_a_vision_footprint_says_so():
     assert BasisSource.VECTOR_PATH not in line.basis.sources
     assert any("recorded (fixture)" in a for a in line.assumptions)
     assert line.provenance.bbox == readings[0].bbox
+
+
+def section_page() -> pymupdf.Page:
+    """A section printing two datums where levels_found.json says."""
+    page = pymupdf.open().new_page(width=800, height=600)
+    for pt, text in [
+        ((500, 200), "SECOND FLOOR"),
+        ((500, 212), "3.000 m"),
+        ((500, 400), "MAIN FLOOR"),
+        ((500, 412), "0.000 m"),
+        ((100, 500), "KITCHEN"),
+    ]:
+        page.insert_text(pt, text, fontsize=9)
+    return page
+
+
+class TestLevelDatums:
+    def test_a_datum_needs_its_label_and_its_elevation(self):
+        got = validate(section_page(), "A301", Task.LEVELS, answer("levels_found"), DPI)
+        # KITCHEN is not a level label; THIRD FLOOR / 6.000 m are printed nowhere.
+        assert [(r.field, r.value) for r in got] == [("SECOND FLOOR", 3.0), ("MAIN FLOOR", 0.0)]
+        assert got[0].note == "vision: A301: 'SECOND FLOOR' '3.000 m'"
+
+    def test_datums_become_storey_heights(self):
+        from ecarbon.extract.levels import Level, StoreyHeights
+
+        got = validate(section_page(), "A301", Task.LEVELS, answer("levels_found"), DPI)
+        h = StoreyHeights(levels=[Level(r.field, r.value) for r in got])
+        assert h.storey_heights_m() == [3.0, 3.0]
+
+
+def test_a_wall_on_vision_heights_keeps_its_own_note_behind_the_quotes():
+    from ecarbon.extract.levels import Level, StoreyHeights
+    from ecarbon.models import Basis, BasisSource, ElementClass, Provenance, TakeoffLine, Unit
+    from ecarbon.takeoff.builder import TakeoffInputs, label_vision
+
+    got = validate(section_page(), "A301", Task.LEVELS, answer("levels_found"), DPI)
+    inputs = TakeoffInputs(
+        heights=StoreyHeights(levels=[Level(r.field, r.value) for r in got]),
+        vision_levels=got,
+        vision_levels_page=7,
+        vision_by="recorded (fixture)",
+    )
+    wall = TakeoffLine(
+        id="ln-exterior-wall",
+        element_class=ElementClass.EXTERIOR_WALL,
+        quantity=200.0,
+        unit=Unit.M2,
+        confidence=Confidence.INFERRED,
+        basis=Basis(sources=[BasisSource.VECTOR_PATH], note="perimeter off the linework"),
+        provenance=Provenance(page=3, sheet_no="A101"),
+    )
+    slab = wall.model_copy(update={"id": "ln-slab", "element_class": ElementClass.SLAB_ON_GRADE})
+    label_vision([wall, slab], inputs)
+    assert wall.basis.note.startswith("vision: A301: 'SECOND FLOOR' '3.000 m'")
+    assert wall.basis.note.endswith("perimeter off the linework")
+    assert BasisSource.VECTOR_PATH in wall.basis.sources
+    assert any("Level datums" in a for a in wall.assumptions)
+    # A slab does not rest on storey heights.
+    assert slab.basis.note == "perimeter off the linework"

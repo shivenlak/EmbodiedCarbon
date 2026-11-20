@@ -111,12 +111,12 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - empty `assemblies_for` or `openings_for`
   - `spec.missing`
   - `heights.missing`
-- [ ] **`vision/providers.py`:**
+- [x] **`vision/providers.py`:**
   - One interface: `read(png: bytes, task: Task) -> dict | None`.
   - Two adapters: `ClaudeProvider` and `GeminiProvider`. **Load the `claude-api` skill before writing the Claude adapter**, and use the current model ID and its structured-output/tool-use pattern.
   - Selected by `ECARBON_VISION=claude|gemini`, with keys from `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`. Unset means vision is off and behaviour is exactly as today.
   - Add the SDKs as an optional extra in `pyproject.toml` (`[project.optional-dependencies] vision = [...]`), imported lazily.
-- [ ] **`vision/tasks.py`:** one pydantic answer schema plus a prompt per task, in priority order:
+- [ ] **`vision/tasks.py`:** (1–4 done: sheet, scale, footprint, levels; footprint and levels feed the takeoff) one pydantic answer schema plus a prompt per task, in priority order:
   1. sheet type and number
   2. scale note
   3. overall footprint dimensions (from dimension strings, not by measuring pixels)
@@ -125,18 +125,18 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   6. window and door schedule
 
   Every field carries `quote` (the verbatim text it was read from) and `box` (pixel bbox). Every schema allows `found: false`, and the prompt says plainly that "not on this sheet" is the right answer when it isn't there.
-- [ ] **`vision/validate.py`, quote-and-locate:**
+- [x] **`vision/validate.py`, quote-and-locate:**
   - Convert the box from pixels to PDF points (render DPI and page rotation; see how `trace.render_page` renders).
   - **Vector pages:** the quote, normalised, must be found in the page's own text (`read_spans`) within or near the box. Otherwise the answer is **dropped** and the drop logged.
   - **Raster pages:** there's no text to check, so the value is kept but capped at `INFERRED`, with the note "read from an image; not verifiable against text".
   - Numbers in the answer must parse out of the quote with the existing parsers (`parse_dimension`, `parse_scale_text`, `parse_imperial`). The model's own arithmetic is never trusted.
-- [ ] **`vision/cache.py`:** a disk cache in `~/.cache/ecarbon/vision/` keyed by `sha256(png + task + PROMPT_VERSION + provider/model)`, plus a page budget per upload (env `ECARBON_VISION_MAX_PAGES`, default 12).
+- [x] **`vision/cache.py`:** a disk cache in `~/.cache/ecarbon/vision/` keyed by `sha256(png + task + PROMPT_VERSION + provider/model)`, plus a page budget per upload (env `ECARBON_VISION_MAX_PAGES`, default 12).
 - [ ] **Into the takeoff:**
   - Results fill `TakeoffInputs` (scale → `ScaleEstimate`, footprint → `Footprint`, levels → `StoreyHeights`, schedules → `Assembly` / `Opening`), so line building is unchanged.
   - Labels per **C3**: `"vision: "` note, an `assumptions` entry, and `Provenance.bbox`. The trace highlight then works by itself, because `trace_line` honours `bbox` first.
   - Emit `progress("vision", ...)` (**C4**).
 - [ ] **Cross-check:** where the rules and vision both answer, agreement goes in the note ("agrees with the dimension chain"), and disagreement becomes a WARNING `Gap` with both values. Never silently resolved.
-- [ ] **Tests:** recorded provider responses under `tests/fixtures/vision/`. CI never calls an API. Test that the validator drops a hallucinated quote, and that vision-off leaves CMHC totals bit-identical.
+- [x] **Tests:** recorded provider responses under `tests/fixtures/vision/`. CI never calls an API. Test that the validator drops a hallucinated quote, and that vision-off leaves CMHC totals bit-identical.
 - [ ] **Provider bake-off (Mon 23):**
   - Run both providers on every dev set.
   - Per provider, record: answers accepted by the validator, answers right against `dev_truth.yaml`, wrong answers that got through, answers dropped by the validator, $ per set, and seconds per set.
