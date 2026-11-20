@@ -41,6 +41,29 @@ _SLAB_RE = re.compile(
     r"(\d{2,4})\s*mm\s*(?:THICK|THK\.?)\s*(?:REINF\.?\s*|CONC(?:RETE)?\.?\s*)*SLAB",
     re.I,
 )
+# Other regions state the slab with its imperial twin, or name the slab first.
+# Each is still anchored to the word SLAB right beside the figure, and a load
+# table entry ("102mm (4') SLAB: 2.4 kPa", Ontario) is refused by the colon
+# that follows it -- that is a design load, not the slab being built.
+_SLAB_ALT_RES = (
+    # 'ATL: 100mm [4"] THICK SLAB'
+    re.compile(
+        r"(\d{2,3})\s*mm\s*[\[(]\s*\d{1,2}\s*[\"'\u201d\u2019]\s*[\])]\s*(?:THICK\s*|THK\.?\s*)?"
+        r"(?:CONC(?:RETE)?\.?\s*)?SLAB(?!\s*:)",
+        re.I,
+    ),
+    # 'ATL: 4" [100mm] SLAB ON GRADE'
+    re.compile(
+        r"\d{1,2}\s*[\"\u201d]\s*[\[(]\s*(\d{2,3})\s*mm\s*[\])]\s*(?:THICK\s*|THK\.?\s*)?"
+        r"(?:CONC(?:RETE)?\.?\s*)?SLAB(?!\s*:)",
+        re.I,
+    ),
+    # 'QC: SLAB ON GRADE 100mm'
+    re.compile(r"SLAB\s+ON\s+GRADE\s*[:\-,]?\s*(\d{2,3})\s*mm\b", re.I),
+)
+# A slab outside this range is a misread, not a slab-on-grade.
+SLAB_MM_RANGE = (75.0, 250.0)
+
 # "200x1200 DP. CONC. GRADE BEAM", "GRADE BEAM 250 x 900 DEEP"
 # DP./DEEP is REQUIRED. Without it the pattern matched "4-15M x 1200mm LG.
 # DOWELS AT ALL PILE TO GRADE BEAM LOCATIONS" and reported a 1200x1200 beam --
@@ -175,6 +198,10 @@ class FoundationSpec:
     footing_depth_mm: float | None = None
     # True when the drawings state the foundation is the end user's to design.
     designer_declined: bool = False
+    # A slab thickness read off a foundation the drawings call generic (see
+    # DESIGNER_DECLINED_RE). Kept apart from slab_thickness_mm so it is never
+    # taken as a specification; takeoff/framing.py prices it as ASSUMED.
+    generic_slab_mm: float | None = None
     # Other footing sections the drawings state, when more than one exists.
     other_footing_sections: list[tuple[float, float]] = field(default_factory=list)
     pile_diameter_mm: float | None = None
@@ -321,6 +348,21 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
                         spec.slab_thickness_mm = v
                         found.append(f"slab {v:.0f}mm")
                         break
+            if spec.slab_thickness_mm is None:
+                for pattern in _SLAB_ALT_RES:
+                    hit = next(
+                        (
+                            v
+                            for mm in pattern.finditer(flat)
+                            if (v := _first_int(*mm.groups()))
+                            and SLAB_MM_RANGE[0] <= v <= SLAB_MM_RANGE[1]
+                        ),
+                        None,
+                    )
+                    if hit:
+                        spec.slab_thickness_mm = hit
+                        found.append(f"slab {hit:.0f}mm")
+                        break
 
         if spec.grade_beam_width_mm is None:
             m = _BEAM_RE.search(flat) or _BEAM_ALT_RE.search(flat)
@@ -377,6 +419,8 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
         if found:
             spec.sources.append(f"{sheet}: {', '.join(found)}")
 
+    if spec.designer_declined and spec.slab_thickness_mm is not None:
+        spec.generic_slab_mm, spec.slab_thickness_mm = spec.slab_thickness_mm, None
     return spec
 
 

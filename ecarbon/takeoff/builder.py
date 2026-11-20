@@ -71,7 +71,7 @@ from ecarbon.models import (
     TakeoffResult,
     Unit,
 )
-from ecarbon.takeoff.framing import framing_lines
+from ecarbon.takeoff.framing import framing_lines, mark_assumed_heights, single_storey_fallback
 from ecarbon.takeoff.overrides import (
     StatedStoreyHeights,
     footprint_from_polygon,
@@ -313,6 +313,10 @@ def gather(
     # The floor assembly depth is what separates a gross wall height from a
     # thermal one; without it only the gross basis is available.
     inputs.heights = storey_heights_for(design, floor_assembly_mm=333.0)
+    # One storey, floor and ridge only: the wall height is an assumed standard.
+    single = single_storey_fallback(inputs.heights)
+    if single is not None:
+        inputs.heights = single
     # C2 hook (heights): what the user typed replaces the section datums.
     if overrides is not None and overrides.storey_heights_m:
         inputs.heights = StatedStoreyHeights(overrides.storey_heights_m, floor_assembly_mm=333.0)
@@ -1083,6 +1087,16 @@ def build_takeoff(
     lines += framed
     for gap in gaps:
         for marker, line_id in covered.items():
+            if marker in gap.message and gap.message.startswith("Foundation:"):
+                # The slab is now estimated; footings and foundation walls are not.
+                gap.message = (
+                    f"{gap.message.rstrip('.')}. The slab is estimated on {line_id} "
+                    f"(assumed); footings and foundation walls stay uncounted until the "
+                    f"foundation design states them."
+                ).replace("Concrete quantities cannot be produced. ", "")
+                gap.severity = GapSeverity.WARNING
+                gap.affects = [line_id]
+                break
             if marker in gap.message and "not counted" in gap.message:
                 what = gap.message.split(" defers to ")[0].split(";")[0]
                 gap.message = (
@@ -1216,6 +1230,8 @@ def build_takeoff(
             )
         )
 
+    # Every wall and partition on an assumed storey height says so.
+    mark_assumed_heights(inputs, lines)
     label_stated(lines, overrides)
 
     return TakeoffResult(

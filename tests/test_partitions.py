@@ -190,9 +190,10 @@ class TestInTheTakeoff:
         # 16 mm board over one face: volume / thickness is the area it covers.
         assert board.quantity / 0.016 == pytest.approx(run * 5.334 / 2, rel=0.02)
 
-    def test_a_single_storey_design_gets_no_partitions(self):
-        """No second floor datum means no wall height, so no partition area
-        can be formed. Reported rather than guessed."""
+    def test_a_single_storey_design_gets_assumed_partitions(self):
+        """No second floor datum means no stated wall height. Partitions were
+        left out; they now stand on an assumed 2.74 m plate under the stated
+        ridge (takeoff/framing.py) and every one says so."""
         from ecarbon.models import ProjectFacts
         from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX, build_takeoff
 
@@ -200,6 +201,8 @@ class TestInTheTakeoff:
             get_design("AB_ADU_01"),
             ProjectFacts(name="AB_ADU_01", gfa_m2=73.0, gfa_basis="gross", storeys=1),
         )
-        assert not [
-            ln for ln in takeoff.lines if ln.id.startswith(PARTITION_LINE_PREFIX)
-        ]
+        parts = [ln for ln in takeoff.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
+        assert parts
+        for ln in parts:
+            assert ln.confidence.value == "assumed"
+            assert any("wall height is assumed" in a for a in ln.assumptions)

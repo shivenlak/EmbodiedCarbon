@@ -193,10 +193,11 @@ class TestEndToEnd:
 
 @needs_data
 class TestSingleStoreyLimitation:
-    def test_a_one_storey_design_reports_no_exterior_wall(self):
-        """Storey height needs two floor datums, and a single-storey plan has
-        one. The wall is omitted and gap-reported rather than guessed from the
-        roof level, which would include the roof pitch."""
+    def test_a_one_storey_design_assumes_its_wall_height(self):
+        """A single-storey plan has one floor datum and a ridge, never a
+        plate. The wall was omitted; it now stands on an assumed 2.74 m plate,
+        capped 1 m under the stated ridge (not the ridge itself, which would
+        include the roof pitch), and is ASSUMED with the reason on the line."""
         from ecarbon.models import ProjectFacts
         from ecarbon.takeoff.builder import build_takeoff
 
@@ -204,7 +205,8 @@ class TestSingleStoreyLimitation:
             get_design("AB_ADU_01"),
             ProjectFacts(name="AB_ADU_01", gfa_m2=73.0, gfa_basis="gross", storeys=1),
         )
-        assert not any(ln.id == "ln-exterior-wall" for ln in t.lines)
+        wall = next(ln for ln in t.lines if ln.id == "ln-exterior-wall")
+        assert wall.confidence.value == "assumed"
+        assert any("wall height is assumed 2.74 m" in a for a in wall.assumptions)
         covered, missing = coverage_report(t.lines)
-        assert ElementClass.EXTERIOR_WALL in missing
-        assert any("exterior wall" in g.message for g in t.gaps)
+        assert ElementClass.EXTERIOR_WALL not in missing

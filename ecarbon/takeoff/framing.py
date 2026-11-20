@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 import re
 
+from ecarbon.extract.levels import Level, StoreyHeights
 from ecarbon.models import (
     Basis,
     BasisSource,
@@ -48,6 +49,9 @@ FRAMING_EXTRAS = 0.10
 TRUSS_MEMBER_M2 = 0.038 * 0.089
 TRUSS_SPACING_M = 0.61
 TRUSS_OVERHANG_M = 0.6
+# The common Part 9 slab-on-grade, where the drawings draw one but state no thickness.
+STANDARD_SLAB_MM = 100.0
+
 # When the sections give no roof datum: a 4:12 pitch.
 DEFAULT_PITCH = 4.0 / 12.0
 
@@ -307,4 +311,128 @@ def framing_lines(inputs, built=()) -> tuple[list[TakeoffLine], dict[str, str]]:
             provenance=prov(wasm, steel),
         ))
         covered["no steel stud factor"] = fid
+
+    # ---- the ground slab, when no thickness is specified --------------------
+    # Two cases, both ASSUMED and never passed off as a reading:
+    # - the drawings show a slab on a foundation they call generic and leave
+    #   to the end user's engineer (Atlantic): the thickness drawn on that
+    #   generic detail, "as drawn";
+    # - a slab-on-grade assembly is drawn but no sheet states its thickness
+    #   (BC, most of QC): 100 mm, the common Part 9 slab (NBC 9.16.4.3 sets a
+    #   75 mm minimum).
+    spec = inputs.spec
+    has_slab = any(ln.id == "ln-slab-on-grade" for ln in built)
+    if not has_slab and spec is not None:
+        generic = getattr(spec, "generic_slab_mm", None)
+        drawn_slab = inputs.slab_assembly is not None
+        # Strip footings carry a slab on grade or a basement slab; without a
+        # slab the ground floor would have nothing to stand on.
+        on_footings = bool(getattr(spec, "strip_footings", False))
+        if generic or drawn_slab or on_footings:
+            t_mm = generic or STANDARD_SLAB_MM
+            why = (
+                f"{t_mm:.0f} mm as drawn on the generic foundation detail; the drawings "
+                f"leave the foundation to the end user's engineer, so replace this with "
+                f"the designed slab"
+                if generic
+                else (
+                    f"{t_mm:.0f} mm, the common Part 9 slab-on-grade (NBC 9.16.4.3 sets a "
+                    f"75 mm minimum): "
+                    + (
+                        f"{inputs.slab_assembly.tag} draws a slab on grade"
+                        if drawn_slab
+                        else "the drawings show strip footings, which carry a ground or basement slab"
+                    )
+                    + " but no sheet read states its thickness"
+                )
+            )
+            asm = inputs.slab_assembly
+            lines.append(TakeoffLine(
+                id="ln-slab-on-grade",
+                element_class=ElementClass.SLAB_ON_GRADE,
+                quantity=round(fp.area_m2 * t_mm / 1000.0, 2),
+                unit=Unit.M3,
+                confidence=Confidence.ASSUMED,
+                material="CMHC_Concrete, CIP",
+                description=f"Slab on grade, {t_mm:.0f} mm over {fp.area_m2:.1f} m2 footprint (assumed)",
+                basis=Basis(
+                    sources=[BasisSource.DEFAULT_RULE, BasisSource.VECTOR_PATH],
+                    note=f"Thickness assumed: {why}. Area is the measured footprint.",
+                ),
+                assumptions=[
+                    f"Slab thickness {why}.",
+                    "Thickenings under bearing walls and at the perimeter are not counted.",
+                ],
+                provenance=(
+                    Provenance(page=asm.page or 0, sheet_no=asm.sheet, detail=f"{asm.tag} {asm.name}"[:80])
+                    if asm is not None
+                    else Provenance(page=page_of_footprint(inputs), sheet_no=inputs.footprint_sheet,
+                                    detail="SLAB ON GRADE")
+                ),
+            ))
+            covered["slab thickness not stated"] = "ln-slab-on-grade"
+            covered["foundation is the end user's to design"] = "ln-slab-on-grade"
     return lines, covered
+
+
+def page_of_footprint(inputs) -> int:
+    return inputs.footprint_page if inputs.footprint_page is not None else 0
+
+
+# ---- a single storey with no wall height --------------------------------------
+# A one-storey ADU's sections state the floor and the top of the roof, never
+# the wall plate, so its wall height is unknown and every wall line was lost.
+SINGLE_STOREY_PLATE_M = 2.74  # 9 ft plate, the common single-storey wall height
+
+
+class AssumedSingleStorey(StoreyHeights):
+    """One storey whose wall height is an assumed standard, under a stated ridge."""
+
+    assumed = True
+
+    def __init__(self, floor: Level, roof_levels: list[Level], floor_assembly_mm=None):
+        ridge = max(lv.elevation_m for lv in roof_levels) - floor.elevation_m
+        self._h = round(min(SINGLE_STOREY_PLATE_M, ridge - 1.0), 3)
+        super().__init__(
+            levels=[floor, *roof_levels],
+            floor_assembly_mm=floor_assembly_mm,
+            sources=[],
+            notes=[
+                f"Single storey: the sections state the floor and the top of the roof "
+                f"({ridge:.2f} m above it) but no wall plate, so the wall height is assumed "
+                f"{self._h:.2f} m (a 9 ft plate, capped 1 m under the stated ridge)."
+            ],
+        )
+
+    def storey_heights_m(self) -> list[float]:
+        return [self._h]
+
+    @property
+    def missing(self) -> list[str]:
+        return []
+
+
+def single_storey_fallback(heights):
+    """Heights for a one-floor set whose sections give only floor and ridge."""
+    if heights is None or heights.storey_heights_m():
+        return None
+    floors = heights.floors
+    roofs = [lv for lv in heights.levels if lv.is_roof]
+    if len(floors) != 1 or not roofs:
+        return None
+    if max(lv.elevation_m for lv in roofs) - floors[0].elevation_m < 3.0:
+        return None
+    return AssumedSingleStorey(floors[0], roofs, heights.floor_assembly_mm)
+
+
+def mark_assumed_heights(inputs, built) -> None:
+    """Lines resting on an assumed wall height are ASSUMED, and say why."""
+    if not getattr(inputs.heights, "assumed", False):
+        return
+    why = inputs.heights.notes[0]
+    for ln in built:
+        if ln.element_class in (ElementClass.EXTERIOR_WALL, ElementClass.INTERIOR_PARTITION):
+            if ln.confidence is not Confidence.ASSUMED:
+                ln.confidence = Confidence.ASSUMED
+            if why not in ln.assumptions:
+                ln.assumptions = [*ln.assumptions, why]
