@@ -72,10 +72,13 @@ from ecarbon.models import (
     Unit,
 )
 from ecarbon.takeoff.overrides import (
+    _FROM_FOOTPRINT,
     StatedStoreyHeights,
     footprint_from_polygon,
     label_stated,
 )
+from ecarbon.vision import Reading, Task, provider_from_env, read_page
+from ecarbon.vision.cache import max_pages
 
 PLAN_TYPES = (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN)
 
@@ -102,7 +105,8 @@ PLAUSIBLE_A1_A3_FLOOR_KG_PER_M2 = 40.0
 # is a per-unit figure should be at most about a sixth of the block. A
 # drawing-derived area many times larger than that is not a unit count, it is
 # a footprint that has caught something other than the building -- SKMB_ADU_01
-# measures 908 m2 against a stated 58, which is 15.7x and no number of units.
+# measured 908 m2 against a stated 58 before the footprint reader separated
+# drawings, which is 15.7x and no number of units.
 # Replacing a stated area with that would be a worse answer than keeping it.
 MAX_UNIT_RATIO = 8.0
 
@@ -133,6 +137,10 @@ class TakeoffInputs:
     # page, which reads correctly in a table and sends click-to-trace to the
     # wrong drawing.
     sheet_pages: dict[str, int] = field(default_factory=dict)
+    # What vision read (contract C3), and which model; empty when it did not run.
+    vision: list[Reading] = field(default_factory=list)
+    vision_by: str | None = None
+    vision_sheets: int = 0
 
     def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
         """The assembly of one group that this design actually uses."""
@@ -260,6 +268,25 @@ def gather(
                 break
             if expectation is None or expected_area_m2 is None:
                 break
+
+        # A4: vision only where the rules found no footprint at all. Raster
+        # sheets are tried too, since those are where the rules cannot read.
+        provider = provider_from_env() if inputs.footprint is None else None
+        if provider is not None:
+            inputs.vision_by = f"{provider.name} ({provider.model})"
+            for s in [s for s in sheets if s.sheet_type in PLAN_TYPES][: max_pages()]:
+                inputs.vision_sheets += 1
+                got = {r.field: r for r in read_page(provider, doc[s.page], s.sheet_no, Task.FOOTPRINT)}
+                if "width" in got and "depth" in got:
+                    w, d = got["width"], got["depth"]
+                    inputs.footprint = Footprint(
+                        width_m=round(w.value / 1000.0, 3),
+                        depth_m=round(d.value / 1000.0, 3),
+                        basis=[w.note, d.note],
+                    )
+                    inputs.footprint_sheet, inputs.footprint_page = s.sheet_no, s.page
+                    inputs.vision = [w, d]
+                    break
     finally:
         doc.close()
 
@@ -345,6 +372,42 @@ def gather(
             )
         )
     return inputs, sheets, gaps
+
+
+def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
+    """Mark every line resting on a vision-read footprint, in place (C3).
+
+    Those lines were written as if the footprint were measured off the
+    linework; it was not, so the claim is replaced rather than appended to.
+    """
+    if not inputs.vision:
+        return
+    quotes = "; ".join(r.note for r in inputs.vision)
+    for line in lines:
+        if line.element_class not in _FROM_FOOTPRINT or line.quantity == 0:
+            continue
+        line.basis = line.basis.model_copy(
+            update={
+                "sources": [
+                    BasisSource.DIM_TEXT_IMPERIAL
+                    if "'" in inputs.vision[0].quote
+                    else BasisSource.DIM_TEXT_METRIC
+                ],
+                "agreement": None,
+                "note": f"{quotes}. Footprint {inputs.footprint.width_m:.2f} x "
+                f"{inputs.footprint.depth_m:.2f} m from the overall dimension strings; "
+                f"the linework did not confirm it.",
+            }
+        )
+        line.assumptions = [
+            *line.assumptions,
+            f"Footprint read by {inputs.vision_by} from the overall dimensions on "
+            f"{inputs.footprint_sheet}; each quote was located in the drawing's text.",
+        ]
+        if line.confidence is Confidence.MEASURED:
+            line.confidence = Confidence.INFERRED
+        if line.provenance.page == inputs.footprint_page:
+            line.provenance = line.provenance.model_copy(update={"bbox": inputs.vision[0].bbox})
 
 
 def _prov(inputs: TakeoffInputs, sheet: str | None = None, detail: str | None = None) -> Provenance:
@@ -494,6 +557,8 @@ def _wall_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
     if height is None:
         return []
     basis_name = "net of floor assemblies" if net is not None else "gross floor to floor"
+    if len(heights.floors) == 1:
+        basis_name = "floor to top plate"
     area = round(fp.perimeter_m * height, 2)
     sheet = next((s.split(":")[0] for s in heights.sources), None)
 
@@ -502,7 +567,10 @@ def _wall_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
         f"wall height ({basis_name}) from the section datums."
     )
     assumptions = [
-        f"Wall area reported on the '{basis_name}' basis. The gross floor-to-floor basis "
+        "One storey: the wall runs from the floor datum to the top-plate datum, so the "
+        "gross and net bases are the same height."
+        if len(heights.floors) == 1
+        else f"Wall area reported on the '{basis_name}' basis. The gross floor-to-floor basis "
         f"gives {fp.perimeter_m * gross:.0f} m2, about 20% higher; a quantity surveyor "
         f"measures gross while an energy model measures the thermal envelope, and which "
         f"one a reference takeoff uses is a convention, not a fact."
@@ -971,6 +1039,8 @@ def build_takeoff(
         "sheets",
         f"{len(sheets)} sheets classified, {sum(1 for s in sheets if s.readable)} readable",
     )
+    if inputs.vision_sheets:
+        tell("vision", f"{inputs.vision_sheets} sheets")
 
     lines = _foundation_lines(inputs) + _wall_lines(inputs)
     fp = inputs.footprint
@@ -1197,6 +1267,7 @@ def build_takeoff(
             )
         )
 
+    label_vision(lines, inputs)
     label_stated(lines, overrides)
 
     return TakeoffResult(
