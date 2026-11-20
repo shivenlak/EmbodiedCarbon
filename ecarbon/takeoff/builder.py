@@ -1088,12 +1088,22 @@ def build_takeoff(
     for gap in gaps:
         for marker, line_id in covered.items():
             if marker in gap.message and gap.message.startswith("Foundation:"):
-                # The slab is now estimated; footings and foundation walls are not.
+                # Say exactly what is now estimated and what is still missing.
+                ids = {ln.id for ln in lines} | {ln.id for ln in framed}
+                done = [f"the slab on {line_id}"]
+                if any(ln.id == "ln-strip-footing" for ln in framed):
+                    done.append("a strip footing on ln-strip-footing")
+                if "ln-foundation-wall" in ids:
+                    done.append("a frost wall on ln-foundation-wall")
+                left = [] if any(i.startswith("ln-strip-footing") for i in ids) else ["footings"]
+                if "ln-foundation-wall" not in ids:
+                    left.append("foundation walls")
                 gap.message = (
-                    f"{gap.message.rstrip('.')}. The slab is estimated on {line_id} "
-                    f"(assumed); footings and foundation walls stay uncounted until the "
-                    f"foundation design states them."
-                ).replace("Concrete quantities cannot be produced. ", "")
+                    f"{gap.message.replace(' Concrete quantities cannot be produced.', '').rstrip('.')}. "
+                    f"Estimated instead (assumed): {' and '.join(done)}."
+                    + (f" Still uncounted: {', '.join(left)}." if left else "")
+                    + " Replace with the foundation design where it is known."
+                )
                 gap.severity = GapSeverity.WARNING
                 gap.affects = [line_id]
                 break
