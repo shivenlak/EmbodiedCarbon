@@ -42,14 +42,16 @@ import pymupdf
 from ecarbon.intake.spans import read_spans
 
 # "3.000 m", "7.873m", "0.000 m / 0""
-_ELEV_RE = re.compile(r"^(-?\d{1,3}\.\d{2,3})\s*m\b")
+# SK/MB also prints a whole-metre datum without decimals: "0 m | 0' 0\"".
+_ELEV_RE = re.compile(r"^(-?\d{1,3}(?:\.\d{2,3})?)\s*m\b(?!m)")
 # Feet and inches, as North American sections print them: 10'-1 1/2", -8'-6".
 _ELEV_IMPERIAL_RE = re.compile(r"^([-+±]?)\s*(\d{1,3}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\")$")
 # Inches alone count only signed or zero ("-8\"", "0\""); a bare 8" is a dimension.
 _ELEV_INCHES_RE = re.compile(r"^(?:([-+±])\s*(\d{1,2}(?:\s+\d{1,2}/\d{1,2})?)|(0))\"$")
 # A datum label. Deliberately broad; `is_floor_level` decides what counts.
 _LEVEL_LABEL_RE = re.compile(
-    r"(?i)\b(T/O\s*F/F|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|SECOND|THIRD|FOURTH"
+    # T/O CONCRETE / T/O SLAB: SK/MB's ground datum is the top of the slab.
+    r"(?i)\b(T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|SECOND|THIRD|FOURTH"
     r"|BASEMENT|ROOF|TRUSS|PLATE|CEILING|GRADE|LEVEL\s*\d)\b"
 )
 # Labels that mark a reference line rather than a constructed floor level.
@@ -57,8 +59,10 @@ _NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM)\b")
 # Labels that are the top of the structure rather than a floor.
 _ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
 
-# A datum's elevation sits within this many points below its label.
-ELEV_DY_MAX = 16.0
+# A datum's elevation sits within this many points below its label. SK/MB's
+# sections are drawn at a larger text size and put it 21 pt down; 16 missed
+# every datum on all seven sets.
+ELEV_DY_MAX = 24.0
 ELEV_DX_MAX = 40.0
 # Imperial ladders sit beside dimension strings (1'-0 3/4" floor depth) that
 # are nearer than the datum, so an imperial elevation must start under its label.

@@ -49,6 +49,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from run_pipeline import facts_for  # noqa: E402
 
 TRUTH = ROOT / "out" / "ground_truth.json"
+# Per-type IFC concrete with modelled layer thickness (scripts/ifc_concrete.py).
+IFC_CONCRETE = ROOT / "out" / "ifc_concrete.json"
+# An IFC slab whose concrete layer is thicker than this is the whole floor
+# build-up tagged as concrete, not a slab: 15 models carry 454 mm.
+IFC_SLAB_PLAUSIBLE_MM = 300
 DETAIL = ROOT / "out" / "accuracy_cmhc.json"
 SUMMARY = ROOT / "web" / "src" / "accuracy.json"
 
@@ -95,7 +100,20 @@ def footprint_m2(takeoff) -> float | None:
     return None
 
 
-def score(design, truth: dict, provider) -> dict:
+def _concrete_split(takeoff) -> tuple[float, float]:
+    """Our concrete m3 as (slab, everything else)."""
+    slab = other = 0.0
+    for ln in takeoff.lines:
+        if ln.material != "CMHC_Concrete, CIP" or ln.unit.value != "m3":
+            continue
+        if ln.element_class.value == "slab_on_grade":
+            slab += ln.effective_quantity
+        else:
+            other += ln.effective_quantity
+    return slab, other
+
+
+def score(design, truth: dict, provider, ifc_conc: dict | None = None) -> dict:
     t0 = time.time()
     takeoff = build_takeoff(design, facts_for(design))
     carbon = calculate_carbon(takeoff, provider)
@@ -112,6 +130,27 @@ def score(design, truth: dict, provider) -> dict:
         m: {"ours": round(ours_vol[m], 2), "ifc": ifc_vol[m], "err_pct": pct(ours_vol[m], ifc_vol[m])}
         for m in COMPARABLE_MATERIALS
         if m in ours_vol and ifc_vol.get(m)
+    }
+
+    # Concrete, split so the IFC's slab artefact does not pose as a shortfall.
+    our_slab, our_other = _concrete_split(takeoff)
+    ic = (ifc_conc or {}).get(design.key) or {}
+    ifc_slab = ic.get("IfcSlab")
+    slab_ok = bool(ifc_slab) and max(ifc_slab[1] or [0]) <= IFC_SLAB_PLAUSIBLE_MM
+    ifc_other = (ic.get("IfcWall") or [0])[0] + ic.get("IfcFooting_solid", 0.0)
+    concrete = {
+        "slab": {
+            "ours": round(our_slab, 2),
+            "ifc": ifc_slab[0] if ifc_slab else None,
+            "ifc_layer_mm": ifc_slab[1] if ifc_slab else None,
+            "comparable": slab_ok,
+            "err_pct": pct(our_slab, ifc_slab[0]) if slab_ok and our_slab else None,
+        },
+        "walls_and_footings": {
+            "ours": round(our_other, 2),
+            "ifc": round(ifc_other, 2) if ic else None,
+            "err_pct": pct(our_other, ifc_other) if ic and ifc_other and our_other else None,
+        },
     }
 
     # Carbon by Building Performance Report element.
@@ -172,6 +211,7 @@ def score(design, truth: dict, provider) -> dict:
                 "err_vs_h2k_pct": pct(q("ln-windows"), truth.get("h2k_window_m2")),
             },
             "materials_m3": materials,
+            "concrete": concrete,
         },
         "carbon": {
             "ours_a1_a3_kg": round(total, 0),
@@ -209,6 +249,12 @@ def summarise(rows: list[dict]) -> dict:
         "footprint vs energy model ceiling": [r["quantities"]["footprint_m2"]["err_vs_h2k_pct"] for r in rows],
         "window area vs energy model": [r["quantities"]["window_m2"]["err_vs_h2k_pct"] for r in rows],
     }
+    qty["slab concrete vs IFC (plausible IFC slabs only)"] = [
+        r["quantities"].get("concrete", {}).get("slab", {}).get("err_pct") for r in rows
+    ]
+    qty["foundation walls + footings concrete vs IFC"] = [
+        r["quantities"].get("concrete", {}).get("walls_and_footings", {}).get("err_pct") for r in rows
+    ]
     for m in COMPARABLE_MATERIALS:
         qty[f"{m.replace('CMHC_', '')} volume vs IFC model"] = [
             r["quantities"]["materials_m3"].get(m, {}).get("err_pct") for r in rows
@@ -218,6 +264,8 @@ def summarise(rows: list[dict]) -> dict:
         "The energy model (HOT2000) measures the thermal envelope, often for one unit of a "
         "multi-unit block, so its wall area is not compared; its ceiling area stands in for "
         "the footprint and its window area for the windows.",
+        "15 IFC models tag the whole 454 mm slab build-up as concrete where the drawings "
+        "state 100-130 mm; those slabs are left out of the slab comparison.",
         "The IFC model is not ground truth either: on AB_Fourplex_01 it omits the 76 mm "
         "below-grade rigid insulation that the drawings' F1 slab assembly calls for, so a "
         "rigid-insulation 'over-count' there is the model's gap, not ours.",
@@ -305,12 +353,13 @@ def main(argv: list[str]) -> int:
     truth = {t["key"]: t for t in json.loads(TRUTH.read_text())}
     designs = [get_design(argv[0])] if argv else list(discover())
     provider = LocalSnapshotProvider()
+    ifc_conc = json.loads(IFC_CONCRETE.read_text()) if IFC_CONCRETE.is_file() else None
     rows = []
     for d in designs:
         if d.key not in truth:
             continue
         try:
-            row = score(d, truth[d.key], provider)
+            row = score(d, truth[d.key], provider, ifc_conc)
         except Exception as exc:  # one bad set must not hide the rest
             print(f"{d.key:44} FAILED {exc}")
             continue
