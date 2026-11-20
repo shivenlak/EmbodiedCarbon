@@ -241,7 +241,7 @@ def _largest_title(spans: list[Span]) -> str | None:
 
 
 # Read off the drawing itself, for sheets whose title block names nothing
-# (Landmark's carries only "SHEET NO. 5 / 16"). Order matters: an electrical
+# (some carry only a sheet count). Order matters: an electrical
 # plan repeats the floor plan's labels, and a foundation plan is cut by
 # section markers, so the specific evidence is tested first.
 _ROOM_FLOOR_AREA = re.compile(

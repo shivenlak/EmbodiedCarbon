@@ -316,7 +316,7 @@ class TestUsTitleBlocks:
 
 
 class TestTypedFromTheDrawing:
-    """Builders' sets whose title block names nothing (Landmark: 'SHEET NO. 5/16')."""
+    """Builders' sets whose title block names nothing but a sheet count."""
 
     @pytest.mark.parametrize(
         ("text", "want"),
