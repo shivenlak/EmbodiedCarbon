@@ -198,17 +198,30 @@ class TestImperialDatums:
 
         assert _elevation_m(text) == want
 
-    def test_the_datum_under_the_label_beats_a_nearer_dimension(self):
+    def test_a_datum_centred_under_a_wide_label_is_paired(self):
         import pymupdf
 
         from ecarbon.extract.levels import levels_on_page
 
         doc = pymupdf.open()
         page = doc.new_page()
-        page.insert_text((100, 100), "SECOND FLOOR", fontsize=8)
-        page.insert_text((125, 107), "1'-2\"", fontsize=8)  # floor depth, offset
-        page.insert_text((100, 114), "10'-1 1/2\"", fontsize=8)
-        assert [lv.elevation_m for lv in levels_on_page(page)] == [3.086]
+        page.insert_text((100, 100), "TOP OF PLATE HEIGHT", fontsize=8)
+        page.insert_text((145, 112), "8' - 1\"", fontsize=8)
+        page.insert_text((300, 112), "12'-0\"", fontsize=8)  # another ladder's, far right
+        assert [lv.elevation_m for lv in levels_on_page(page)] == [2.464]
+
+    def test_a_copy_paired_with_a_nearby_dimension_is_outvoted(self):
+        from ecarbon.extract.levels import outvote_strays
+
+        got = outvote_strays(
+            [
+                Level("SECOND FLOOR", 3.086),
+                Level("-Second Floor", 3.086),
+                Level("-SECOND FLOOR", 0.356),  # a floor-depth dimension, nearer
+                Level("ROOF", 6.0),
+            ]
+        )
+        assert sorted({lv.elevation_m for lv in got}) == [3.086, 6.0]
 
     def test_one_floor_in_two_datum_systems_is_one_floor(self):
         sh = StoreyHeights(
@@ -222,3 +235,35 @@ class TestImperialDatums:
         )
         assert [lv.elevation_m for lv in sh.floors] == [-3.0, 0.0, 3.0]
         assert sh.storey_heights_m()[:2] == [3.0, 3.0]
+
+    def test_one_storey_takes_its_height_from_the_plate(self):
+        sh = StoreyHeights(levels=[Level("GROUND FLOOR", 0.0), Level("PLATE HEIGHT", 2.464)])
+        assert sh.storey_heights_m() == [2.464]
+        assert not any("floor datums" in m for m in sh.missing)
+
+    def test_one_storey_without_a_plate_stays_unknown(self):
+        sh = StoreyHeights(levels=[Level("GROUND FLOOR", 0.0), Level("TOP OF ROOF", 5.0)])
+        assert sh.storey_heights_m() == []
+        assert "fewer than two floor datums" in sh.missing[0]
+
+    def test_a_plate_height_has_no_floor_to_deduct(self):
+        sh = StoreyHeights(
+            levels=[Level("GROUND FLOOR", 0.0), Level("PLATE HEIGHT", 2.464)], floor_assembly_mm=333.0
+        )
+        assert sh.net_wall_height_m == 2.464
+
+    def test_a_metric_elevation_past_14pt_stays_unpaired(self):
+        # The 16 pt reach is for imperial ladders; widening it for metric paired
+        # AB_ADU_02's "2546 CEILING" note with a 2.540 m figure below it.
+        import pymupdf
+
+        from ecarbon.extract.levels import levels_on_page
+
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_text((100, 100), "2546 CEILING", fontsize=8)
+        page.insert_text((100, 115), "2.540 m", fontsize=8)
+        assert levels_on_page(page) == []
+
+    def test_a_ceiling_datum_is_not_a_floor(self):
+        assert not Level("2546 CEILING", 2.54).is_floor

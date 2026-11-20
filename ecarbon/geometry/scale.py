@@ -476,6 +476,22 @@ def calibrate(page: pymupdf.Page) -> ScaleEstimate:
     stated = scale_from_text(page)
     viewport = scale_from_viewport(page)
 
+    promoted = False
+    if clusters and stated is not None:
+        # Two independent signals beat one: when the stated scale contradicts
+        # the largest cluster but confirms a substantial other one, that one is
+        # the drawing's scale (Escondido ADU 2: 15 labels at a stray 156.8
+        # mm/pt outnumbered 14 at the plan's 16.9, which 1/4" = 1'-0" states).
+        def agrees(c: list[float]) -> bool:
+            return abs(stated - statistics.median(c)) <= 0.02 * statistics.median(c)
+
+        if not agrees(clusters[0]):
+            for c in clusters[1:5]:
+                if len(c) >= min_secondary and agrees(c):
+                    clusters = [c] + [k for k in clusters if k is not c]
+                    promoted = True
+                    break
+
     if clusters:
         primary = clusters[0]
         med = statistics.median(primary)
@@ -505,6 +521,8 @@ def calibrate(page: pymupdf.Page) -> ScaleEstimate:
             elif est.disagreement_pct is None or delta > est.disagreement_pct:
                 est.disagreement_pct = round(delta, 1)
                 est.note = f"{src.value} implies {val:.3f} mm/pt, {delta:.0f}% from the measured scale"
+        if promoted:
+            est.note = "the stated scale confirms this cluster over a larger, unconfirmed one"
         if est.is_multi_scale:
             est.note = (
                 est.note + "; " if est.note else ""

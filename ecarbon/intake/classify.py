@@ -157,6 +157,10 @@ def sheet_type_of(title: str | None, discipline: Discipline = Discipline.UNKNOWN
         if any(n in up for n in needles):
             matched = kind
             break
+    # "ELEVATIONS & SECTIONS": the sections carry the level datums, and every
+    # reader of elevations reads sections too.
+    if matched is SheetType.ELEVATION and re.search(r"\bSECTIONS?\b", up):
+        matched = SheetType.SECTION
 
     if matched is SheetType.UNKNOWN:
         # Word order varies between firms: BC titles its foundation plan

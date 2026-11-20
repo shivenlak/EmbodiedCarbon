@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "ruff>=0.5", "httpx2>=0.28", "pyyaml>=6.0"]
+# The vision fallback (ECARBON_VISION=claude|gemini); off without it.
+vision = ["anthropic", "google-genai"]
 
 [build-system]
 requires = ["setuptools>=68"]

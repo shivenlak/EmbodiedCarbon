@@ -68,6 +68,11 @@ AREA_WEIGHT = 25.0
 # none.
 AREA_MAX_MULTIPLE = 2.5
 AREA_MIN_MULTIPLE = 0.4
+# Segments of one stroke width closer than this belong to one drawing. A US
+# plan sheet draws the main plan beside option vignettes in the same wall
+# stroke, and the whole group's extent spans them all (Escondido ADU 1:
+# 24 x 12 m for a 6.7 x 6.7 m building).
+CLUSTER_GAP_MM = 600.0
 
 
 @dataclass(frozen=True)
@@ -96,6 +101,8 @@ class Footprint:
     agreement_pct: float | None = None
     stroke_width: float | None = None
     n_segments: int = 0
+    # Extent of the outline on the page, in PDF points (x0, y0, x1, y1).
+    bbox: tuple[float, float, float, float] | None = None
 
     @property
     def area_m2(self) -> float:
@@ -156,6 +163,33 @@ def _extent_m(segs: list[Segment], scale: float) -> tuple[float, float]:
     )
 
 
+def _clusters(segs: list[Segment], gap_pt: float) -> list[list[Segment]]:
+    """Segments grouped by touching bounding boxes, grown by `gap_pt`."""
+    parent = list(range(len(segs)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    boxes = sorted(
+        (min(s.x0, s.x1) - gap_pt, min(s.y0, s.y1) - gap_pt, max(s.x0, s.x1) + gap_pt,
+         max(s.y0, s.y1) + gap_pt, i)
+        for i, s in enumerate(segs)
+    )
+    for a, box_a in enumerate(boxes):
+        for box_b in boxes[a + 1 :]:
+            if box_b[0] > box_a[2]:
+                break
+            if box_a[1] <= box_b[3] and box_b[1] <= box_a[3]:
+                parent[root(box_a[4])] = root(box_b[4])
+    out: dict[int, list[Segment]] = {}
+    for i, s in enumerate(segs):
+        out.setdefault(root(i), []).append(s)
+    return list(out.values())
+
+
 def _closest_chain_match(side_m: float, chain_totals_m: list[float]) -> float | None:
     """Relative error, in percent, to the nearest stated dimension total."""
     if not chain_totals_m:
@@ -188,7 +222,8 @@ def detect_footprint(
         return None
     s = scale.mm_per_pt
 
-    long_segs = [sg for sg in segments(page, scale) if sg.length_mm >= MIN_SEGMENT_MM]
+    all_segs = segments(page, scale)
+    long_segs = [sg for sg in all_segs if sg.length_mm >= MIN_SEGMENT_MM]
     if not long_segs:
         return None
 
@@ -199,20 +234,19 @@ def detect_footprint(
     for sg in long_segs:
         groups.setdefault(sg.width, []).append(sg)
 
-    best: tuple[float, Footprint] | None = None
-    for width, segs in groups.items():
+    def rank(width: float, segs: list[Segment]) -> tuple[tuple[float, float], Footprint] | None:
         if len(segs) < MIN_SEGMENTS:
-            continue
+            return None
         w_m, d_m = _extent_m(segs, s)
         if not (MIN_SIDE_M <= w_m <= MAX_SIDE_M and MIN_SIDE_M <= d_m <= MAX_SIDE_M):
-            continue
+            return None
         short, long = min(w_m, d_m), max(w_m, d_m)
         if short <= 0 or long / short > MAX_ASPECT_RATIO:
-            continue
+            return None
         if expected_area_m2:
             ratio = (w_m * d_m) / expected_area_m2
             if not (AREA_MIN_MULTIPLE <= ratio <= AREA_MAX_MULTIPLE):
-                continue
+                return None
 
         errs = [
             e
@@ -223,7 +257,7 @@ def detect_footprint(
             if e is not None
         ]
         if not errs:
-            continue
+            return None
         agreement = max(errs)
         basis = ["vector_path", "dim_text"]
         if expected_area_m2:
@@ -235,6 +269,12 @@ def detect_footprint(
             agreement_pct=round(agreement, 2),
             stroke_width=width,
             n_segments=len(segs),
+            bbox=(
+                min(min(sg.x0, sg.x1) for sg in segs),
+                min(min(sg.y0, sg.y1) for sg in segs),
+                max(max(sg.x0, sg.x1) for sg in segs),
+                max(max(sg.y0, sg.y1) for sg in segs),
+            ),
         )
         # Rank by dimension agreement first, then by how close the area is to
         # the expected floor area per storey, then toward the heavier line --
@@ -253,8 +293,33 @@ def detect_footprint(
         # first made the area term a tie-break only, which never fires, since
         # two lineweight groups rarely agree to the same decimal.
         score = (agreement + AREA_WEIGHT * area_err, -width)
-        if best is None or score < best[0]:
-            best = (score, fp)
+        return score, fp
+
+    best: tuple[tuple[float, float], Footprint] | None = None
+    for width, segs in groups.items():
+        ranked = rank(width, segs)
+        if ranked and (best is None or ranked[0] < best[0]):
+            best = ranked
+
+    # Then each separate drawing in a group: a US plan sheet draws the main
+    # plan beside option vignettes in one wall stroke. Clustering runs on every
+    # segment of that width, short ones included, because the short corner
+    # pieces are what join a plan's long wall runs. A drawing may only refine
+    # the winning lineweight or a heavier one: a lighter group's cluster
+    # displaced the wall cut on CMHC sheets at the same size, and the
+    # partitions read walls at the footprint's stroke. Never width 0 (pochΓ©).
+    floor = best[1].stroke_width or 0.0 if best else 0.0
+    for width in (w for w in groups if w > 0 and w >= floor):
+        parts = _clusters([sg for sg in all_segs if sg.width == width], CLUSTER_GAP_MM / s)
+        # Only the largest drawing: the main plan outweighs its vignettes, and
+        # offering every small cluster let a stair or a unit match some chain.
+        runs = max(
+            ([sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM] for part in parts), key=len
+        )
+        if len(runs) < len(groups[width]):
+            ranked = rank(width, runs)
+            if ranked and (best is None or ranked[0] < best[0]):
+                best = ranked
 
     if best is None or not best[1].confident:
         return best[1] if best else None

@@ -1,0 +1,85 @@
+{
+ "found": true,
+ "datums": [
+  {
+   "label": {
+    "quote": "SECOND FLOOR",
+    "box": [
+     762,
+     289,
+     876,
+     312
+    ]
+   },
+   "elevation": {
+    "quote": "3.000 m",
+    "box": [
+     762,
+     307,
+     816,
+     330
+    ]
+   }
+  },
+  {
+   "label": {
+    "quote": "MAIN FLOOR",
+    "box": [
+     762,
+     594,
+     851,
+     617
+    ]
+   },
+   "elevation": {
+    "quote": "0.000 m",
+    "box": [
+     762,
+     613,
+     816,
+     636
+    ]
+   }
+  },
+  {
+   "label": {
+    "quote": "KITCHEN",
+    "box": [
+     151,
+     747,
+     215,
+     770
+    ]
+   },
+   "elevation": {
+    "quote": "0.000 m",
+    "box": [
+     762,
+     613,
+     816,
+     636
+    ]
+   }
+  },
+  {
+   "label": {
+    "quote": "THIRD FLOOR",
+    "box": [
+     762,
+     289,
+     876,
+     312
+    ]
+   },
+   "elevation": {
+    "quote": "6.000 m",
+    "box": [
+     762,
+     307,
+     816,
+     330
+    ]
+   }
+  }
+ ]
+}
