@@ -100,6 +100,14 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
   - **Dev corpus:** `out/blind.json` from Stream A.
   - **Holdout:** score each holdout set with Stream A's `score_set` against `holdout_truth.yaml`. Run it once after the freeze and record it as-is.
   - **Landmark** (once the sponsor's material lists and takeoffs arrive): compare our quantities line by line with Landmark's own, for each of RPL, RSL and Townhome. This is the strongest evidence for the "quantity takeoff accuracy" criterion. Publish only **aggregate** errors (e.g. "walls within X% across three Landmark projects"), never their quantities or drawings. Keep the per-line comparison in `~/ec-data/landmark/`, not in the repo.
+- [ ] **Against professional assessments.** This answers the semi-final judges' first question: "how have you validated accuracy against a traditional professional assessment?"
+  - **CMHC Building Performance Reports** are CMHC's own professional LCA for every design (73 reports, parsed by `ecarbon/bench/bpr.py`). Their scope is A1–A5, B4–B5, C2–C4, so **never compare totals directly**. Report:
+    - (a) **element shares**: our % by element vs theirs (foundations, walls, roofs, floors…) across every scoreable design, with the spread
+    - (b) **the bounds check**: our A1–A3 is below their total in every design, and the ratio sits in a plausible band (the IStructE guide puts A1–A3 at roughly half of A1–C4)
+  - **Split the error into its two causes, because that's how a professional reviewer thinks:**
+    - *quantity error:* against the IFC models and against Landmark's own takeoffs
+    - *factor error:* run one design's quantities through **BEAM** (free; used by practitioners), compare per element, and record the BEAM version
+  - Put a one-line, honest claim at the top of the panel and the deck. For example: "quantities within X% of the builder's own takeoff; carbon within Y% of BEAM on the same quantities; element shares track CMHC's professional reports to within Z points". Use only numbers we have actually measured.
 - [ ] **"How accurate is it" panel** in the app (a glass sheet like the others):
   - the CMHC error table
   - countries and unit systems tested
@@ -126,6 +134,14 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
   → factors by region → carbon + range → UI / trace / exports
   ```
   Each box names its module.
+- [ ] **Answer the semi-final judges' two questions head-on, one slide each, rehearsed at Friday's business coaching session:**
+  1. **Accuracy:** the validation from B6, with the error split into quantity and factor, and what it doesn't cover yet.
+  2. **Revenue model:**
+     - the named paying customer (a production builder like Landmark, comparing variants before they build)
+     - who else pays (LCA consultants and energy advisors using it to speed up their own work, and permit reviewers where embodied carbon reporting is required; verify each requirement before citing it)
+     - pricing (per plan set plus an annual subscription, per `docs/business_plan.md`), with the unit economics
+     - the pilot: Landmark through Edmonton Unlimited's Venture Pilots
+     - Say plainly that it *speeds up* the professional assessment rather than replacing it. That makes it an accuracy answer and a sales answer at the same time.
 - [ ] **Deck:** product and implementation plan, using the final numbers, the blind results, the provider bake-off and the UX findings. Fold in the judge feedback (Thu).
 - [ ] **2-minute video:** upload a non-Canadian set live → the bill builds → toggle imperial → trace a line to its sheet → fix one thing with "Help it read this" → the accuracy panel.
 - [ ] **Deploy:**
