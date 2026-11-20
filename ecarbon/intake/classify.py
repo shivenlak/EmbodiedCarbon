@@ -58,7 +58,8 @@ TITLE_BLOCK_NOISE = (
 # Title -> SheetType. Order matters: the first match wins, so the most specific
 # phrases come first. Keys are matched against the upper-cased title.
 TYPE_RULES: tuple[tuple[tuple[str, ...], SheetType], ...] = (
-    (("ASSEMBLIES SCHEDULE", "ASSEMBLY SCHEDULE", "ASSEMBLIES"), SheetType.ASSEMBLY_SCHEDULE),
+    # US sets call the schedule "WALL TYPES".
+    (("ASSEMBLIES SCHEDULE", "ASSEMBLY SCHEDULE", "ASSEMBLIES", "WALL TYPES"), SheetType.ASSEMBLY_SCHEDULE),
     (
         (
             "OPENINGS SCHEDULE",
@@ -78,7 +79,8 @@ TYPE_RULES: tuple[tuple[tuple[str, ...], SheetType], ...] = (
     (("FOUNDATION PLAN", "FOOTING PLAN"), SheetType.FOUNDATION_PLAN),
     (("ROOF PLAN",), SheetType.ROOF_PLAN),
     (("FRAMING PLAN", "FLOOR FRAMING", "ROOF FRAMING"), SheetType.FRAMING_PLAN),
-    (("FLOOR PLAN", "SUITE PLAN", "UNIT PLAN"), SheetType.FLOOR_PLAN),
+    # UK/AU "GENERAL ARRANGEMENT" (GA) plans are the floor plans.
+    (("FLOOR PLAN", "SUITE PLAN", "UNIT PLAN", "GENERAL ARRANGEMENT", "GA PLAN"), SheetType.FLOOR_PLAN),
     (("ELEVATION",), SheetType.ELEVATION),
     # "TYPICAL SECTION DETAILS" is a detail sheet, so DETAIL is tested first.
     (("DETAIL",), SheetType.DETAIL),

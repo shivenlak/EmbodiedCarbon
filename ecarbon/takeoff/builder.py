@@ -38,6 +38,7 @@ above it and is taken from the storey below (RESEARCH S20).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -476,6 +477,8 @@ def _prov(inputs: TakeoffInputs, sheet: str | None = None, detail: str | None = 
     """
     named = sheet or inputs.footprint_sheet
     page = inputs.sheet_pages.get((named or "").upper())
+    if page is None and re.fullmatch(r"p\d+", named or ""):
+        page = int(named[1:]) - 1  # an unnumbered sheet, labelled by structural_texts
     if page is None:
         page = inputs.footprint_page if inputs.footprint_page is not None else 0
     return Provenance(page=page, sheet_no=named, detail=detail)
