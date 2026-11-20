@@ -148,7 +148,7 @@ def _line(id_, cls, qty, material, desc, note, assumptions, prov) -> TakeoffLine
     )
 
 
-def framing_lines(inputs, built=()) -> tuple[list[TakeoffLine], dict[str, str]]:
+def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], dict[str, str]]:
     """Estimated joist, roof and steel-stud framing lines, and {note marker:
     line id} so the caller can replace each "not counted" note with a
     pointer. `built` is the bill so far (the steel estimate needs the wall
@@ -171,7 +171,7 @@ def framing_lines(inputs, built=()) -> tuple[list[TakeoffLine], dict[str, str]]:
     # ---- floor joists, over every suspended floor ---------------------------
     upper = max(inputs.heights.n_storeys - 1, 0)
     slab_tags = {t for t, a in inputs.assemblies.items() if a.is_slab_on_grade}
-    fasm = inputs.assembly_for("F", exclude=slab_tags)
+    fasm = inputs.assembly_for("F", exclude=slab_tags) or (standard or {}).get("F")
     flayer = _deferred_framing(fasm) if fasm is not None else None
     if flayer is not None and upper > 0 and _JOIST_RE.search(flayer.material or ""):
         area = fp.area_m2 * upper
@@ -218,7 +218,7 @@ def framing_lines(inputs, built=()) -> tuple[list[TakeoffLine], dict[str, str]]:
             covered[marker] = fid
 
     # ---- roof framing ------------------------------------------------------
-    rasm = inputs.assembly_for("R")
+    rasm = inputs.assembly_for("R") or (standard or {}).get("R")
     rlayer = _deferred_framing(rasm) if rasm is not None else None
     if rlayer is not None:
         mat = rlayer.material or ""
@@ -526,3 +526,137 @@ def mark_assumed_heights(inputs, built) -> None:
                 ln.confidence = Confidence.ASSUMED
             if why not in ln.assumptions:
                 ln.assumptions = [*ln.assumptions, why]
+
+
+# ---- standard Part 9 assemblies, where the drawings' own cannot be read ------
+# When a set's assemblies schedule cannot be read for an element (BC's
+# exterior wall is refused as unreliable; Ontario's roof is not found; SK/MB
+# reads none), the element still has its area but no layers, so its
+# insulation, sheathing and gypsum went uncounted. A standard Part 9 build-up
+# stands in, ASSUMED, expanded by the builder's own _assembly_lines so the
+# materials and factors map exactly as for a drawn schedule. The drawn
+# assembly always wins where it is read.
+STANDARD_ASSEMBLIES = {
+    "W": (
+        "STANDARD WOOD-FRAME EXTERIOR WALL (assumed)",
+        [
+            ("EXTERIOR SHEATHING, OSB", 11.0, None),
+            ("WOOD STUD FRAMING 38x140 @ 400", 140.0, 2),
+            ("STUD CAVITY IN-FILL INSULATION (R-20)", 140.0, 1),
+            ("GYPSUM BOARD", 13.0, None),
+        ],
+    ),
+    "R": (
+        "STANDARD TRUSSED ROOF WITH ATTIC INSULATION (assumed)",
+        [
+            ("EXTERIOR GRADE PLYWOOD ROOF SHEATHING", 16.0, None),
+            ("PRE FABRICATED ROOF TRUSS", None, None),
+            ("CAVITY FILL ATTIC INSULATION (R-50)", 300.0, None),
+            ("GYPSUM BOARD CEILING", 13.0, None),
+        ],
+    ),
+    "F": (
+        "STANDARD WOOD-FRAMED FLOOR (assumed)",
+        [
+            ("T&G PLYWOOD SUBFLOOR", 19.0, None),
+            ("ENGINEERED WOOD JOIST OR I-JOIST", None, None),
+            ("ACOUSTIC BATT IN-FILL INSULATION", 89.0, None),
+            ("GYPSUM BOARD CEILING", 13.0, None),
+        ],
+    ),
+}
+
+
+def _standard_assembly(letter: str, inputs):
+    from ecarbon.extract.assemblies import Assembly, Layer
+
+    name, rows = STANDARD_ASSEMBLIES[letter]
+    layers = []
+    for i, (mat, t, partner) in enumerate(rows):
+        lay = Layer(index=i, material=mat, thickness_mm=t)
+        if t is None:
+            lay.deferred_to = "Structural"
+        if partner is not None:
+            lay.shares_cavity_with = partner
+        layers.append(lay)
+    return Assembly(
+        tag=f"STD-{letter}",
+        name=name,
+        group="Standard (assumed)",
+        group_letter=letter,
+        layers=layers,
+        sheet=inputs.footprint_sheet,
+        page=page_of_footprint(inputs),
+    )
+
+
+def standard_assembly_lines(inputs, built, expand):
+    """Layer lines from standard assemblies for elements whose own assembly
+    could not be read. `expand` is builder._assembly_lines. Returns (lines,
+    gaps, {letter: assembly used})."""
+    from ecarbon.models import Gap, GapCode, GapSeverity
+
+    fp = inputs.footprint
+    lines: list[TakeoffLine] = []
+    gaps: list = []
+    used: dict = {}
+    if fp is None:
+        return lines, gaps, used
+    std_note = (
+        "No assembly of this element could be read from the drawings' schedule, so a "
+        "standard Part 9 build-up is assumed; replace it with the drawn assembly."
+    )
+
+    wall = next((ln for ln in built if ln.id == "ln-exterior-wall"), None)
+    if wall is not None and inputs.assembly_for("W") is None:
+        asm = _standard_assembly("W", inputs)
+        made, more = expand(
+            asm, wall.quantity, ElementClass.EXTERIOR_WALL, confidence=Confidence.ASSUMED,
+            area_note=f"Area is the {wall.quantity:.1f} m2 of exterior wall measured.",
+            extra_assumptions=[std_note],
+        )
+        lines += made
+        gaps += more
+        used["W"] = asm
+
+    if inputs.assembly_for("R") is None:
+        asm = _standard_assembly("R", inputs)
+        made, more = expand(
+            asm, fp.area_m2, ElementClass.ROOF_ASSEMBLY, confidence=Confidence.ASSUMED,
+            area_note=f"Area taken as the {fp.area_m2:.1f} m2 footprint.",
+            extra_assumptions=[std_note],
+        )
+        lines += made
+        gaps += more
+        used["R"] = asm
+
+    upper = max(inputs.heights.n_storeys - 1, 0) if inputs.heights else 0
+    slab_tags = {t for t, a in inputs.assemblies.items() if a.is_slab_on_grade}
+    if upper > 0 and inputs.assembly_for("F", exclude=slab_tags) is None:
+        asm = _standard_assembly("F", inputs)
+        made, more = expand(
+            asm, fp.area_m2 * upper, ElementClass.FLOOR_ASSEMBLY, confidence=Confidence.ASSUMED,
+            area_note=f"Area is the {fp.area_m2:.1f} m2 footprint over {upper} suspended floors.",
+            extra_assumptions=[std_note],
+        )
+        lines += made
+        gaps += more
+        used["F"] = asm
+
+    # The deferred joist/truss layers are estimated by framing_lines, not
+    # reported as missing here.
+    gaps = [g for g in gaps if "defers to the structural" not in g.message]
+    if used:
+        gaps.append(Gap(
+            code=GapCode.ASSEMBLY_SCHEDULE_MISSING,
+            severity=GapSeverity.WARNING,
+            message=(
+                "Standard Part 9 assemblies are assumed for "
+                + ", ".join({"W": "the exterior wall", "R": "the roof", "F": "the floors"}[k] for k in used)
+                + " because the drawings' own could not be read: "
+                + "; ".join(f"{a.tag} {a.name}" for a in used.values())
+                + ". Their layers are marked assumed."
+            ),
+            affects=[ln.id for ln in lines],
+        ))
+    return lines, gaps, used

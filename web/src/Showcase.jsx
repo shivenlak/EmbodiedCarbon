@@ -1605,6 +1605,7 @@ function AccuracyPanel() {
       <ul className="sc-acc-list">
         <li>Estimated, not read: frost walls and footings where strip footings are drawn without a section (marked assumed); full basements are not counted</li>
         <li>Estimated, not read: steel studs (a standard 18 ga section, priced from the SFIA EPD)</li>
+        <li>Estimated, not read: a standard Part 9 wall, roof or floor build-up where the drawings&apos; own schedule cannot be read (marked assumed)</li>
         <li>Priced as a range, not counted: cladding and roofing the drawings leave as placeholders</li>
         <li>Estimated, not read: floor joists and roof trusses (a stated standard over measured spans, marked assumed)</li>
       </ul>
