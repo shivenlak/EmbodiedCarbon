@@ -30,23 +30,23 @@ Tick each box in the PR that lands it.
 
 ## B2. Overrides plumbing (C2) and endpoints (Thu 19 – Fri 20; C2 merged by Fri)
 
-- [ ] **`ecarbon/takeoff/overrides.py`:** the `Overrides` dataclass from SHARED.md C2.
-- [ ] **Hooks in `gather()`.** These are the only builder edits B makes:
+- [x] **`ecarbon/takeoff/overrides.py`:** the `Overrides` dataclass from SHARED.md C2.
+- [x] **Hooks in `gather()`.** These are the only builder edits B makes:
   - **Scale:** where the footprint loop calls `calibrate(page)`, `overrides.scale_mm_per_pt[page]` makes a trusted `ScaleEstimate`, with a note that it was stated by the user.
   - **Footprint:** `overrides.footprint` makes a `Footprint` from the polygon (PDF points × mm_per_pt), labelled as stated.
   - **Heights:** `overrides.storey_heights_m` replaces `storey_heights_for(...)` and clears the `STOREY_HEIGHT_UNKNOWN` gap.
   - Lines built from stated inputs get `BasisSource.USER` in `basis.sources` and a `"stated: ..."` note (C3).
   - `build_takeoff(..., overrides=None)` passes it through. `None` means today's behaviour exactly.
-- [ ] **`GET /projects/{id}/pages/{n}.png?dpi=`:** an owner-checked render of any page via `trace.render_page`. The existing trace image endpoint 404s for pages outside a line's trace.
-- [ ] **`POST /projects/{id}/calibrate`.** The body is one of:
+- [x] **`GET /projects/{id}/pages/{n}.png?dpi=`:** an owner-checked render of any page via `trace.render_page`. The existing trace image endpoint 404s for pages outside a line's trace.
+- [x] **`POST /projects/{id}/calibrate`.** The body is one of:
   - `{"page": n, "p1": [x,y], "p2": [x,y], "length": "23'-6\"" | 7160}`: a known dimension, which sets `scale_mm_per_pt[n]`. Lengths parse with `scale.parse_dimension`, so feet and inches work.
   - `{"page": n, "corners": [[x,y], ...]}`: the footprint, in PDF points.
   - `{"storey_heights_m": [3.0, 2.8]}`, which also accepts feet strings.
   - `{"clear": true}`
 
   It stores the values on the workspace's fork (`_own`, so visitors stay private), rebuilds with `build_takeoff(design, facts, overrides=...)`, recomputes carbon, and returns the carbon result plus the new gaps.
-- [ ] Tests for each mode, plus: no overrides means identical totals.
-- [ ] Tick C2 in SHARED.md.
+- [x] Tests for each mode, plus: no overrides means identical totals.
+- [x] Tick C2 in SHARED.md.
 
 ## B2b. Upload several PDFs as one project (by Tue 24; needs A4b)
 
@@ -59,16 +59,16 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
 
 ## B3. "Help it read this", the guided fallback UI (Sat 21 – Sun 22)
 
-- [ ] **Entry point.** Review notes with code `SCALE_NOT_FOUND`, a missing footprint (`GEOMETRY_AMBIGUOUS` / no footprint) or `STOREY_HEIGHT_UNKNOWN` get a **Help it read this** button. So does the upload result, when the bill came back thin.
-- [ ] **The viewer.** Reuse `SheetView` (`web/src/App.jsx`, the SVG viewer behind the trace). Its viewBox is in PDF points, so a click converts to page coordinates with `svg.getScreenCTM().inverse()`. The image comes from B2's `pages/{n}.png`.
-- [ ] **Three modes**, each one screen, each showing what it will change:
+- [x] **Entry point.** Review notes with code `SCALE_NOT_FOUND`, a missing footprint (`GEOMETRY_AMBIGUOUS` / no footprint) or `STOREY_HEIGHT_UNKNOWN` get a **Help it read this** button. So does the upload result, when the bill came back thin.
+- [x] **The viewer.** *(Built as `web/src/HelpRead.jsx` with its own pan/zoom rather than reusing `SheetView`, whose viewBox animation fights click placement. Deep link: `?help=scale|outline|heights`.)* Reuse `SheetView` (`web/src/App.jsx`, the SVG viewer behind the trace). Its viewBox is in PDF points, so a click converts to page coordinates with `svg.getScreenCTM().inverse()`. The image comes from B2's `pages/{n}.png`.
+- [x] **Three modes**, each one screen, each showing what it will change:
   1. **Set the scale:** "Click both ends of a dimension you can read, then type it." It accepts `7160`, `7.16 m` or `23'-6"`.
   2. **Trace the building:** "Click each outside corner, then press Done."
   3. **Storey heights:** one box per storey, in metres or feet.
-- [ ] **Live result.** On save, call `/calibrate`; the 3D model, total and bill update. Lines show a **"you said"** chip (from the `"stated: "` prefix), and an **Undo** sends `{"clear": true}`.
-- [ ] Also render a **"read by AI"** chip for `"vision: "` lines (C3), with the quote in the hover.
-- [ ] **Copy:** plain verbs, sentence case, and each control says what happens. "Set scale", not "Submit".
-- [ ] Build, serve, screenshot and open the PNGs (CLAUDE.md): desktop, plus phones at 390 and 360 px with no horizontal overflow (reuse `scratchpad/drv/phone.js`-style checks).
+- [x] **Live result.** On save, call `/calibrate`; the 3D model, total and bill update. Lines show a **"you said"** chip (from the `"stated: "` prefix), and an **Undo** sends `{"clear": true}`.
+- [x] Also render a **"read by AI"** chip for `"vision: "` lines (C3), with the quote in the hover.
+- [x] **Copy:** plain verbs, sentence case, and each control says what happens. "Set scale", not "Submit".
+- [x] Build, serve, screenshot and open the PNGs (CLAUDE.md): desktop, plus phones at 390 and 360 px with no horizontal overflow (reuse `scratchpad/drv/phone.js`-style checks).
 
 ## B4. Carbon factors by region (Sat 21 – Mon 23)
 
