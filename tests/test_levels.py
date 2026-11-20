@@ -174,3 +174,51 @@ class TestElevationsSurviveTextRepair:
         from ecarbon.intake.textrepair import repair
 
         assert repair(broken)[0] == want
+
+
+class TestImperialDatums:
+    """North American sections print datums in feet and inches, not metres."""
+
+    @pytest.mark.parametrize(
+        ("text", "want"),
+        [
+            ("3.000 m", 3.0),
+            ("10'-1 1/2\"", 3.086),
+            ("-8'-6\"", -2.591),
+            ("20'-0\"", 6.096),
+            ("0'-0\"", 0.0),
+            ("0\"", 0.0),
+            ("-6\"", -0.152),
+            ("6\"", None),  # a bare inch figure is a dimension, not a datum
+            ("2X6", None),
+        ],
+    )
+    def test_elevation_text(self, text, want):
+        from ecarbon.extract.levels import _elevation_m
+
+        assert _elevation_m(text) == want
+
+    def test_the_datum_under_the_label_beats_a_nearer_dimension(self):
+        import pymupdf
+
+        from ecarbon.extract.levels import levels_on_page
+
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_text((100, 100), "SECOND FLOOR", fontsize=8)
+        page.insert_text((125, 107), "1'-2\"", fontsize=8)  # floor depth, offset
+        page.insert_text((100, 114), "10'-1 1/2\"", fontsize=8)
+        assert [lv.elevation_m for lv in levels_on_page(page)] == [3.086]
+
+    def test_one_floor_in_two_datum_systems_is_one_floor(self):
+        sh = StoreyHeights(
+            levels=[
+                Level("GROUND FLOOR", -3.0),
+                Level("GROUND FLOOR (B)", -2.85),
+                Level("MAIN FLOOR", 0.0),
+                Level("MAIN FLOOR (B)", 0.15),
+                Level("SECOND FLOOR", 3.0),
+            ]
+        )
+        assert [lv.elevation_m for lv in sh.floors] == [-3.0, 0.0, 3.0]
+        assert sh.storey_heights_m()[:2] == [3.0, 3.0]

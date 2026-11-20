@@ -43,6 +43,10 @@ from ecarbon.intake.spans import read_spans
 
 # "3.000 m", "7.873m", "0.000 m / 0""
 _ELEV_RE = re.compile(r"^(-?\d{1,3}\.\d{2,3})\s*m\b")
+# Feet and inches, as North American sections print them: 10'-1 1/2", -8'-6".
+_ELEV_IMPERIAL_RE = re.compile(r"^([-+±]?)\s*(\d{1,3}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\")$")
+# Inches alone count only signed or zero ("-8\"", "0\""); a bare 8" is a dimension.
+_ELEV_INCHES_RE = re.compile(r"^(?:([-+±])\s*(\d{1,2}(?:\s+\d{1,2}/\d{1,2})?)|(0))\"$")
 # A datum label. Deliberately broad; `is_floor_level` decides what counts.
 _LEVEL_LABEL_RE = re.compile(
     r"(?i)\b(T/O\s*F/F|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|SECOND|THIRD|FOURTH"
@@ -54,8 +58,14 @@ _NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM)\b")
 _ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
 
 # A datum's elevation sits within this many points below its label.
-ELEV_DY_MAX = 14.0
+ELEV_DY_MAX = 16.0
 ELEV_DX_MAX = 40.0
+# Imperial ladders sit beside dimension strings (1'-0 3/4" floor depth) that
+# are nearer than the datum, so an imperial elevation must start under its label.
+IMPERIAL_DX_MAX = 20.0
+# Floor datums closer than this are one floor read in two datum systems
+# (a sheet can carry the level set twice, a few inches apart).
+SAME_FLOOR_M = 0.25
 
 # Plausible floor-to-floor height, metres.
 MIN_STOREY_M = 2.1
@@ -89,11 +99,9 @@ class StoreyHeights:
 
     @property
     def floors(self) -> list[Level]:
-        seen: set[float] = set()
-        out = []
+        out: list[Level] = []
         for lv in sorted((x for x in self.levels if x.is_floor), key=lambda x: x.elevation_m):
-            if lv.elevation_m not in seen:
-                seen.add(lv.elevation_m)
+            if not out or lv.elevation_m - out[-1].elevation_m >= SAME_FLOOR_M:
                 out.append(lv)
         return out
 
@@ -163,6 +171,29 @@ class StoreyHeights:
         return gaps
 
 
+def _elevation_m(text: str) -> float | None:
+    """A datum's elevation in metres, metric or feet-and-inches, or None."""
+    m = _ELEV_RE.match(text)
+    if m:
+        return float(m.group(1))
+    from ecarbon.geometry.scale import parse_imperial
+
+    m = _ELEV_INCHES_RE.match(text.strip())
+    if m:
+        if m.group(3):
+            return 0.0
+        mm = parse_imperial(m.group(2) + '"')
+        return None if mm is None else round((-mm if m.group(1) == "-" else mm) / 1000.0, 3)
+    m = _ELEV_IMPERIAL_RE.match(text.strip())
+    if not m:
+        return None
+    # parse_imperial refuses anything under 20 mm as noise; a 0'-0" datum is real.
+    mm = 0.0 if re.fullmatch(r"0'\s*-?\s*0\"", m.group(2)) else parse_imperial(m.group(2))
+    if mm is None:
+        return None
+    return round((-mm if m.group(1) == "-" else mm) / 1000.0, 3)
+
+
 def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
     """Level datums on one section sheet."""
     # Rotation-corrected, because a datum's elevation is printed on the line
@@ -174,7 +205,7 @@ def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
 
     out: list[Level] = []
     for y, x, text in spans:
-        if not _LEVEL_LABEL_RE.search(text) or _ELEV_RE.match(text):
+        if not _LEVEL_LABEL_RE.search(text) or _elevation_m(text) is not None:
             continue
         # The elevation sits on the line directly below its label.
         best: tuple[float, float] | None = None
@@ -182,9 +213,11 @@ def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
             dy = y2 - y
             if not (0 < dy <= ELEV_DY_MAX) or abs(x2 - x) > ELEV_DX_MAX:
                 continue
-            m = _ELEV_RE.match(t2)
-            if m and (best is None or dy < best[0]):
-                best = (dy, float(m.group(1)))
+            elev = _elevation_m(t2)
+            if elev is not None and not _ELEV_RE.match(t2) and abs(x2 - x) > IMPERIAL_DX_MAX:
+                continue
+            if elev is not None and (best is None or dy < best[0]):
+                best = (dy, elev)
         if best is not None:
             out.append(Level(label=re.sub(r"\s+", " ", text), elevation_m=best[1], sheet=sheet))
     return out
