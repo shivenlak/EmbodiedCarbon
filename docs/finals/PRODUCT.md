@@ -84,13 +84,13 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
 
 ## B5. Metric / imperial toggle (Mon 23)
 
-- [ ] **One formatter.** `fmtQty(value, unit, system)` and `fmtIntensity(kgPerM2, system)` in `web/src/App.jsx`, next to `int` / `dec` / `UNIT_LABEL` / `prose`, exported for `Showcase.jsx`.
+- [x] **One formatter.** `fmtQty(value, unit, system)` and `fmtIntensity(kgPerM2, system)` in `web/src/App.jsx`, next to `int` / `dec` / `UNIT_LABEL` / `prose`, exported for `Showcase.jsx`.
   - Conversions: m → ft, m² → ft², m³ → yd³. kg CO₂e is unchanged.
   - Intensity is kg CO₂e/m² or kg CO₂e/ft².
-- [ ] **Replace the hard-coded unit strings** (search `m²`, `m2`, `m³`, `kg/m`, `" m"` in `App.jsx` and `Showcase.jsx`). `prose()` must also convert numbers inside server sentences, or leave them in SI and label them so.
-- [ ] **Where it lives and remembers:** the toggle sits in the top bar, defaulting to `locale.unit_system` (C5; `mixed` → metric). The choice is remembered in `localStorage`, wrapped in try/catch.
+- [x] **Replace the hard-coded unit strings** (search `m²`, `m2`, `m³`, `kg/m`, `" m"` in `App.jsx` and `Showcase.jsx`). `prose()` must also convert numbers inside server sentences, or leave them in SI and label them so.
+- [x] **Where it lives and remembers:** the toggle sits in the top bar, defaulting to `locale.unit_system` (C5; `mixed` → metric). The choice is remembered in `localStorage`, wrapped in try/catch.
 - [ ] **Exports:** CSV and report get a units option. SI stays the default for CSV, so tools that import it don't break.
-- [ ] **C5:** expose `locale` on the project/massing response.
+- [x] **C5:** *(served as `GET /projects/{id}/region` instead: geography + where it came from, including C1's title-block locale once real. The units default follows it: US → feet.)*
 
 ## B6. Accuracy you can demonstrate (Mon 23 – Wed 25)
 
