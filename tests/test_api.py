@@ -291,3 +291,60 @@ def test_the_fixture_is_not_listed_beside_real_plan_sets(client, monkeypatch):
     ids = [row["id"] for row in client.get("/projects").json()]
     assert api.DEMO_ID not in ids
     assert client.get(f"/projects/{api.DEMO_ID}/carbon").status_code == 200
+
+
+class TestUploadingSeveralFiles:
+    """Builders send a folder of PDFs (floor layout, roof, foundation,
+    details), not one package. Several files are one set."""
+
+    @pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+    def test_a_set_split_across_files_reads_as_the_whole(self):
+        import pymupdf
+        from fastapi.testclient import TestClient
+
+        from ecarbon.api.main import app
+        from ecarbon.config import get_design
+
+        client = TestClient(app)
+        src = pymupdf.open(get_design("AB_Fourplex_01").drawings_pdf)
+        half = src.page_count // 2
+        a, b = pymupdf.open(), pymupdf.open()
+        a.insert_pdf(src, from_page=0, to_page=half - 1)
+        b.insert_pdf(src, from_page=half, to_page=src.page_count - 1)
+        resp = client.post(
+            "/projects/upload",
+            files=[
+                ("files", ("Architectural.pdf", a.tobytes(), "application/pdf")),
+                ("files", ("Structural.pdf", b.tobytes(), "application/pdf")),
+            ],
+            data={"name": "Split set", "gfa_m2": "306", "storeys": "2", "units": "4"},
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        # The same drawings in two files give the same bill as one file.
+        assert body["n_lines"] == 23
+        assert body["total_kg_co2e"] == pytest.approx(38501, rel=0.02)
+        pages = client.get(f"/projects/{body['id']}/pages").json()
+        assert len(pages) == src.page_count
+
+    def test_one_non_pdf_among_several_is_named(self):
+        from fastapi.testclient import TestClient
+
+        from ecarbon.api.main import app
+
+        resp = TestClient(app).post(
+            "/projects/upload",
+            files=[
+                ("files", ("plans.pdf", b"%PDF-1.7\nx", "application/pdf")),
+                ("files", ("photo.png", b"\x89PNG\r\n", "image/png")),
+            ],
+        )
+        assert resp.status_code == 415
+        assert "photo.png" in resp.json()["detail"]
+
+    def test_nothing_sent_is_refused(self):
+        from fastapi.testclient import TestClient
+
+        from ecarbon.api.main import app
+
+        assert TestClient(app).post("/projects/upload").status_code == 422

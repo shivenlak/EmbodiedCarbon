@@ -52,10 +52,10 @@ Tick each box in the PR that lands it.
 
 Real builders, Landmark included, send a folder of PDFs: floor layout, roof, foundation, details, schedule.
 
-- [ ] **Upload dialog** (`App.jsx` `Upload`): accept several files, or a dropped folder. Show the files list, with the sheet types once they're read.
-- [ ] **`POST /projects/upload`:** take several `file` parts, save them together, and build one design with A4b's `folder_design()`. Keep the size limit across the whole set (raise it if needed), and check the `%PDF-` header on each file.
-- [ ] **Progress stages** count across files ("sheets: 23 across 6 files").
-- [ ] **Confidentiality:** test with the Landmark sets **on localhost only**. Never on the live site, and never in screenshots that get committed.
+- [x] **Upload dialog** (`App.jsx` `Upload`): accept several files, or a dropped folder. Show the files list, with the sheet types once they're read.
+- [x] **`POST /projects/upload`:** take several `file` parts, save them together, and build one design with A4b's `folder_design()`. Keep the size limit across the whole set (raise it if needed), and check the `%PDF-` header on each file.
+- [x] **Progress stages** count across files ("sheets: 23 across 6 files").
+- [x] **Confidentiality:** test with the Landmark sets **on localhost only**. Never on the live site, and never in screenshots that get committed.
 
 ## B3. "Help it read this", the guided fallback UI (Sat 21 – Sun 22)
 

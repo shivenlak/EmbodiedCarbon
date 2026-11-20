@@ -1134,7 +1134,10 @@ def _upload_dir() -> Path:
 async def upload_project(
     # B008 is suppressed per-argument: calling File()/Form() in the default is
     # how FastAPI declares multipart fields, not an accidental shared default.
-    file: UploadFile = File(...),  # noqa: B008
+    file: UploadFile | None = File(None),  # noqa: B008
+    # Several PDFs as one set: how builders deliver (floor layout, roof,
+    # foundation, details, schedule). Joined by config.folder_design.
+    files: list[UploadFile] | None = File(None),  # noqa: B008
     name: str | None = Form(None),  # noqa: B008
     gfa_m2: float | None = Form(None),  # noqa: B008
     gfa_basis: str | None = Form(None),  # noqa: B008
@@ -1165,39 +1168,66 @@ async def upload_project(
     from ecarbon.models import ProjectFacts
     from ecarbon.takeoff.builder import build_takeoff
 
-    raw = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            413, f"plan set larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
-        )
-    if not raw.startswith(b"%PDF-"):
-        raise HTTPException(
-            415,
-            "not a PDF. This pipeline reads vector PDF drawing sets; a scan "
-            "or an image export carries no geometry to measure.",
-        )
+    parts = [f for f in ([file] if file is not None else []) + list(files or []) if f is not None]
+    if not parts:
+        raise HTTPException(422, "no plan set: send one PDF as `file`, or several as `files`")
+    blobs: list[tuple[str, bytes]] = []
+    total = 0
+    for part in parts:
+        raw = await part.read(MAX_UPLOAD_BYTES + 1)
+        total += len(raw)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                413, f"plan set larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+            )
+        if not raw.startswith(b"%PDF-"):
+            raise HTTPException(
+                415,
+                f"{part.filename or 'a file'} is not a PDF. This pipeline reads vector PDF "
+                "drawing sets; a scan or an image export carries no geometry to measure.",
+            )
+        blobs.append((part.filename or "plan-set.pdf", raw))
 
-    stem = Path(file.filename or "plan-set").stem or "plan-set"
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", stem)[:80].strip("-") or "plan-set"
+    def _safe(n: str) -> str:
+        stem = Path(n).stem or "plan-set"
+        return re.sub(r"[^A-Za-z0-9._-]+", "-", stem)[:80].strip("-") or "plan-set"
+
+    safe = _safe(name or blobs[0][0]) if len(blobs) > 1 else _safe(blobs[0][0])
     project_id = f"upload-{uuid.uuid4().hex[:8]}-{safe}"
 
     # Its own empty directory, so nothing in the set can land beside another
     # upload or anything we ship.
     home = _upload_dir() / project_id
     home.mkdir(parents=True, exist_ok=False)
-    pdf = home / f"{safe}.pdf"
-    pdf.write_bytes(raw)
+    if len(blobs) == 1:
+        pdf = home / f"{safe}.pdf"
+        pdf.write_bytes(blobs[0][1])
+        design = Design(
+            key=project_id,
+            region="UPLOAD",
+            package_dir=home,
+            drawings_pdf=pdf,
+            ifc=None,
+            h2k=[],
+            bpr=[],
+            list_of_drawings=None,
+        )
+    else:
+        from ecarbon.config import folder_design
 
-    design = Design(
-        key=project_id,
-        region="UPLOAD",
-        package_dir=home,
-        drawings_pdf=pdf,
-        ifc=None,
-        h2k=[],
-        bpr=[],
-        list_of_drawings=None,
-    )
+        used: set[str] = set()
+        for fname, raw in blobs:
+            base = _safe(fname)
+            n, k = base, 2
+            while n in used:
+                n, k = f"{base}-{k}", k + 1
+            used.add(n)
+            (home / f"{n}.pdf").write_bytes(raw)
+        try:
+            design = folder_design(home)
+        except Exception as exc:
+            raise HTTPException(422, f"could not join these files into one set: {exc}") from exc
+        pdf = design.drawings_pdf
     facts = ProjectFacts(
         name=name or safe,
         jurisdiction=jurisdiction,
@@ -1213,7 +1243,11 @@ async def upload_project(
             import pymupdf
 
             with pymupdf.open(pdf) as doc:
-                tell("pages", f"{doc.page_count} pages")
+                tell(
+                    "pages",
+                    f"{doc.page_count} pages"
+                    + (f" across {len(blobs)} files" if len(blobs) > 1 else ""),
+                )
             with _BUILD_LOCK:
                 takeoff = build_takeoff(
                     design, facts, trust_stated_gfa=gfa_m2 is not None, progress=tell
