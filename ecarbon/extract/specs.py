@@ -156,6 +156,11 @@ _PILE_DIA_RE = re.compile(
 )
 # "100mm FROST" insulation under grade beams
 _FROST_RE = re.compile(r"(\d{2,4})\s*mm\s*FROST", re.I)
+# Frost protection depth for footings: QC's S030 "FROST PROTECTION 1220 MIN".
+_FROST_DEPTH_RE = re.compile(r"FROST\s+(?:PROTECTION|DEPTH|COVER)[^0-9]{0,25}(\d{3,4})", re.I)
+# Foundation wall thickness from a schedule: BC's S001
+# 'FOUNDATION WALL SCHEDULE [110 - 150 kg/m3] 8" [200mm]'.
+_FOUNDATION_WALL_RE = re.compile(r"FOUNDATION\s+WALL\s+SCHEDULE.{0,80}?(\d{3})\s*mm", re.I)
 # Reinforcement: "10M @ 300 O/C", "4-15M VERTICAL"
 _REBAR_SPACING_RE = re.compile(r"(\d{1,2})M\s*@\s*(\d{2,4})\s*(?:mm)?\s*O/?C", re.I)
 _REBAR_COUNT_RE = re.compile(r"(\d{1,2})\s*-\s*(\d{1,2})M", re.I)
@@ -202,6 +207,8 @@ class FoundationSpec:
     # DESIGNER_DECLINED_RE). Kept apart from slab_thickness_mm so it is never
     # taken as a specification; takeoff/framing.py prices it as ASSUMED.
     generic_slab_mm: float | None = None
+    frost_depth_mm: float | None = None
+    foundation_wall_mm: float | None = None
     # Other footing sections the drawings state, when more than one exists.
     other_footing_sections: list[tuple[float, float]] = field(default_factory=list)
     pile_diameter_mm: float | None = None
@@ -380,6 +387,17 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
             if m and (v := _first_int(*m.groups())):
                 spec.pile_diameter_mm = v
                 found.append(f"pile dia {v:.0f}mm")
+
+        if spec.frost_depth_mm is None and (m := _FROST_DEPTH_RE.search(flat)):
+            v = float(m.group(1))
+            if 600 <= v <= 2400:
+                spec.frost_depth_mm = v
+                found.append(f"frost protection {v:.0f}mm")
+        if spec.foundation_wall_mm is None and (m := _FOUNDATION_WALL_RE.search(flat)):
+            v = float(m.group(1))
+            if 150 <= v <= 400:
+                spec.foundation_wall_mm = v
+                found.append(f"foundation wall {v:.0f}mm")
 
         if spec.frost_insulation_mm is None:
             m = _FROST_RE.search(flat)

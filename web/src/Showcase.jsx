@@ -1547,7 +1547,9 @@ function AccuracyPanel() {
     ["Concrete", "BIM model", pick("Concrete, CIP volume vs IFC model")],
   ].filter((r) => r[2]);
   const same = a.carbon_vs_ifc_same_factors;
-  const cmhc = a.carbon_vs_cmhc_a1_a5;
+  // Per m2: a report can cover one unit of a block the drawings show whole,
+  // so totals across scopes compare nothing.
+  const cmhc = a.intensity_vs_cmhc_a1_a5 || a.carbon_vs_cmhc_a1_a5;
   const sign = (x) => (x > 0 ? `+${x}` : `${x}`);
   return (
     <section className="sc-panel sc-acc" aria-label="How accurate is it">
@@ -1594,15 +1596,15 @@ function AccuracyPanel() {
         <p className="sc-acc-fig">
           <b>{Math.round(cmhc.median_ratio * 100)}%</b>
           <span>
-            of CMHC&apos;s reported A1–A5 (median of {cmhc.n}). The rest is transport and
-            construction (A4–A5), CMHC&apos;s own factors, and the items below.
+            of CMHC&apos;s reported A1–A5 per m² (median of {cmhc.n} designs). The rest is
+            transport and construction (A4–A5), CMHC&apos;s own factors, and the items below.
           </span>
         </p>
       )}
       <h3>Left out or estimated, and said so on every bill</h3>
       <ul className="sc-acc-list">
-        <li>Left out: foundation walls and basements</li>
-        <li>Left out: steel studs (no steel-stud factor in the store yet)</li>
+        <li>Estimated, not read: frost walls and footings where strip footings are drawn without a section (marked assumed); full basements are not counted</li>
+        <li>Estimated, not read: steel studs (a standard 18 ga section, priced from the SFIA EPD)</li>
         <li>Priced as a range, not counted: cladding and roofing the drawings leave as placeholders</li>
         <li>Estimated, not read: floor joists and roof trusses (a stated standard over measured spans, marked assumed)</li>
       </ul>

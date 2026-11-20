@@ -51,6 +51,13 @@ TRUSS_SPACING_M = 0.61
 TRUSS_OVERHANG_M = 0.6
 # The common Part 9 slab-on-grade, where the drawings draw one but state no thickness.
 STANDARD_SLAB_MM = 100.0
+# A frost wall on strip footings: Part 9's common frost depth, 200 mm out of
+# the ground, 200 mm thick (NBC Table 9.15.4.2.A, two or more storeys).
+STANDARD_FROST_MM = 1200.0
+ABOVE_GRADE_MM = 200.0
+STANDARD_FOUNDATION_WALL_MM = 200.0
+# A strip footing drawn with no section: 600 x 200 mm, the common Part 9 footing.
+STANDARD_FOOTING_MM = (600.0, 200.0)
 
 # When the sections give no roof datum: a 4:12 pitch.
 DEFAULT_PITCH = 4.0 / 12.0
@@ -372,6 +379,89 @@ def framing_lines(inputs, built=()) -> tuple[list[TakeoffLine], dict[str, str]]:
             ))
             covered["slab thickness not stated"] = "ln-slab-on-grade"
             covered["foundation is the end user's to design"] = "ln-slab-on-grade"
+
+    # ---- strip footings drawn without a section ----------------------------
+    has_footing = any(ln.id.startswith("ln-strip-footing") for ln in built)
+    if spec is not None and not has_footing and getattr(spec, "strip_footings", False) and fp.perimeter_m:
+        w, d = STANDARD_FOOTING_MM
+        lines.append(TakeoffLine(
+            id="ln-strip-footing",
+            element_class=ElementClass.FOOTING,
+            quantity=round(fp.perimeter_m * w * d / 1e6, 2),
+            unit=Unit.M3,
+            confidence=Confidence.ASSUMED,
+            material="CMHC_Concrete, CIP",
+            description=f"Strip footing {w:.0f} x {d:.0f} mm over {fp.perimeter_m:.1f} m run (assumed section)",
+            basis=Basis(
+                sources=[BasisSource.DEFAULT_RULE, BasisSource.VECTOR_PATH],
+                note=(
+                    f"The drawings show strip footings but no section; {w:.0f} x {d:.0f} mm is the "
+                    f"common Part 9 footing for a two- or three-storey wood frame. Run is the "
+                    f"measured footprint perimeter."
+                ),
+            ),
+            assumptions=[
+                "Footing section assumed, not read; the structural design governs.",
+                "Run taken as the rectangular footprint perimeter; footings under interior "
+                "bearing and party walls are not counted.",
+            ],
+            provenance=Provenance(
+                page=page_of_footprint(inputs), sheet_no=inputs.footprint_sheet,
+                detail="STRIP FOOTING",
+            ),
+        ))
+
+    # ---- the foundation wall on strip footings ------------------------------
+    # A strip footing sits at frost depth with a concrete wall up to the slab;
+    # a footing with nothing on it cannot carry the building. No sheet states
+    # the wall as a quantity, so it is estimated, ASSUMED, from what is stated.
+    has_fwall = any(ln.element_class is ElementClass.FOUNDATION_WALL for ln in built)
+    if spec is not None and not has_fwall and getattr(spec, "strip_footings", False) and fp.perimeter_m:
+        depth = getattr(spec, "frost_depth_mm", None)
+        thick = getattr(spec, "foundation_wall_mm", None)
+        h_m = ((depth or STANDARD_FROST_MM) + ABOVE_GRADE_MM) / 1000.0
+        t_mm = thick or STANDARD_FOUNDATION_WALL_MM
+        depth_src = (
+            f"the stated frost protection depth ({depth:.0f} mm)"
+            if depth
+            else f"a {STANDARD_FROST_MM:.0f} mm frost depth (assumed; none stated)"
+        )
+        thick_src = (
+            f"the stated foundation wall schedule ({t_mm:.0f} mm)"
+            if thick
+            else f"{t_mm:.0f} mm (assumed; none stated)"
+        )
+        lines.append(TakeoffLine(
+            id="ln-foundation-wall",
+            element_class=ElementClass.FOUNDATION_WALL,
+            quantity=round(fp.perimeter_m * h_m * t_mm / 1000.0, 2),
+            unit=Unit.M3,
+            confidence=Confidence.ASSUMED,
+            material="CMHC_Concrete, CIP",
+            description=(
+                f"Foundation wall on strip footings, {t_mm:.0f} mm x {h_m:.2f} m over "
+                f"{fp.perimeter_m:.1f} m perimeter (assumed)"
+            ),
+            basis=Basis(
+                sources=[BasisSource.DEFAULT_RULE, BasisSource.SECTION_NOTE, BasisSource.VECTOR_PATH],
+                note=(
+                    f"Height is {depth_src} plus {ABOVE_GRADE_MM:.0f} mm above grade; "
+                    f"thickness {thick_src}; run is the measured footprint perimeter."
+                ),
+            ),
+            assumptions=[
+                "The drawings show strip footings, which carry a concrete wall from "
+                "frost depth to the slab, but state no wall height or quantity.",
+                "A frost wall is assumed, not a full basement: a basement wall is about "
+                "twice as tall, so if the building has a basement this understates it.",
+                "Run taken as the rectangular footprint perimeter; interior bearing "
+                "and party walls are not counted.",
+            ],
+            provenance=Provenance(
+                page=page_of_footprint(inputs), sheet_no=inputs.footprint_sheet,
+                detail="FOUNDATION WALL",
+            ),
+        ))
     return lines, covered
 
 

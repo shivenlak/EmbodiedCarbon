@@ -186,6 +186,16 @@ def score(design, truth: dict, provider, ifc_conc: dict | None = None) -> dict:
         and lines[cl.line_id].material in ifc_priced
     )
     a1_a5_kg = (truth.get("bpr_a1_a5_t") or 0) * 1000.0 or None
+    # Per square metre, because a report can cover one unit of a block the
+    # drawings show whole (AB_Rowhouse_01: the report's 74 m2 is one unit of
+    # a 143 m2-footprint block), and totals across different scopes compare
+    # nothing. Ours over our measured floor area, theirs over theirs.
+    fp_m2 = footprint_m2(takeoff)
+    storeys = takeoff.project.storeys or 1
+    our_gfa = fp_m2 * storeys if fp_m2 else None
+    bpr_gfa = truth.get("bpr_gfa_m2")
+    ours_int = total / our_gfa if our_gfa and total else None
+    bpr_int = a1_a5_kg / bpr_gfa if a1_a5_kg and bpr_gfa else None
 
     return {
         "key": design.key,
@@ -217,6 +227,9 @@ def score(design, truth: dict, provider, ifc_conc: dict | None = None) -> dict:
             "ours_a1_a3_kg": round(total, 0),
             "bpr_a1_a5_kg": a1_a5_kg,
             "ratio_to_a1_a5": round(total / a1_a5_kg, 3) if a1_a5_kg and total else None,
+            "ours_kg_m2": round(ours_int, 1) if ours_int else None,
+            "bpr_a1_a5_kg_m2": round(bpr_int, 1) if bpr_int else None,
+            "intensity_ratio": round(ours_int / bpr_int, 3) if ours_int and bpr_int else None,
             "ifc_at_our_factors_kg": round(ifc_kg, 0) if ifc_priced else None,
             "ours_same_materials_kg": round(ours_same_scope, 0) if ifc_priced else None,
             "ifc_materials_priced": ifc_priced,
@@ -297,6 +310,22 @@ def summarise(rows: list[dict]) -> dict:
         if ratios_same
         else None
     )
+    irs = [r["carbon"].get("intensity_ratio") for r in rows if r["carbon"].get("intensity_ratio")]
+    out["intensity_vs_cmhc_a1_a5"] = (
+        {
+            "n": len(irs),
+            "median_ratio": round(statistics.median(irs), 2),
+            "q1": round(sorted(irs)[len(irs) // 4], 2),
+            "q3": round(sorted(irs)[(3 * len(irs)) // 4], 2),
+            "note": (
+                "Our kg CO2e per m2 of measured floor area over CMHC's A1-A5 per m2 of "
+                "its own floor area: robust to a report that covers one unit of a "
+                "block the drawings show whole."
+            ),
+        }
+        if irs
+        else None
+    )
     out["carbon_vs_cmhc_a1_a5"] = (
         {
             "n": len(ratios),
@@ -334,6 +363,11 @@ def summarise(rows: list[dict]) -> dict:
             "designs": len(rs),
             "wall_vs_ifc": _spread([r["quantities"]["exterior_wall_m2"]["err_vs_ifc_pct"] for r in rs]),
             "with_carbon": sum(1 for r in rs if (r["carbon"]["ours_a1_a3_kg"] or 0) > 0),
+            "intensity_ratio_median": (
+                round(statistics.median(ys), 2)
+                if (ys := [r["carbon"].get("intensity_ratio") for r in rs if r["carbon"].get("intensity_ratio")])
+                else None
+            ),
             "carbon_ratio_median": (
                 round(statistics.median(xs), 2)
                 if (xs := [r["carbon"]["ratio_to_a1_a5"] for r in rs if r["carbon"]["ratio_to_a1_a5"]])
