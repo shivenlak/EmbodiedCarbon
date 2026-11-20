@@ -72,14 +72,14 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
 
 ## B4. Carbon factors by region (Sat 21 – Mon 23)
 
-- [ ] **New rows in `ecarbon/carbon/seed_factors.json`** with `geography` set, each with `source`, `source_id`, `attribution`, `valid_from` and `uncertainty_pct`, like the existing rows:
+- [x] **New rows in `ecarbon/carbon/seed_factors.json`** *(19 Nov: 4 US rows, each read off its EPD: NRMCA V4 4000-00 330.17 and 4000-40FA 239.26 kg/m3, valid to 2031; AWC/CWC N. American lumber 63.12 kg/m3; GA 5/8" Type X 277 kg per 92.9 m2. The last two **expired** (2025-07 and 2026-04), are recorded as such and carry wider uncertainty. Still to do: US insulation, sheathing, windows and roofing; UK (ICE); AU.)* with `geography` set, each with `source`, `source_id`, `attribution`, `valid_from` and `uncertainty_pct`, like the existing rows:
   - **US (`geography: "US"`):** North American industry-average EPDs for ready-mix concrete (NRMCA), softwood lumber and OSB/plywood (AWC/APA), gypsum board (Gypsum Association), insulation (NAIMA), asphalt shingles (ARMA) and steel. Verify each value and its declared unit from the EPD itself; don't copy from memory.
   - **UK/EU (`GB` / `EU`):** the ICE database, after checking its licence and attribution terms.
   - **AU:** only if a public source with a clear licence exists. Otherwise no rows; the fallback note covers it.
-- [ ] **`store.find_by_material(name, geography=None)`:** with a geography, try an exact region match, then the same country, then today's lookup. **With `None` it must behave exactly as today.**
-- [ ] **When it falls back,** the carbon line gets a note: "No <country> factor for <material>; the Canadian factor is used." The range widens per the existing uncertainty.
-- [ ] **Thread the geography through:** `calculate_carbon(takeoff, provider, geography=None)` (`carbon/calculate.py`), from `Project.recompute`. The region comes from C1 locale, unless the upload form's jurisdiction says otherwise.
-- [ ] **UI:** "Factors: United States (from the title block) · change", with a small picker.
+- [x] **`store.find_by_material(name, geography=None)`:** with a geography, try an exact region match, then the same country, then today's lookup. **With `None` it must behave exactly as today.**
+- [x] **When it falls back,** the carbon line gets a note: "No <country> factor for <material>; the Canadian factor is used." The range widens per the existing uncertainty.
+- [x] **Thread the geography through:** `calculate_carbon(takeoff, provider, geography=None)` (`carbon/calculate.py`), from `Project.recompute`. The region comes from C1 locale, unless the upload form's jurisdiction says otherwise.
+- [x] **UI:** "Factors: United States (from the title block) · change", with a small picker.
 - [ ] Test that the CMHC totals are bit-identical (the gate proves it). Test the fallback note.
 
 ## B5. Metric / imperial toggle (Mon 23)

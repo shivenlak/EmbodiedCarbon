@@ -94,6 +94,8 @@ export default function Showcase({
   onPage,
   onUpload,
   onHelp,
+  region,
+  onRegion,
   who,
   onSignOut,
   exportHref,
@@ -793,6 +795,38 @@ export default function Showcase({
                 </>
               )}
             </div>
+          </div>
+        )}
+        {region && (
+          <div className="sc-region">
+            <span>Factors:</span>
+            <b>{region.label}</b>
+            <em>
+              {region.source === "title block"
+                ? "from the title block"
+                : region.source === "jurisdiction"
+                  ? "from the location you gave"
+                  : region.source === "chosen"
+                    ? "you chose"
+                    : "default"}
+            </em>
+            {onRegion && region.options?.length > 1 && (
+              <label className="sc-region-pick">
+                <span>change</span>
+                <select
+                  aria-label="Whose carbon factors to use"
+                  value={region.geography?.split("-")[0] || ""}
+                  onChange={(e) => onRegion(e.target.value || null)}
+                >
+                  {region.options.map((o) => (
+                    <option key={o.geography || "default"} value={o.geography || ""}>
+                      {o.label}
+                      {o.geography ? ` (${o.n_factors} local factors)` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         )}
         {scenarioActive && (

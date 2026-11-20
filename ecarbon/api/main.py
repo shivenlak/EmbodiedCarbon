@@ -66,6 +66,10 @@ class Project:
     # What the user stated where the drawings could not be read (contract C2).
     # Held so a later calibration adds to earlier ones rather than replacing them.
     overrides: object | None = None
+    # Whose carbon factors to use ("US", "CA-AB", ...); None is the default
+    # (Canadian) set, exactly as before. `region_source` says how it was set.
+    geography: str | None = None
+    region_source: str = "default"
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
@@ -74,7 +78,7 @@ class Project:
     def recompute(self) -> None:
         # Carbon is derived from the takeoff and never mutates it, so a
         # recompute after an override cannot corrupt the extraction output.
-        self.carbon = calculate_carbon(self.takeoff, _FACTORS)
+        self.carbon = calculate_carbon(self.takeoff, _FACTORS, geography=self.geography)
         self._check_intensity()
 
     def _check_intensity(self) -> None:
@@ -251,7 +255,11 @@ def _own(project_id: str) -> Project:
         if len(_FORKS) >= _MAX_FORKS:
             _FORKS.pop(next(iter(_FORKS)))
         fork = Project(
-            id=p.id, takeoff=p.takeoff.model_copy(deep=True), design=p.design
+            id=p.id,
+            takeoff=p.takeoff.model_copy(deep=True),
+            design=p.design,
+            geography=p.geography,
+            region_source=p.region_source,
         )
         _FORKS[key] = fork
     return fork
@@ -952,6 +960,71 @@ def calibrate_project(project_id: str, body: Calibrate) -> CalibrateOut:
     )
 
 
+# -- whose carbon factors (region) -----------------------------------------
+
+
+class RegionOption(BaseModel):
+    geography: str | None
+    label: str
+    n_factors: int = Field(description="factors the store holds for this country")
+
+
+class RegionOut(BaseModel):
+    geography: str | None
+    label: str
+    source: str = Field(description="chosen | title block | jurisdiction | default")
+    options: list[RegionOption]
+
+
+class SetRegion(BaseModel):
+    geography: str | None = None
+
+
+def _region_out(p: Project) -> RegionOut:
+    from collections import Counter
+
+    from ecarbon.carbon.region import COUNTRIES, label_of
+
+    per_country = Counter(f.geography.split("-")[0].upper() for f in _FACTORS.list_factors())
+    options = [RegionOption(geography=None, label=label_of(None), n_factors=per_country.get("CA", 0))]
+    for code, n in sorted(per_country.items()):
+        if code != "CA" and code in COUNTRIES:
+            options.append(RegionOption(geography=code, label=label_of(code), n_factors=n))
+    return RegionOut(
+        geography=p.geography, label=label_of(p.geography), source=p.region_source, options=options
+    )
+
+
+@app.get("/projects/{project_id}/region", response_model=RegionOut)
+def get_region(project_id: str) -> RegionOut:
+    """Whose carbon factors this project is priced with, and how that was decided."""
+    return _region_out(_get(project_id))
+
+
+@app.post("/projects/{project_id}/region", response_model=RegionOut)
+def set_region(project_id: str, body: SetRegion) -> RegionOut:
+    """Price this project with another region's factors, in this workspace only.
+
+    Materials with no factor for that region keep the default one, and their
+    lines say so with a wider range.
+    """
+    from ecarbon.carbon.region import from_text
+
+    geo = body.geography
+    if geo is not None:
+        geo = geo.strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}(-[A-Z]{2,3})?", geo):
+            parsed = from_text(body.geography)
+            if parsed is None:
+                raise HTTPException(422, f"could not read {body.geography!r} as a region")
+            geo = parsed
+    p = _own(project_id)
+    p.geography = geo
+    p.region_source = "chosen" if geo else "default"
+    p.recompute()
+    return _region_out(p)
+
+
 # -- decisions the drawings leave open -------------------------------------
 
 
@@ -1150,7 +1223,16 @@ async def upload_project(
                 422,
                 f"could not read this plan set: {exc}. Nothing partial is stored.",
             ) from exc
-        project = Project(id=project_id, takeoff=takeoff, design=design)
+        from ecarbon.carbon.region import detect
+
+        region = detect(design, jurisdiction)
+        project = Project(
+            id=project_id,
+            takeoff=takeoff,
+            design=design,
+            geography=region.geography,
+            region_source=region.source,
+        )
         total = project.carbon.total_kg_co2e
         tell("carbon", f"{total:,.0f} kgCO2e across {len(takeoff.lines)} lines")
         _PROJECTS[project_id] = project

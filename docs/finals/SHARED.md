@@ -201,6 +201,16 @@ On localhost with vision on, upload a **holdout** set from each of at least 3 co
 
 On the CMHC side: the gate passes and coverage is at or above baseline.
 
+## Validation log (B checks A's branch on the full catalogue)
+
+- **19 Nov, `finals/reading` @ bc9d259** (7 commits, not yet in a PR):
+  - **Tests:** full suite **790 passed, 0 skipped** (Alberta gate included); ruff clean.
+  - **Diff:** no Landmark content or files, and no change to the builder's C2 hooks.
+  - **Landmark (rules only):** sheets classified **0% → 79–95%**, and a scale is now found on all three. Still **0 quantities** (no assemblies, slab or footing spec read), and Townhome reaches 20% coverage. Next blockers, in order: assembly schedule, foundation spec, openings.
+  - **Dev corpus:** all 11 scored sets still produce no quantities. The top blockers are assemblies, slab thickness, levels and openings (11/11 each).
+  - **Note:** `folder_design` writes its joined copy to `<set>/.ecarbon/`, inside the data repo. That repo now ignores `.ecarbon/` (pushed).
+  - **OK to PR into `main`.**
+
 ## Requests (cross-stream asks; append, don't edit the other stream's files)
 
 - *(none yet)*

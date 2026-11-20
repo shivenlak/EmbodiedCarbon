@@ -468,7 +468,8 @@
 .sc.is-intro .sc-dock { opacity: 0; }
 .sc-hints {
   position: absolute; z-index: 3; left: max(28px, env(safe-area-inset-left, 0px));
-  top: calc(max(16px, env(safe-area-inset-top, 0px)) + 300px);
+  /* Below the hero, including its "Factors:" line. */
+  top: calc(max(16px, env(safe-area-inset-top, 0px)) + 336px);
   display: grid; justify-items: start; gap: 2px; padding: 6px; border-radius: 16px;
   animation: sc-hints-in 0.6s var(--ease) both;
 }
@@ -918,3 +919,12 @@ a.sc-btn { display: inline-flex; align-items: center; text-decoration: none; col
 .sc-help:hover { background: rgb(124 58 237 / 0.34); }
 .sc .chip-said { color: #ddd6fe; background: rgb(124 58 237 / 0.25); border-color: rgb(167 139 250 / 0.6); }
 .sc .chip-ai { color: #99f6e4; background: rgb(15 118 110 / 0.25); border-color: rgb(94 234 212 / 0.5); }
+
+/* Whose carbon factors: the line under the total */
+.sc-region { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 12.5px; color: var(--frost); }
+.sc-region b { color: var(--snow); font-weight: 600; }
+.sc-region em { font-style: normal; opacity: 0.7; }
+.sc-region-pick { position: relative; display: inline-flex; align-items: center; color: var(--cedar); cursor: pointer; }
+.sc-region-pick span { text-decoration: underline; text-underline-offset: 3px; }
+.sc-region-pick select { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 16px; }
+.sc-region-pick:focus-within span { outline: 2px solid var(--cedar); outline-offset: 2px; border-radius: 2px; }
