@@ -71,6 +71,7 @@ from ecarbon.models import (
     TakeoffResult,
     Unit,
 )
+from ecarbon.takeoff.framing import framing_lines
 from ecarbon.takeoff.overrides import (
     _FROM_FOOTPRINT,
     StatedStoreyHeights,
@@ -1144,6 +1145,24 @@ def build_takeoff(
             )
             lines += built
             gaps += more
+
+    # Floor joists and roof framing the assemblies defer to the structure,
+    # estimated from a stated standard over measured geometry (framing.py).
+    # Each one replaces its "not counted" note with a pointer to its line.
+    framed, covered = framing_lines(inputs, lines)
+    lines += framed
+    for gap in gaps:
+        for marker, line_id in covered.items():
+            if marker in gap.message and "not counted" in gap.message:
+                what = gap.message.split(" defers to ")[0].split(";")[0]
+                gap.message = (
+                    f"{what}: the drawings give no quantity for it, so it is estimated "
+                    f"from a stated standard on {line_id} (assumed) rather than left "
+                    f"out. Replace it with the structural drawings' member, gauge, "
+                    f"depth and spacing where those are known."
+                )
+                gap.severity = GapSeverity.INFO
+                gap.affects = [line_id]
 
     tell("assemblies", f"{len(inputs.assemblies)} assemblies resolved into their layers")
 

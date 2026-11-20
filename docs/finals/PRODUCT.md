@@ -52,10 +52,10 @@ Tick each box in the PR that lands it.
 
 Real builders, Landmark included, send a folder of PDFs: floor layout, roof, foundation, details, schedule.
 
-- [ ] **Upload dialog** (`App.jsx` `Upload`): accept several files, or a dropped folder. Show the files list, with the sheet types once they're read.
-- [ ] **`POST /projects/upload`:** take several `file` parts, save them together, and build one design with A4b's `folder_design()`. Keep the size limit across the whole set (raise it if needed), and check the `%PDF-` header on each file.
-- [ ] **Progress stages** count across files ("sheets: 23 across 6 files").
-- [ ] **Confidentiality:** test with the Landmark sets **on localhost only**. Never on the live site, and never in screenshots that get committed.
+- [x] **Upload dialog** (`App.jsx` `Upload`): accept several files, or a dropped folder. Show the files list, with the sheet types once they're read.
+- [x] **`POST /projects/upload`:** take several `file` parts, save them together, and build one design with A4b's `folder_design()`. Keep the size limit across the whole set (raise it if needed), and check the `%PDF-` header on each file.
+- [x] **Progress stages** count across files ("sheets: 23 across 6 files").
+- [x] **Confidentiality:** test with the Landmark sets **on localhost only**. Never on the live site, and never in screenshots that get committed.
 
 ## B3. "Help it read this", the guided fallback UI (Sat 21 – Sun 22)
 
@@ -72,35 +72,35 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
 
 ## B4. Carbon factors by region (Sat 21 – Mon 23)
 
-- [ ] **New rows in `ecarbon/carbon/seed_factors.json`** with `geography` set, each with `source`, `source_id`, `attribution`, `valid_from` and `uncertainty_pct`, like the existing rows:
+- [x] **New rows in `ecarbon/carbon/seed_factors.json`** *(19 Nov: 4 US rows, each read off its EPD: NRMCA V4 4000-00 330.17 and 4000-40FA 239.26 kg/m3, valid to 2031; AWC/CWC N. American lumber 63.12 kg/m3; GA 5/8" Type X 277 kg per 92.9 m2. The last two **expired** (2025-07 and 2026-04), are recorded as such and carry wider uncertainty. Still to do: US insulation, sheathing, windows and roofing; UK (ICE); AU.)* with `geography` set, each with `source`, `source_id`, `attribution`, `valid_from` and `uncertainty_pct`, like the existing rows:
   - **US (`geography: "US"`):** North American industry-average EPDs for ready-mix concrete (NRMCA), softwood lumber and OSB/plywood (AWC/APA), gypsum board (Gypsum Association), insulation (NAIMA), asphalt shingles (ARMA) and steel. Verify each value and its declared unit from the EPD itself; don't copy from memory.
   - **UK/EU (`GB` / `EU`):** the ICE database, after checking its licence and attribution terms.
   - **AU:** only if a public source with a clear licence exists. Otherwise no rows; the fallback note covers it.
-- [ ] **`store.find_by_material(name, geography=None)`:** with a geography, try an exact region match, then the same country, then today's lookup. **With `None` it must behave exactly as today.**
-- [ ] **When it falls back,** the carbon line gets a note: "No <country> factor for <material>; the Canadian factor is used." The range widens per the existing uncertainty.
-- [ ] **Thread the geography through:** `calculate_carbon(takeoff, provider, geography=None)` (`carbon/calculate.py`), from `Project.recompute`. The region comes from C1 locale, unless the upload form's jurisdiction says otherwise.
-- [ ] **UI:** "Factors: United States (from the title block) · change", with a small picker.
+- [x] **`store.find_by_material(name, geography=None)`:** with a geography, try an exact region match, then the same country, then today's lookup. **With `None` it must behave exactly as today.**
+- [x] **When it falls back,** the carbon line gets a note: "No <country> factor for <material>; the Canadian factor is used." The range widens per the existing uncertainty.
+- [x] **Thread the geography through:** `calculate_carbon(takeoff, provider, geography=None)` (`carbon/calculate.py`), from `Project.recompute`. The region comes from C1 locale, unless the upload form's jurisdiction says otherwise.
+- [x] **UI:** "Factors: United States (from the title block) · change", with a small picker.
 - [ ] Test that the CMHC totals are bit-identical (the gate proves it). Test the fallback note.
 
 ## B5. Metric / imperial toggle (Mon 23)
 
-- [ ] **One formatter.** `fmtQty(value, unit, system)` and `fmtIntensity(kgPerM2, system)` in `web/src/App.jsx`, next to `int` / `dec` / `UNIT_LABEL` / `prose`, exported for `Showcase.jsx`.
+- [x] **One formatter.** `fmtQty(value, unit, system)` and `fmtIntensity(kgPerM2, system)` in `web/src/App.jsx`, next to `int` / `dec` / `UNIT_LABEL` / `prose`, exported for `Showcase.jsx`.
   - Conversions: m → ft, m² → ft², m³ → yd³. kg CO₂e is unchanged.
   - Intensity is kg CO₂e/m² or kg CO₂e/ft².
-- [ ] **Replace the hard-coded unit strings** (search `m²`, `m2`, `m³`, `kg/m`, `" m"` in `App.jsx` and `Showcase.jsx`). `prose()` must also convert numbers inside server sentences, or leave them in SI and label them so.
-- [ ] **Where it lives and remembers:** the toggle sits in the top bar, defaulting to `locale.unit_system` (C5; `mixed` → metric). The choice is remembered in `localStorage`, wrapped in try/catch.
+- [x] **Replace the hard-coded unit strings** (search `m²`, `m2`, `m³`, `kg/m`, `" m"` in `App.jsx` and `Showcase.jsx`). `prose()` must also convert numbers inside server sentences, or leave them in SI and label them so.
+- [x] **Where it lives and remembers:** the toggle sits in the top bar, defaulting to `locale.unit_system` (C5; `mixed` → metric). The choice is remembered in `localStorage`, wrapped in try/catch.
 - [ ] **Exports:** CSV and report get a units option. SI stays the default for CSV, so tools that import it don't break.
-- [ ] **C5:** expose `locale` on the project/massing response.
+- [x] **C5:** *(served as `GET /projects/{id}/region` instead: geography + where it came from, including C1's title-block locale once real. The units default follows it: US → feet.)*
 
 ## B6. Accuracy you can demonstrate (Mon 23 – Wed 25)
 
-- [ ] **`scripts/accuracy.py`** writes `web/src/accuracy.json` (numbers only, no drawing content) from:
+- [x] **`scripts/accuracy.py`** writes `web/src/accuracy.json` (numbers only, no drawing content) from:
   - **CMHC against the IFC models:** per-element error for footprint (`bench/ifc_truth.building_bbox`), exterior wall area, slab volume and roof area (`bench/ifc_quantities.model_quantities`). Report the median and spread per element, and per region.
   - **Coverage before → after:** `out/baseline.json` vs `run_pipeline.py --json` now.
   - **Dev corpus:** `out/blind.json` from Stream A.
   - **Holdout:** score each holdout set with Stream A's `score_set` against `holdout_truth.yaml`. Run it once after the freeze and record it as-is.
   - **Landmark** (once the sponsor's material lists and takeoffs arrive): compare our quantities line by line with Landmark's own, for each of RPL, RSL and Townhome. This is the strongest evidence for the "quantity takeoff accuracy" criterion. Publish only **aggregate** errors (e.g. "walls within X% across three Landmark projects"), never their quantities or drawings. Keep the per-line comparison in `~/ec-data/landmark/`, not in the repo.
-- [ ] **Against professional assessments.** This answers the semi-final judges' first question: "how have you validated accuracy against a traditional professional assessment?"
+- [x] **Against professional assessments.** This answers the semi-final judges' first question: "how have you validated accuracy against a traditional professional assessment?"
   - **CMHC Building Performance Reports** are CMHC's own professional LCA for every design (73 reports, parsed by `ecarbon/bench/bpr.py`). Their scope is A1–A5, B4–B5, C2–C4, so **never compare totals directly**. Report:
     - (a) **element shares**: our % by element vs theirs (foundations, walls, roofs, floors…) across every scoreable design, with the spread
     - (b) **the bounds check**: our A1–A3 is below their total in every design, and the ratio sits in a plausible band (the IStructE guide puts A1–A3 at roughly half of A1–C4)
@@ -108,7 +108,7 @@ Real builders, Landmark included, send a folder of PDFs: floor layout, roof, fou
     - *quantity error:* against the IFC models and against Landmark's own takeoffs
     - *factor error:* run one design's quantities through **BEAM** (free; used by practitioners), compare per element, and record the BEAM version
   - Put a one-line, honest claim at the top of the panel and the deck. For example: "quantities within X% of the builder's own takeoff; carbon within Y% of BEAM on the same quantities; element shares track CMHC's professional reports to within Z points". Use only numbers we have actually measured.
-- [ ] **"How accurate is it" panel** in the app (a glass sheet like the others):
+- [x] **"How accurate is it" panel** in the app (a glass sheet like the others):
   - the CMHC error table
   - countries and unit systems tested
   - holdout results, labelled "blind"

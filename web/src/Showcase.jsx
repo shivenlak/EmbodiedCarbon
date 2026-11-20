@@ -17,7 +17,6 @@ import {
   useCountUp,
   Confidence,
   Said,
-  UNIT_LABEL,
   CLASS_LABEL,
   PARTITION_PREFIX,
   HEAT,
@@ -34,6 +33,8 @@ import {
   AppFooter,
 } from "./App.jsx";
 import { canHelp, modeFor } from "./HelpRead.jsx";
+import { useUnits } from "./units.js";
+import ACCURACY from "./accuracy.json";
 import "./showcase.css";
 
 const STILL =
@@ -53,6 +54,7 @@ const PANELS = [
   { id: "carbon", label: "Carbon" },
   { id: "notes", label: "Questions" },
   { id: "spec", label: "Your spec" },
+  { id: "accuracy", label: "Accuracy" },
 ];
 
 // The element each class is billed under, for "press a surface, see its line".
@@ -94,11 +96,14 @@ export default function Showcase({
   onPage,
   onUpload,
   onHelp,
+  region,
+  onRegion,
   who,
   onSignOut,
   exportHref,
   reportHref,
 }) {
+  const U = useUnits();
   // The pages that open as a sheet over the model, in their order.
   const SHEETS = [
     { id: "quantities", label: "Bill of quantities" },
@@ -553,7 +558,8 @@ export default function Showcase({
     const { hotI, coolI } = heatView;
     return Math.max(0, Math.min(1, (v - coolI) / (hotI - coolI || hotI || 1)));
   };
-  const heatFmt = (v) => (heatMode === "share" ? `${int(v)} kg` : `${dec(v, 1)} kg/m²`);
+  const heatFmt = (v) =>
+    heatMode === "share" ? `${int(v)} kg` : `${dec(U.perArea(v), U.imperial ? 2 : 1)} kg/${U.areaLabel}`;
 
   const counts = useMemo(() => {
     const c = { measured: 0, inferred: 0, assumed: 0 };
@@ -588,7 +594,7 @@ export default function Showcase({
   // Cut at a clause break, but end on a full stop: a note ending "here:" or
   // "schedule;" reads as text that failed to load.
   const firstSentence = (t) => {
-    const s = prose(t);
+    const s = U.text(prose(t));
     const i = s.search(/[.;:](\s|$)/);
     return i > 40 && i < 220 ? `${s.slice(0, i)}.` : s.length > 200 ? `${s.slice(0, 200)}…` : s;
   };
@@ -689,6 +695,19 @@ export default function Showcase({
           </label>
         </div>
         <div className="sc-top-actions">
+          <div className="glass sc-units" role="group" aria-label="Units">
+            {[["metric", "m"], ["imperial", "ft"]].map(([sys, lab]) => (
+              <button
+                key={sys}
+                className={U.system === sys ? "is-on" : ""}
+                aria-pressed={U.system === sys}
+                onClick={() => U.setSystem(sys)}
+                title={sys === "metric" ? "Metres, m², m³" : "Feet, ft², yd³"}
+              >
+                {lab}
+              </button>
+            ))}
+          </div>
           {exportHref && (
             <a className="glass sc-btn sc-hide-phone" href={exportHref} download>
               Download CSV
@@ -726,8 +745,8 @@ export default function Showcase({
         </div>
         <div className="sc-sub">
           <span>
-            <b>{dec(carbon?.intensity_kg_co2e_per_m2, 1)}</b> kg/m² over{" "}
-            {p.gfa_m2 ? dec(p.gfa_m2, 0) : "—"} m²
+            <b>{dec(U.perArea(carbon?.intensity_kg_co2e_per_m2), U.imperial ? 2 : 1)}</b> kg/{U.areaLabel} over{" "}
+            {p.gfa_m2 ? int(U.v(p.gfa_m2, "m2")) : "—"} {U.areaLabel}
           </span>
           {partitions > 0 && (
             <span>
@@ -795,6 +814,38 @@ export default function Showcase({
             </div>
           </div>
         )}
+        {region && (
+          <div className="sc-region">
+            <span>Factors:</span>
+            <b>{region.label}</b>
+            <em>
+              {region.source === "title block"
+                ? "from the title block"
+                : region.source === "jurisdiction"
+                  ? "from the location you gave"
+                  : region.source === "chosen"
+                    ? "you chose"
+                    : "default"}
+            </em>
+            {onRegion && region.options?.length > 1 && (
+              <label className="sc-region-pick">
+                <span>change</span>
+                <select
+                  aria-label="Whose carbon factors to use"
+                  value={region.geography?.split("-")[0] || ""}
+                  onChange={(e) => onRegion(e.target.value || null)}
+                >
+                  {region.options.map((o) => (
+                    <option key={o.geography || "default"} value={o.geography || ""}>
+                      {o.label}
+                      {o.geography ? ` (${o.n_factors} local factors)` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
         {scenarioActive && (
           <button className="sc-spec-chip" onClick={() => goTo(4)}>
             Your spec <b>{int(shownSpec)}</b>
@@ -819,7 +870,7 @@ export default function Showcase({
           {areaView?.intensity[hover.cls] != null && (
             <span className="sc-tip-heat">
               <i style={{ background: heatSwatch(hover.cls) }} />
-              {dec(areaView.intensity[hover.cls], 1)} kgCO₂e/m² of surface
+              {dec(U.perArea(areaView.intensity[hover.cls]), U.imperial ? 2 : 1)} kgCO₂e/{U.areaLabel} of surface
             </span>
           )}
           {heat && unmeasured.includes(hover.cls) && (
@@ -856,7 +907,7 @@ export default function Showcase({
                 show up as a wrong shape.
               </p>
               <dl className="sc-facts">
-                <div><dt>Footprint</dt><dd>{dec(massing?.width_m, 1)} × {dec(massing?.depth_m, 1)} m</dd></div>
+                <div><dt>Footprint</dt><dd>{dec(U.v(massing?.width_m, "m"), 1)} × {dec(U.v(massing?.depth_m, "m"), 1)} {U.label("m")}</dd></div>
                 <div><dt>Storeys</dt><dd>{heights.length || p.storeys || "—"}</dd></div>
                 <div><dt>Units</dt><dd>{p.units ?? "—"}</dd></div>
                 <div><dt>Partitions</dt><dd>{massing?.walls?.length ?? "—"} walls</dd></div>
@@ -884,8 +935,8 @@ export default function Showcase({
                 {modelLines.map((line) => {
                   const isPart = line.id.startsWith(PARTITION_PREFIX);
                   const walls = massing?.walls?.length;
-                  const qty = isPart && walls ? walls : line.user_override ?? line.quantity;
-                  const unit = isPart && walls ? "walls" : UNIT_LABEL[line.unit] || line.unit;
+                  const qty = isPart && walls ? walls : U.v(line.user_override ?? line.quantity, line.unit);
+                  const unit = isPart && walls ? "walls" : U.label(line.unit);
                   const cls = line.element_class;
                   return (
                     <li key={line.id}>
@@ -930,7 +981,7 @@ export default function Showcase({
                 <div className="sc-legend">
                   <div className="sc-mode" role="group" aria-label="Colour the model by">
                     <button className={heatMode === "area" ? "is-on" : ""} onClick={() => setHeatMode("area")}>
-                      Per m² of surface
+                      Per {U.areaLabel} of surface
                     </button>
                     <button className={heatMode === "share" ? "is-on" : ""} onClick={() => setHeatMode("share")}>
                       Share of total
@@ -996,7 +1047,7 @@ export default function Showcase({
                         <s style={{ width: `${(kg / topKg) * 100}%`, background: swatch || undefined }} />
                       </span>
                       <b>{int(kg)}</b>
-                      <em>{dens != null ? `${dec(dens, 1)}/m²` : "not drawn"}</em>
+                      <em>{dens != null ? `${dec(U.perArea(dens), U.imperial ? 2 : 1)}/${U.areaLabel}` : "not drawn"}</em>
                     </li>
                   );
                 })}
@@ -1092,6 +1143,9 @@ export default function Showcase({
                 All {swaps?.length || 0} swaps, ranked, with their caveats →
               </button>
             </section>
+
+            {/* 6. accuracy */}
+            <AccuracyPanel />
           </div>
 
           <div className="sc-deck-foot">
@@ -1259,7 +1313,7 @@ export default function Showcase({
         <aside className="sc-hints glass" aria-label="Getting started">
           {[
             ["Press a sheet tag", "to see where a number came from", 1],
-            ["Heat map", "what is heaviest per m²", 2],
+            ["Heat map", `what is heaviest per ${U.areaLabel}`, 2],
             ["Your spec", "price a choice before it is locked", 4],
           ].map(([b, rest, to], i) => (
             <button
@@ -1381,10 +1435,11 @@ function slotHeight(n) {
 // One line of the bill, worked: what was read, times its factor, is its
 // carbon. The quantity can be corrected in place.
 function PartLine({ line, carbonLine, onOverride, onTrace }) {
+  const U = useUnits();
   const [draft, setDraft] = useState(null);
   const edited = line.user_override != null;
-  const qty = edited ? line.user_override : line.quantity;
-  const unit = UNIT_LABEL[line.unit] || line.unit;
+  const qty = U.v(edited ? line.user_override : line.quantity, line.unit);
+  const unit = U.label(line.unit);
   const f = carbonLine?.factor;
   const converted = carbonLine?.conversion_note && !/directly matches/i.test(carbonLine.conversion_note);
   // When the factor is declared in another unit, the multiplication is shown
@@ -1392,11 +1447,13 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
   const inFactorUnit = f && f.gwp_value ? (carbonLine.kg_co2e || 0) / f.gwp_value : null;
 
   async function commit() {
-    const value = parseFloat(draft);
+    const shown = parseFloat(draft);
     setDraft(null);
-    if (!Number.isFinite(value) || value < 0) return;
-    // Typing back the figure we read is an undo.
-    if (value === line.quantity) {
+    if (!Number.isFinite(shown) || shown < 0) return;
+    // Typed in the units on screen; stored in SI.
+    const value = U.back(shown, line.unit);
+    // Typing back the figure we read is an undo, at the precision shown.
+    if (Math.abs(shown - U.v(line.quantity, line.unit)) < 0.005) {
       if (edited) await onOverride(line.id, null);
       return;
     }
@@ -1407,7 +1464,7 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
   return (
     <li className="bd-line">
       <div className="bd-line-head">
-        <span>{line.description}</span>
+        <span>{U.text(line.description)}</span>
         <Confidence value={line.confidence} />
         <Said line={line} />
       </div>
@@ -1418,7 +1475,7 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
             inputMode="decimal"
             value={draft ?? dec(qty, line.unit === "each" ? 0 : 2)}
             onFocus={(e) => {
-              setDraft(String(qty));
+              setDraft(String(+qty.toFixed(3)));
               requestAnimationFrame(() => e.target.select());
             }}
             onChange={(e) => setDraft(e.target.value)}
@@ -1437,14 +1494,14 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
           <>
             {converted && inFactorUnit != null && (
               <span className="bd-conv" title={carbonLine.conversion_note}>
-                → {dec(inFactorUnit, inFactorUnit < 10 ? 2 : 1)}
-                <em>{UNIT_LABEL[f.declared_unit] || f.declared_unit}</em>
+                → {dec(U.v(inFactorUnit, f.declared_unit), U.v(inFactorUnit, f.declared_unit) < 10 ? 2 : 1)}
+                <em>{U.label(f.declared_unit)}</em>
               </span>
             )}
             <span className="bd-op">×</span>
             <span className="bd-factor">
-              {dec(f.gwp_value, f.gwp_value < 10 ? 2 : 0)}
-              <em>kg/{UNIT_LABEL[f.declared_unit] || f.declared_unit}</em>
+              {dec(U.perUnit(f.gwp_value, f.declared_unit), U.perUnit(f.gwp_value, f.declared_unit) < 10 ? 2 : 0)}
+              <em>kg/{U.label(f.declared_unit)}</em>
             </span>
             <span className="bd-op">=</span>
             <b className="bd-result">{int(carbonLine.kg_co2e)}</b>
@@ -1471,5 +1528,96 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
         </button>
       </div>
     </li>
+  );
+}
+
+
+// How accurate is it: the benchmark, as the judges asked for it. Every
+// figure is read from accuracy.json, which scripts/accuracy.py writes from
+// three references made by professionals; nothing here is typed in.
+function AccuracyPanel() {
+  const a = ACCURACY || {};
+  const q = a.quantity_error_pct || {};
+  const pick = (k) => q[k];
+  const rows = [
+    ["Footprint", "energy model", pick("footprint vs energy model ceiling")],
+    ["Exterior wall area", "architect's BIM model", pick("exterior wall area vs IFC model")],
+    ["Window area", "energy model", pick("window area vs energy model")],
+    ["Gypsum board", "BIM model", pick("Gypsum Board volume vs IFC model")],
+    ["Concrete", "BIM model", pick("Concrete, CIP volume vs IFC model")],
+  ].filter((r) => r[2]);
+  const same = a.carbon_vs_ifc_same_factors;
+  const cmhc = a.carbon_vs_cmhc_a1_a5;
+  const sign = (x) => (x > 0 ? `+${x}` : `${x}`);
+  return (
+    <section className="sc-panel sc-acc" aria-label="How accurate is it">
+      <h2>How accurate is it</h2>
+      <p className="sc-lede">
+        Checked against references made by professionals for all {a.designs} CMHC designs:
+        the architect&apos;s BIM model, the energy advisor&apos;s model, and CMHC&apos;s own
+        carbon report. Measurement error and missing scope are kept apart.
+      </p>
+      <h3>Measurements</h3>
+      <table className="sc-acc-table">
+        <thead>
+          <tr>
+            <th>Quantity</th>
+            <th>Median error</th>
+            <th>Within 10%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([name, ref, r]) => (
+            <tr key={name}>
+              <td>
+                {name} <em>vs {ref}</em>
+              </td>
+              <td className={Math.abs(r.median) <= 10 ? "is-good" : "is-off"}>{sign(r.median)}%</td>
+              <td>
+                {r.within_10pct} of {r.n}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h3>Carbon</h3>
+      {same && (
+        <p className="sc-acc-fig">
+          <b>{Math.round(same.median_ratio * 100)}%</b>
+          <span>
+            of the BIM model&apos;s carbon for the same materials at the same factors (median of{" "}
+            {same.n}). The shortfall is quantity we read less of, mostly foundation concrete.
+          </span>
+        </p>
+      )}
+      {cmhc && (
+        <p className="sc-acc-fig">
+          <b>{Math.round(cmhc.median_ratio * 100)}%</b>
+          <span>
+            of CMHC&apos;s reported A1–A5 (median of {cmhc.n}). The rest is transport and
+            construction (A4–A5), CMHC&apos;s own factors, and the items below.
+          </span>
+        </p>
+      )}
+      <h3>Left out or estimated, and said so on every bill</h3>
+      <ul className="sc-acc-list">
+        <li>Left out: foundation walls and basements</li>
+        <li>Left out: steel studs (no steel-stud factor in the store yet)</li>
+        <li>Priced as a range, not counted: cladding and roofing the drawings leave as placeholders</li>
+        <li>Estimated, not read: floor joists and roof trusses (a stated standard over measured spans, marked assumed)</li>
+      </ul>
+      {a.blind_holdout ? (
+        <p className="sc-acc-note">Blind test: {JSON.stringify(a.blind_holdout)}</p>
+      ) : (
+        <p className="sc-acc-note">
+          Blind test on plan sets the tool was never tuned on: scored after the feature freeze.
+        </p>
+      )}
+      <p className="sc-acc-note">
+        The references are not perfect either: one BIM model omits the 76 mm sub-slab
+        insulation its own drawings specify. That is why every number here traces to its sheet.
+        Updated {a.generated}.
+      </p>
+    </section>
   );
 }

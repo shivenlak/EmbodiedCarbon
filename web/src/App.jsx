@@ -21,6 +21,7 @@ import {
   useState,
 } from "react";
 import { canHelp, modeFor } from "./HelpRead.jsx";
+import { UnitsContext, defaultSystem, saveSystem, savedSystem, useUnits } from "./units.js";
 
 // Same origin in a build, because the service serves this bundle itself.
 // Hardcoding the dev address once shipped an interface that called the
@@ -309,6 +310,7 @@ function floorAreaNote(gaps) {
 }
 
 function TitleBlock({ takeoff, carbon, coverage }) {
+  const U = useUnits();
   const p = takeoff?.project || {};
   const sheets = takeoff?.sheets || [];
   const readable = sheets.filter((s) => s.readable).length;
@@ -326,7 +328,7 @@ function TitleBlock({ takeoff, carbon, coverage }) {
     [
       "Floor area",
       <>
-        {p.gfa_m2 ? `${dec(p.gfa_m2, 1)} m²` : "—"}
+        {p.gfa_m2 ? `${U.imperial ? int(U.v(p.gfa_m2, "m2")) : dec(p.gfa_m2, 1)} ${U.areaLabel}` : "—"}
         {p.gfa_basis ? ` · ${p.gfa_basis}` : ""}
         {areaNote && <span className="tb-flag">{areaNote}</span>}
       </>,
@@ -615,6 +617,7 @@ function BillOfQuantities({
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState({});
   const [showAll, setShowAll] = useState(false);
+  const U = useUnits();
 
   const byLine = useMemo(() => {
     const map = {};
@@ -623,12 +626,15 @@ function BillOfQuantities({
   }, [carbon]);
 
   const commit = async (line) => {
-    const value = parseFloat(draft);
+    const shown = parseFloat(draft);
     setEditing(null);
-    if (!Number.isFinite(value) || value < 0) return;
+    if (!Number.isFinite(shown) || shown < 0) return;
+    // Typed in the units on screen; stored in SI.
+    const value = U.back(shown, line.unit);
     // Typing back the figure we read is an undo, not a no-op: an override is
     // held on the server for every visitor, so it must be clearable here.
-    if (value === line.quantity) {
+    // Compared at the precision shown, so a round trip through feet counts.
+    if (Math.abs(U.v(value, line.unit) - U.v(line.quantity, line.unit)) < 0.005) {
       if (line.user_override != null) await onOverride(line.id, null);
       return;
     }
@@ -676,7 +682,7 @@ function BillOfQuantities({
                     )}
                   </div>
                   {line.description && (
-                    <div className="el-desc">{prose(line.description)}</div>
+                    <div className="el-desc">{U.text(prose(line.description))}</div>
                   )}
                   {(line.assumptions?.length || line.basis?.note) && (
                     <>
@@ -690,21 +696,20 @@ function BillOfQuantities({
                       </div>
                       {open[line.id] && (
                         <div className="derivation-body">
-                          {line.basis?.note && <div>{prose(line.basis.note)}</div>}
+                          {line.basis?.note && <div>{U.text(prose(line.basis.note))}</div>}
                           {result?.factor && isCounted(result) && (
                             <div className="derivation-carbon">
                               <b>Carbon:</b>{" "}
-                              {dec(edited ? line.user_override : line.quantity, 2)}{" "}
-                              {UNIT_LABEL[line.unit] || line.unit}
+                              {dec(U.v(edited ? line.user_override : line.quantity, line.unit), 2)}{" "}
+                              {U.label(line.unit)}
                               {inFactorUnit(result) != null &&
-                                ` → ${dec(inFactorUnit(result), 2)} ${UNIT_LABEL[result.factor.declared_unit] || result.factor.declared_unit}`}{" "}
-                              × {rate(result.factor.gwp_value)} kgCO₂e/
-                              {UNIT_LABEL[result.factor.declared_unit] ||
-                                result.factor.declared_unit}{" "}
+                                ` → ${dec(U.v(inFactorUnit(result), result.factor.declared_unit), 2)} ${U.label(result.factor.declared_unit)}`}{" "}
+                              × {rate(U.perUnit(result.factor.gwp_value, result.factor.declared_unit))} kgCO₂e/
+                              {U.label(result.factor.declared_unit)}{" "}
                               = {int(result.kg_co2e)} kgCO₂e.{" "}
                               {result.conversion_note &&
                                 !/directly matches/.test(result.conversion_note) &&
-                                `${prose(result.conversion_note).replace(/\.$/, "")}. `}
+                                `${U.text(prose(result.conversion_note)).replace(/\.$/, "")}. `}
                               Factor: {result.factor.name}, {result.factor.source}
                               , {result.factor.geography},{" "}
                               {(result.factor.modules || []).join("–")},{" "}
@@ -753,24 +758,24 @@ function BillOfQuantities({
                         className="qty-btn"
                         title={
                           edited
-                            ? `Your figure. We read ${dec(line.quantity, 2)} ${UNIT_LABEL[line.unit] || line.unit}.`
+                            ? `Your figure. We read ${dec(U.v(line.quantity, line.unit), 2)} ${U.label(line.unit)}.`
                             : "Correct this quantity"
                         }
                         onClick={() => {
                           setEditing(line.id);
-                          setDraft(String(line.user_override ?? line.quantity));
+                          setDraft(String(+U.v(line.user_override ?? line.quantity, line.unit).toFixed(3)));
                         }}
                       >
                         {/* The effective quantity, not the original. Showing
                             line.quantity after an override left the number we
                             read on screen beside a total computed from the
                             number the reader typed. */}
-                        {dec(edited ? line.user_override : line.quantity, 2)}
+                        {dec(U.v(edited ? line.user_override : line.quantity, line.unit), 2)}
                       </button>
-                      <span className="qty-unit">{UNIT_LABEL[line.unit] || line.unit}</span>
+                      <span className="qty-unit">{U.label(line.unit)}</span>
                       {edited && (
                         <span className="qty-was">
-                          we read {dec(line.quantity, 2)} ·{" "}
+                          we read {dec(U.v(line.quantity, line.unit), 2)} ·{" "}
                           <button
                             className="qty-undo"
                             onClick={() => onOverride(line.id, null)}
@@ -815,10 +820,9 @@ function BillOfQuantities({
                             .join("\n")}
                         >
                           {inFactorUnit(result) != null &&
-                            `${dec(inFactorUnit(result), 1)} ${UNIT_LABEL[result.factor.declared_unit] || result.factor.declared_unit} `}
-                          × {rate(result.factor.gwp_value)} kg/
-                          {UNIT_LABEL[result.factor.declared_unit] ||
-                            result.factor.declared_unit}
+                            `${dec(U.v(inFactorUnit(result), result.factor.declared_unit), 1)} ${U.label(result.factor.declared_unit)} `}
+                          × {rate(U.perUnit(result.factor.gwp_value, result.factor.declared_unit))} kg/
+                          {U.label(result.factor.declared_unit)}
                           <em>
                             {shortSource(result.factor.source)} ·{" "}
                             {result.factor.geography} ·{" "}
@@ -864,6 +868,7 @@ const decisionKey = (c) => `${c.assembly_tag}-${c.category}`;
 const EMPTY_SCENARIO = { swaps: {}, picks: {} };
 
 function OpenDecisions({ choices, scenario, onScenario }) {
+  const U = useUnits();
   if (!choices?.length) return null;
   const pick = (c, o) =>
     onScenario((s) => {
@@ -885,7 +890,7 @@ function OpenDecisions({ choices, scenario, onScenario }) {
               <div>
                 <span className="decision-cat">{c.category}</span>
                 <span className="decision-tag">
-                  {c.assembly_tag} · {c.area_m2} m² · {c.sheet_no}
+                  {c.assembly_tag} · {int(U.v(c.area_m2, "m2"))} {U.areaLabel} · {c.sheet_no}
                 </span>
               </div>
               <div className="decision-range">
@@ -988,6 +993,7 @@ function Substitutions({ swaps, takeoff, scenario, onScenario }) {
 // The what-if. It never touches the counted total on the other pages: a
 // scenario is a builder trying a spec, not a reading of the drawings.
 function ScenarioBar({ carbon, takeoff, swaps, decisions, scenario, onScenario }) {
+  const U = useUnits();
   const base = carbon?.total_kg_co2e || 0;
   const applied = (swaps || []).filter(
     (s) => scenario.swaps[s.line_id] === s.to_material,
@@ -1045,7 +1051,7 @@ function ScenarioBar({ carbon, takeoff, swaps, decisions, scenario, onScenario }
           <b className="scn-fig">{int(shown)}</b>
           <em>
             kgCO₂e
-            {gfa ? ` · ${dec(total / gfa, 1)} kg/m²` : ""}
+            {gfa ? ` · ${dec(U.perArea(total / gfa), U.imperial ? 2 : 1)} kg/${U.areaLabel}` : ""}
           </em>
         </div>
       </div>
@@ -1687,7 +1693,10 @@ const UPLOAD_STAGES = [
 ];
 
 function Upload({ onDone, onClose }) {
-  const [file, setFile] = useState(null);
+  // One PDF, or several that make one set (floor layout, roof, foundation,
+  // details): how builders actually deliver drawings.
+  const [files, setFiles] = useState([]);
+  const file = files[0] || null;
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stages, setStages] = useState(null);
@@ -1707,17 +1716,21 @@ function Upload({ onDone, onClose }) {
     jurisdiction: "",
   });
 
-  const take = (f) => {
+  const take = (list) => {
     setError(null);
-    if (!f) return;
-    if (!/\.pdf$/i.test(f.name)) {
+    const picked = [...(list || [])];
+    if (!picked.length) return;
+    const bad = picked.filter((f) => !/\.pdf$/i.test(f.name));
+    if (bad.length) {
       setError(
-        "This reads vector PDF drawing sets. A scan or an image export carries no geometry to measure.",
+        `${bad.map((f) => f.name).join(", ")} ${bad.length > 1 ? "are" : "is"} not a PDF. This reads vector PDF drawing sets; a scan or an image export carries no geometry to measure.`,
       );
       return;
     }
-    setFile(f);
-    setFacts((x) => ({ ...x, name: x.name || f.name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").trim() }));
+    picked.sort((a, b) => a.name.localeCompare(b.name));
+    setFiles(picked);
+    const first = picked[0].name.replace(/\.pdf$/i, "").replace(/[_]+/g, " ").trim();
+    setFacts((x) => ({ ...x, name: x.name || (picked.length > 1 ? "" : first) }));
   };
 
   async function submit(e) {
@@ -1726,7 +1739,8 @@ function Upload({ onDone, onClose }) {
     setBusy(true);
     setError(null);
     const body = new FormData();
-    body.append("file", file);
+    if (files.length === 1) body.append("file", file);
+    else for (const f of files) body.append("files", f);
     for (const [k, v] of Object.entries(facts)) if (v !== "") body.append(k, v);
     setStages([]);
     setSince(Date.now());
@@ -1789,24 +1803,39 @@ function Upload({ onDone, onClose }) {
             onDrop={(e) => {
               e.preventDefault();
               setOver(false);
-              take(e.dataTransfer.files?.[0]);
+              take(e.dataTransfer.files);
             }}
           >
             <input
               type="file"
               accept="application/pdf,.pdf"
+              multiple
               hidden
-              onChange={(e) => take(e.target.files?.[0])}
+              onChange={(e) => take(e.target.files)}
             />
-            {file ? (
+            {files.length > 1 ? (
+              <>
+                <b>{files.length} files, read as one set</b>
+                <span className="upload-files">
+                  {files.slice(0, 6).map((f) => f.name).join(" · ")}
+                  {files.length > 6 ? ` · and ${files.length - 6} more` : ""}
+                </span>
+                <span>
+                  {(files.reduce((n, f) => n + f.size, 0) / 1e6).toFixed(1)} MB · click to choose again
+                </span>
+              </>
+            ) : file ? (
               <>
                 <b>{file.name}</b>
                 <span>{(file.size / 1e6).toFixed(1)} MB · click to choose another</span>
               </>
             ) : (
               <>
-                <b>Drop a vector PDF here</b>
-                <span>or click to choose · a Revit or AutoCAD export; a scanned set has no text to read</span>
+                <b>Drop a vector PDF here, or several</b>
+                <span>
+                  or click to choose · one set, or its files together (floor plans, roof, foundation,
+                  details) · a scanned set has no text to read
+                </span>
               </>
             )}
           </label>
@@ -1969,6 +1998,20 @@ export default function App() {
   // `?trace=`: a dialog that only opens on click cannot be screenshotted in
   // review, and a demo wants to link straight to the moment that matters.
   const [massing, setMassing] = useState(null);
+  const [region, setRegion] = useState(null);
+  // Metric or imperial: the viewer's own choice, remembered; otherwise feet
+  // for a project priced as US and metres for everything else.
+  const [chosenUnits, setChosenUnits] = useState(savedSystem);
+  const units = useMemo(
+    () => ({
+      system: chosenUnits || defaultSystem(region),
+      setSystem: (next) => {
+        saveSystem(next);
+        setChosenUnits(next);
+      },
+    }),
+    [chosenUnits, region],
+  );
   // "Help it read this": null, or the mode to open in. `?help=scale` (or
   // outline / heights) opens it on load, so it can be reviewed by screenshot.
   const [helping, setHelping] = useState(() => {
@@ -2055,6 +2098,11 @@ export default function App() {
         setDecisions([]);
       }
       try {
+        setRegion(await getJSON(`/projects/${id}/region`));
+      } catch {
+        setRegion(null);
+      }
+      try {
         // Null for most of the catalogue: a design without a footprint or
         // storey datums has no geometry to draw, and drawing a guess would
         // be the one thing this view exists not to do.
@@ -2093,6 +2141,15 @@ export default function App() {
       setMassing(null);
     }
   }, [projectId]);
+  // Price with another region's factors: carbon changes, quantities do not.
+  const chooseRegion = useCallback(
+    async (geography) => {
+      if (!projectId) return;
+      setRegion(await postJSON(`/projects/${projectId}/region`, { geography }));
+      setCarbon(await getJSON(`/projects/${projectId}/carbon`));
+    },
+    [projectId],
+  );
   const helpApi = useMemo(() => ({ get: getJSON, post: postJSON, url: authedUrl }), []);
 
   const override = useCallback(
@@ -2271,7 +2328,7 @@ export default function App() {
   );
 
   return (
-    <>
+    <UnitsContext.Provider value={units}>
       <Suspense fallback={<div className="sc-loading">Loading the model…</div>}>
         <Showcase
           projects={projects}
@@ -2291,6 +2348,8 @@ export default function App() {
           onPage={setPage}
           onUpload={() => setUploading(true)}
           onHelp={(mode) => setHelping(mode || "scale")}
+          region={region}
+          onRegion={chooseRegion}
           who={who}
           onSignOut={signOut}
           exportHref={projectId ? authedUrl(`/projects/${projectId}/export.csv`) : null}
@@ -2298,7 +2357,7 @@ export default function App() {
         />
       </Suspense>
       {dialogs}
-    </>
+    </UnitsContext.Provider>
   );
 }
 

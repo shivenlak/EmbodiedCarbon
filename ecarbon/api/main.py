@@ -66,6 +66,10 @@ class Project:
     # What the user stated where the drawings could not be read (contract C2).
     # Held so a later calibration adds to earlier ones rather than replacing them.
     overrides: object | None = None
+    # Whose carbon factors to use ("US", "CA-AB", ...); None is the default
+    # (Canadian) set, exactly as before. `region_source` says how it was set.
+    geography: str | None = None
+    region_source: str = "default"
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
@@ -74,7 +78,7 @@ class Project:
     def recompute(self) -> None:
         # Carbon is derived from the takeoff and never mutates it, so a
         # recompute after an override cannot corrupt the extraction output.
-        self.carbon = calculate_carbon(self.takeoff, _FACTORS)
+        self.carbon = calculate_carbon(self.takeoff, _FACTORS, geography=self.geography)
         self._check_intensity()
 
     def _check_intensity(self) -> None:
@@ -251,7 +255,11 @@ def _own(project_id: str) -> Project:
         if len(_FORKS) >= _MAX_FORKS:
             _FORKS.pop(next(iter(_FORKS)))
         fork = Project(
-            id=p.id, takeoff=p.takeoff.model_copy(deep=True), design=p.design
+            id=p.id,
+            takeoff=p.takeoff.model_copy(deep=True),
+            design=p.design,
+            geography=p.geography,
+            region_source=p.region_source,
         )
         _FORKS[key] = fork
     return fork
@@ -952,6 +960,71 @@ def calibrate_project(project_id: str, body: Calibrate) -> CalibrateOut:
     )
 
 
+# -- whose carbon factors (region) -----------------------------------------
+
+
+class RegionOption(BaseModel):
+    geography: str | None
+    label: str
+    n_factors: int = Field(description="factors the store holds for this country")
+
+
+class RegionOut(BaseModel):
+    geography: str | None
+    label: str
+    source: str = Field(description="chosen | title block | jurisdiction | default")
+    options: list[RegionOption]
+
+
+class SetRegion(BaseModel):
+    geography: str | None = None
+
+
+def _region_out(p: Project) -> RegionOut:
+    from collections import Counter
+
+    from ecarbon.carbon.region import COUNTRIES, label_of
+
+    per_country = Counter(f.geography.split("-")[0].upper() for f in _FACTORS.list_factors())
+    options = [RegionOption(geography=None, label=label_of(None), n_factors=per_country.get("CA", 0))]
+    for code, n in sorted(per_country.items()):
+        if code != "CA" and code in COUNTRIES:
+            options.append(RegionOption(geography=code, label=label_of(code), n_factors=n))
+    return RegionOut(
+        geography=p.geography, label=label_of(p.geography), source=p.region_source, options=options
+    )
+
+
+@app.get("/projects/{project_id}/region", response_model=RegionOut)
+def get_region(project_id: str) -> RegionOut:
+    """Whose carbon factors this project is priced with, and how that was decided."""
+    return _region_out(_get(project_id))
+
+
+@app.post("/projects/{project_id}/region", response_model=RegionOut)
+def set_region(project_id: str, body: SetRegion) -> RegionOut:
+    """Price this project with another region's factors, in this workspace only.
+
+    Materials with no factor for that region keep the default one, and their
+    lines say so with a wider range.
+    """
+    from ecarbon.carbon.region import from_text
+
+    geo = body.geography
+    if geo is not None:
+        geo = geo.strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}(-[A-Z]{2,3})?", geo):
+            parsed = from_text(body.geography)
+            if parsed is None:
+                raise HTTPException(422, f"could not read {body.geography!r} as a region")
+            geo = parsed
+    p = _own(project_id)
+    p.geography = geo
+    p.region_source = "chosen" if geo else "default"
+    p.recompute()
+    return _region_out(p)
+
+
 # -- decisions the drawings leave open -------------------------------------
 
 
@@ -1061,7 +1134,10 @@ def _upload_dir() -> Path:
 async def upload_project(
     # B008 is suppressed per-argument: calling File()/Form() in the default is
     # how FastAPI declares multipart fields, not an accidental shared default.
-    file: UploadFile = File(...),  # noqa: B008
+    file: UploadFile | None = File(None),  # noqa: B008
+    # Several PDFs as one set: how builders deliver (floor layout, roof,
+    # foundation, details, schedule). Joined by config.folder_design.
+    files: list[UploadFile] | None = File(None),  # noqa: B008
     name: str | None = Form(None),  # noqa: B008
     gfa_m2: float | None = Form(None),  # noqa: B008
     gfa_basis: str | None = Form(None),  # noqa: B008
@@ -1092,39 +1168,66 @@ async def upload_project(
     from ecarbon.models import ProjectFacts
     from ecarbon.takeoff.builder import build_takeoff
 
-    raw = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            413, f"plan set larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
-        )
-    if not raw.startswith(b"%PDF-"):
-        raise HTTPException(
-            415,
-            "not a PDF. This pipeline reads vector PDF drawing sets; a scan "
-            "or an image export carries no geometry to measure.",
-        )
+    parts = [f for f in ([file] if file is not None else []) + list(files or []) if f is not None]
+    if not parts:
+        raise HTTPException(422, "no plan set: send one PDF as `file`, or several as `files`")
+    blobs: list[tuple[str, bytes]] = []
+    total = 0
+    for part in parts:
+        raw = await part.read(MAX_UPLOAD_BYTES + 1)
+        total += len(raw)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                413, f"plan set larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+            )
+        if not raw.startswith(b"%PDF-"):
+            raise HTTPException(
+                415,
+                f"{part.filename or 'a file'} is not a PDF. This pipeline reads vector PDF "
+                "drawing sets; a scan or an image export carries no geometry to measure.",
+            )
+        blobs.append((part.filename or "plan-set.pdf", raw))
 
-    stem = Path(file.filename or "plan-set").stem or "plan-set"
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", stem)[:80].strip("-") or "plan-set"
+    def _safe(n: str) -> str:
+        stem = Path(n).stem or "plan-set"
+        return re.sub(r"[^A-Za-z0-9._-]+", "-", stem)[:80].strip("-") or "plan-set"
+
+    safe = _safe(name or blobs[0][0]) if len(blobs) > 1 else _safe(blobs[0][0])
     project_id = f"upload-{uuid.uuid4().hex[:8]}-{safe}"
 
     # Its own empty directory, so nothing in the set can land beside another
     # upload or anything we ship.
     home = _upload_dir() / project_id
     home.mkdir(parents=True, exist_ok=False)
-    pdf = home / f"{safe}.pdf"
-    pdf.write_bytes(raw)
+    if len(blobs) == 1:
+        pdf = home / f"{safe}.pdf"
+        pdf.write_bytes(blobs[0][1])
+        design = Design(
+            key=project_id,
+            region="UPLOAD",
+            package_dir=home,
+            drawings_pdf=pdf,
+            ifc=None,
+            h2k=[],
+            bpr=[],
+            list_of_drawings=None,
+        )
+    else:
+        from ecarbon.config import folder_design
 
-    design = Design(
-        key=project_id,
-        region="UPLOAD",
-        package_dir=home,
-        drawings_pdf=pdf,
-        ifc=None,
-        h2k=[],
-        bpr=[],
-        list_of_drawings=None,
-    )
+        used: set[str] = set()
+        for fname, raw in blobs:
+            base = _safe(fname)
+            n, k = base, 2
+            while n in used:
+                n, k = f"{base}-{k}", k + 1
+            used.add(n)
+            (home / f"{n}.pdf").write_bytes(raw)
+        try:
+            design = folder_design(home)
+        except Exception as exc:
+            raise HTTPException(422, f"could not join these files into one set: {exc}") from exc
+        pdf = design.drawings_pdf
     facts = ProjectFacts(
         name=name or safe,
         jurisdiction=jurisdiction,
@@ -1140,7 +1243,11 @@ async def upload_project(
             import pymupdf
 
             with pymupdf.open(pdf) as doc:
-                tell("pages", f"{doc.page_count} pages")
+                tell(
+                    "pages",
+                    f"{doc.page_count} pages"
+                    + (f" across {len(blobs)} files" if len(blobs) > 1 else ""),
+                )
             with _BUILD_LOCK:
                 takeoff = build_takeoff(
                     design, facts, trust_stated_gfa=gfa_m2 is not None, progress=tell
@@ -1150,7 +1257,16 @@ async def upload_project(
                 422,
                 f"could not read this plan set: {exc}. Nothing partial is stored.",
             ) from exc
-        project = Project(id=project_id, takeoff=takeoff, design=design)
+        from ecarbon.carbon.region import detect
+
+        region = detect(design, jurisdiction)
+        project = Project(
+            id=project_id,
+            takeoff=takeoff,
+            design=design,
+            geography=region.geography,
+            region_source=region.source,
+        )
         total = project.carbon.total_kg_co2e
         tell("carbon", f"{total:,.0f} kgCO2e across {len(takeoff.lines)} lines")
         _PROJECTS[project_id] = project

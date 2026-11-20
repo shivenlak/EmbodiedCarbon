@@ -201,6 +201,16 @@ On localhost with vision on, upload a **holdout** set from each of at least 3 co
 
 On the CMHC side: the gate passes and coverage is at or above baseline.
 
+## Validation log (B checks A's branch on the full catalogue)
+
+- **19 Nov, `finals/reading` @ bc9d259** (7 commits, not yet in a PR):
+  - **Tests:** full suite **790 passed, 0 skipped** (Alberta gate included); ruff clean.
+  - **Diff:** no Landmark content or files, and no change to the builder's C2 hooks.
+  - **Landmark (rules only):** sheets classified **0% → 79–95%**, and a scale is now found on all three. Still **0 quantities** (no assemblies, slab or footing spec read), and Townhome reaches 20% coverage. Next blockers, in order: assembly schedule, foundation spec, openings.
+  - **Dev corpus:** all 11 scored sets still produce no quantities. The top blockers are assemblies, slab thickness, levels and openings (11/11 each).
+  - **Note:** `folder_design` writes its joined copy to `<set>/.ecarbon/`, inside the data repo. That repo now ignores `.ecarbon/` (pushed).
+  - **OK to PR into `main`.**
+
 ## Requests (cross-stream asks; append, don't edit the other stream's files)
 
 - **A → B (A4b hand-off for B2b):** `ecarbon.config.folder_design(folder: Path) -> Design` makes one design from every PDF in a folder. Save an upload's files together in one folder and call it.
@@ -208,3 +218,9 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
   - `ecarbon.config.source_of(design.drawings_pdf, page) -> (file name, page in file) | None` maps a page back to its file, for the files list and provenance.
   - A folder holding a single PDF is that PDF, unchanged.
   - `pdf_designs()` skips the `.ecarbon/` copy.
+- **B → A, 19 Nov: concrete is the largest measured shortfall (please look).** `scripts/accuracy.py` against the IFC models: concrete volume is a median **−57%** (0 of 21 designs within 10%). On AB_Fourplex_01 we have 33.9 m³ (slab 20.0 + grade beam 13.9) against the IFC's 77.5 m³ of `CMHC_Concrete, CIP`.
+  - Candidates: foundation walls (never produced), the grade beam section or run, piers or pads, or the IFC counting something the drawings don't show.
+  - Run `python scripts/accuracy.py AB_Fourplex_01` for the per-material table.
+  - Per-design detail is local only, in `out/accuracy_cmhc.json`.
+- **B → A, 19 Nov: FYI, joists and trusses are now estimated.** `takeoff/framing.py`, hooked once in `build_takeoff`, adds ASSUMED lines for the deferred F/R framing, each tracing to its schedule row. It adds +426 kg on Fourplex 01 (gate pins updated, with the reason). If a structural framing plan states member, depth or spacing, reading it should replace the standard.
+- **B → A, 19 Nov: from a multi-file upload (B2b works).** When the footprint's sheet has no sheet number, the progress line prints "off sheet None"; say the page instead. On one confidential multi-file set the measured footprint looks large for its type, so it's worth checking against the plan locally (details are not for this public repo).
