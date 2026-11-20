@@ -347,49 +347,136 @@ sets:
     licence: "Province of British Columbia, public download."
     local_only: true
 
-  # ---- Found, not yet downloaded (sites block scripts; fetch in a browser) ----
-  # Holdout candidates should come from programs not used in dev.
-  - id: us-boise-adu
-    split: todo
+  # ---- Added 19 Nov via Chrome (sites block scripts) ---------------------------
+  - id: us-riverside-adu-1
+    split: dev
     country: US
+    region: US-CA
     units: imperial
-    type: ADU (six designs; city says the plans are public domain)
-    page: https://www.cityofboise.org/departments/planning-and-development-services/planning/boise-zoning-code/pre-approved-adu-plans/
+    type: "ADU"
+    kind: "construction set, 499 sf studio"
+    url: https://building.rctlma.org/sites/g/files/aldnop406/files/2026-05/PRADU%20Plan%201_499_sf_V2.pdf
+    page: https://building.rctlma.org/permit-ready-adu
     fetch: browser
+    sha256: 204414e59cbf3cea
+    licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
+    local_only: true
+  - id: us-riverside-adu-2
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set, 625 sf 1-bed"
+    url: https://building.rctlma.org/sites/g/files/aldnop406/files/2026-05/PRADU%20Plan%202_625_sf_V2.pdf
+    page: https://building.rctlma.org/permit-ready-adu
+    fetch: browser
+    sha256: 5081e8c0e2cabe17
+    licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
+    local_only: true
+  - id: us-riverside-adu-3
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set, 749 sf 2-bed"
+    url: https://building.rctlma.org/sites/g/files/aldnop406/files/2026-05/PRADU%20Plan%203_749_sf_V2.pdf
+    page: https://building.rctlma.org/permit-ready-adu
+    fetch: browser
+    sha256: 4a5d52cf9926d556
+    licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
+    local_only: true
+  - id: us-riverside-adu-4
+    split: dev
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set, 909 sf 2-bed"
+    url: https://building.rctlma.org/sites/g/files/aldnop406/files/2026-05/PRADU%20Plan%204_909_sf_V2.pdf
+    page: https://building.rctlma.org/permit-ready-adu
+    fetch: browser
+    sha256: aa1b044a88e82f13
+    licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
+    local_only: true
+  - id: us-eldorado-adu
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "pre-reviewed public plan set, 42 MB"
+    url: https://www.eldoradocounty.ca.gov/files/assets/county/v/1/documents/land-use/building-services-documents/adu/adu-public-plan-set.pdf
+    page: https://www.eldoradocounty.ca.gov/Land-Use/Planning-and-Building/Building-Division/ADU/Pre-Reviewed-ADU
+    fetch: browser
+    sha256: a0f5c9530cac7b14
+    licence: "El Dorado County pre-reviewed ADU, public download. Redistribution not granted."
+    local_only: true
+  - id: us-martinez-adu-a
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set, 25 pages, several pages without text (Craftsman, regular)"
+    url: https://www.cityofmartinez.org/home/showpublisheddocument/4895/639082158643500000
+    page: https://www.cityofmartinez.org/departments/planning/accessory-dwelling-units/pre-approved-adu-plans
+    fetch: browser
+    sha256: 2001941570da8c84
+    licence: "City of Martinez pre-approved ADU plans, free download. Redistribution not granted."
+    local_only: true
+  - id: us-martinez-adu-b
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set (Craftsman, regular)"
+    url: https://www.cityofmartinez.org/home/showpublisheddocument/4893/639082157946930000
+    page: https://www.cityofmartinez.org/departments/planning/accessory-dwelling-units/pre-approved-adu-plans
+    fetch: browser
+    sha256: a72f98e1b322261d
+    licence: "City of Martinez pre-approved ADU plans, free download. Redistribution not granted."
+    local_only: true
+  - id: us-martinez-adu-c
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set (Craftsman, regular)"
+    url: https://www.cityofmartinez.org/home/showpublisheddocument/4871/639082151870330000
+    page: https://www.cityofmartinez.org/departments/planning/accessory-dwelling-units/pre-approved-adu-plans
+    fetch: browser
+    sha256: e974c950bd439e3f
+    licence: "City of Martinez pre-approved ADU plans, free download. Redistribution not granted."
+    local_only: true
+  - id: us-martinez-adu-d
+    split: holdout
+    country: US
+    region: US-CA
+    units: imperial
+    type: "ADU"
+    kind: "construction set (Craftsman, regular)"
+    url: https://www.cityofmartinez.org/home/showpublisheddocument/4869/639082150797870000
+    page: https://www.cityofmartinez.org/departments/planning/accessory-dwelling-units/pre-approved-adu-plans
+    fetch: browser
+    sha256: 8a4f3d3e2a3277c0
+    licence: "City of Martinez pre-approved ADU plans, free download. Redistribution not granted."
+    local_only: true
+
+  # ---- Found, not yet downloaded --------------------------------------------
+  # Checked 19 Nov and dropped: Toronto (its pre-approved designs are the CMHC
+  # catalogue), Boise (only one-page cover sheets are public), Kalamazoo (a
+  # brochure; plans on application), Design for Place (no files linked), Merced /
+  # Tempe / Queen Creek (plans on request or waiver).
   - id: us-fresnocounty-plex
     split: todo
     country: US
     units: imperial
     type: duplex / triplex / fourplex
     page: https://www.fresnocountyca.gov/Departments/Public-Works-and-Planning/divisions-of-public-works-and-planning/community-development-division/Duplex-Plans
-    fetch: browser
-  - id: us-martinez-adu
-    split: todo
-    country: US
-    units: imperial
-    type: ADU
-    page: https://www.cityofmartinez.org/departments/planning/accessory-dwelling-units/pre-approved-adu-plans
-    fetch: browser
-  - id: us-kalamazoo-plex
-    split: todo
-    country: US
-    units: imperial
-    type: duplex / fourplex
-    page: https://issuu.com/kalamazoocity/docs/preapproved_plans_comp
-    fetch: browser
-  - id: au-designforplace
-    split: todo
-    country: AU
-    units: metric
-    type: single-storey house, three lot sizes (Australian Government)
-    page: https://www.yourhome.gov.au/house-designs
-    fetch: browser
-  - id: ca-toronto-multiplex
-    split: todo
-    country: CA
-    units: metric
-    type: fourplex / sixplex (City of Toronto pre-approved; not CMHC)
-    page: https://www.toronto.ca/news/city-of-toronto-introduces-pre-approved-multiplex-designs-making-it-easier-to-build-more-homes-faster/
     fetch: browser
   - id: gb-ie-plana-timber-house
     split: todo
