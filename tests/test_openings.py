@@ -326,3 +326,55 @@ class TestDoorTaggingCheck:
         messages = [g.message for g in takeoff.gaps]
         assert any("disagree about how much" in m for m in messages)
         assert not any("doors are tagged" in m for m in messages)
+
+
+class TestHeaderSchedule:
+    """US schedules: columns named by a header row, sizes in feet and inches."""
+
+    @staticmethod
+    def _page():
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=1200, height=600)
+
+        def put(x, y, text):
+            page.insert_text((x, y), text, fontsize=7)
+
+        # Window table, with a QTY column; the 3'-0" width is set as two spans.
+        put(60, 40, "WINDOW SCHEDULE")
+        for x, t in [(50, "WINDOW"), (120, "WIDTH"), (175, "HEIGHT"), (240, "QNTY"), (300, "LOCATION")]:
+            put(x, 70, t)
+        for i, (tag, w, h, q) in enumerate([("A", "3'-", "4'-", "1"), ("B", "3'-", "3'-", "2")]):
+            y = 95 + 20 * i
+            put(55, y, tag)
+            put(122, y, w)
+            put(134, y - 4, '0"')
+            put(177, y, h)
+            put(189, y - 4, '0"')
+            put(245, y, q)
+            put(300, y, "LIVING")
+        put(55, 400, "B")  # a tag-shaped label further down the sheet, not a row
+
+        # Door table beside it, numbered, with no quantity column.
+        put(600, 40, "DOOR SCHEDULE")
+        for x, t in [(590, "NO."), (640, "TYPE"), (700, "WIDTH"), (770, "HEIGHT"), (840, "REMARKS")]:
+            put(x, 70, t)
+        for i, (tag, w) in enumerate([("01", "3' - 0\""), ("02", "2' - 8\""), ("CORE", "")]):
+            y = 95 + 13 * i
+            put(592, y, tag)
+            put(700, y, w)
+            put(770, y, "6' - 8\"")
+        return page
+
+    def test_reads_sizes_and_counts(self):
+        from ecarbon.extract.openings import ONE_PER_ROW, header_schedule_on_page
+
+        got = {(o.kind, o.tag): o for o in header_schedule_on_page(self._page(), "A0.1")}
+        assert set(got) == {("window", "A"), ("window", "B"), ("door", "01"), ("door", "02")}
+        a, b = got[("window", "A")], got[("window", "B")]
+        assert (a.width_mm, a.height_mm, a.count) == (914.4, 1219.2, 1)
+        assert (b.width_mm, b.height_mm, b.count) == (914.4, 914.4, 2)
+        door = got[("door", "02")]
+        assert (door.width_mm, door.height_mm) == (812.8, 2032.0)
+        assert door.counts == {ONE_PER_ROW: 1}

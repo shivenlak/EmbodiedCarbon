@@ -38,6 +38,7 @@ above it and is taken from the storey below (RESEARCH S20).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -476,6 +477,8 @@ def _prov(inputs: TakeoffInputs, sheet: str | None = None, detail: str | None = 
     """
     named = sheet or inputs.footprint_sheet
     page = inputs.sheet_pages.get((named or "").upper())
+    if page is None and re.fullmatch(r"p\d+", named or ""):
+        page = int(named[1:]) - 1  # an unnumbered sheet, labelled by structural_texts
     if page is None:
         page = inputs.footprint_page if inputs.footprint_page is not None else 0
     return Provenance(page=page, sheet_no=named, detail=detail)
@@ -833,7 +836,7 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
     declared; doors as a count, because a door is a manufactured unit and its
     factor is per door.
     """
-    from ecarbon.extract.openings import openings_for
+    from ecarbon.extract.openings import ONE_PER_ROW, openings_for
 
     try:
         openings, notes = openings_for(design)
@@ -862,6 +865,37 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
     windows = [o for o in openings if o.kind == "window"]
     doors = [o for o in openings if o.kind == "door"]
 
+    # A US schedule states its own quantities (or numbers each opening), so
+    # the count is the schedule's rather than the plan tags'.
+    from_schedule = any(o.counted_by_schedule for o in openings)
+    per_row = any(ONE_PER_ROW in o.counts for o in openings)
+    count_note = (
+        "count of each type from the schedule's own quantity column"
+        if from_schedule
+        else "count of each type from the tags written on the floor plans"
+    )
+    size_sources = [BasisSource.SCHEDULE, BasisSource.DIM_TEXT_IMPERIAL if from_schedule else BasisSource.DIM_TEXT_METRIC]
+    count_assumptions = (
+        [
+            "A numbered schedule lists each opening once, so each numbered row is "
+            "counted as one opening."
+        ]
+        if per_row
+        else []
+    )
+    for o in openings:
+        if o.width_mm is not None and o.height_mm is not None and not o.count and from_schedule:
+            gaps.append(
+                Gap(
+                    code=GapCode.OPENING_SCHEDULE_MISSING,
+                    severity=GapSeverity.WARNING,
+                    message=(
+                        f"{o.kind.capitalize()} type {o.tag} is scheduled but the schedule "
+                        f"states no quantity for it, so it is not counted."
+                    ),
+                )
+            )
+
     sized = [o for o in windows if o.total_area_m2 is not None]
     unsized = [o for o in windows if o.total_area_m2 is None]
     if sized:
@@ -877,18 +911,25 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                 material="CMHC_Window",
                 description=f"Windows, {count} openings across {len(sized)} types",
                 basis=Basis(
-                    sources=[BasisSource.SCHEDULE, BasisSource.DIM_TEXT_METRIC],
+                    sources=size_sources,
                     note=(
-                        "Size of each type from the openings schedule, with the metric and "
-                        "imperial columns agreeing; count of each type from the tags written "
-                        "on the floor plans. "
+                        (
+                            "Size of each type from the openings schedule, in feet and inches; "
+                            if from_schedule
+                            else "Size of each type from the openings schedule, with the metric "
+                            "and imperial columns agreeing; "
+                        )
+                        + count_note
+                        + ". "
                         + "; ".join(
                             f"{o.tag} {o.width_mm:.0f}x{o.height_mm:.0f} x{o.count}"
                             for o in sized
                         )
                     ),
                 ),
-                assumptions=[
+                assumptions=count_assumptions
+                if from_schedule
+                else [
                     "Count is of tags written on the plans, so a single tag against a "
                     "mullioned assembly counts once, and a window shown only on an "
                     "elevation is not counted at all."
@@ -953,13 +994,17 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                 material="CMHC_Door",
                 description=f"Doors, {len(counted)} types",
                 basis=Basis(
-                    sources=[BasisSource.SCHEDULE, BasisSource.DIM_TEXT_METRIC],
+                    sources=size_sources,
                     note=(
-                        "Count of tags on the floor plans, one variant per storey. "
+                        (
+                            "Count from the door schedule. "
+                            if from_schedule
+                            else "Count of tags on the floor plans, one variant per storey. "
+                        )
                         + "; ".join(f"{o.tag} x{o.count}" for o in counted)
                     ),
                 ),
-                assumptions=[
+                assumptions=count_assumptions + [
                     "All doors are priced with one factor. The schedule distinguishes "
                     "exterior, interior and fire-rated doors, which carry different "
                     "carbon; separating them needs a factor per door type."

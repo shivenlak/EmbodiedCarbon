@@ -108,7 +108,9 @@ _IMPERIAL_RE = re.compile(
 _DUAL_RE = re.compile(r"^(\d{2,6}\s*(?:mm)?)\s*(?:/|\[|\()\s*([^\]\)]+)[\]\)]?$", re.I)
 
 # SCALE: 1/4" = 1'-0"   |   SCALE: 1:50   |   1/8"=1'0"
-_SCALE_RATIO_RE = re.compile(r"1\s*:\s*(\d{1,4})")
+_SCALE_RATIO_RE = re.compile(r"1\s*:\s*(\d{1,4})(?:\s*@\s*A([0-4])\b)?", re.I)
+# Long side of ISO A sheets, mm. '1:100 @ A1' holds only on an A1 sheet.
+_A_LONG_MM = {"0": 1189.0, "1": 841.0, "2": 594.0, "3": 420.0, "4": 297.0}
 _SCALE_IMPERIAL_RE = re.compile(
     r"(?:(\d+)\s*/\s*(\d+)|(\d+))\s*\"?\s*=\s*(\d+)\s*'\s*-?\s*(\d+)?\s*\"?"
 )
@@ -162,12 +164,20 @@ def parse_dimension(text: str) -> tuple[float | None, str]:
     return None, "none"
 
 
-def parse_scale_text(text: str) -> float | None:
-    """`1:50` or `1/4" = 1'-0"` to mm of world per PDF point."""
+def parse_scale_text(text: str, page_long_mm: float | None = None) -> float | None:
+    """`1:50` or `1/4" = 1'-0"` to mm of world per PDF point.
+
+    `1:100 @ A1` on a page `page_long_mm` long is rescaled to that page: the
+    same set exported at A3 draws everything at half the size.
+    """
     t = re.sub(r"\s+", " ", text.strip())
     m = _SCALE_RATIO_RE.search(t)
     if m:
         ratio = float(m.group(1))
+        if m.group(2) and page_long_mm:
+            stretch = _A_LONG_MM[m.group(2)] / page_long_mm
+            if abs(stretch - 1.0) > 0.03:
+                ratio *= stretch
         return ratio * PT_TO_MM if MIN_MM_PER_PT <= ratio * PT_TO_MM <= MAX_MM_PER_PT else None
     m = _SCALE_IMPERIAL_RE.search(t)
     if m:
@@ -427,11 +437,12 @@ def scale_from_text(page: pymupdf.Page) -> float | None:
     except Exception:
         return None
     found: list[float] = []
+    long_mm = max(page.rect.width, page.rect.height) * PT_TO_MM
     for block in blocks:
         for line in block.get("lines", []):
             joined = " ".join(s.get("text", "") for s in line.get("spans", []))
             text, _ = repair(joined)
-            v = parse_scale_text(text)
+            v = parse_scale_text(text, long_mm)
             if v:
                 found.append(v)
     if not found:

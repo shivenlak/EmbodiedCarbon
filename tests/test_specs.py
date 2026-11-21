@@ -447,3 +447,27 @@ class TestDeclinedFoundationOnRealDesigns:
         from ecarbon.extract.specs import foundation_spec_for
 
         assert not foundation_spec_for(get_design(design)).designer_declined
+
+
+class TestImperialSlab:
+    def test_a_keynote_in_inches(self):
+        spec = parse_foundation_spec({"A2-201": 'G14 4" CONCRETE SLAB ON GRADE, REFER TO STUCTURAL PLANS'})
+        assert spec.slab_thickness_mm == 102.0
+
+    def test_a_section_callout_with_its_rebar(self):
+        spec = parse_foundation_spec({"p3": '4" CONC SLAB W/ #4 @ 18" O.C. AT MID-DEPTH'})
+        assert spec.slab_thickness_mm == 102.0
+
+    def test_a_cover_note_is_not_the_slab(self):
+        spec = parse_foundation_spec({"S-301": '1-1 2" CLR CVR @ 4" SLAB 2" CLR CVR @ 5"+ SLAB'})
+        assert spec.slab_thickness_mm is None
+
+
+def test_the_slab_falls_back_to_architectural_sheets(monkeypatch):
+    from ecarbon.extract import specs
+
+    texts = {True: {"S-201": "FOOTING: 600 x 300"}, False: {"A2-201": 'G14 4" CONCRETE SLAB ON GRADE'}}
+    monkeypatch.setattr(specs, "structural_texts", lambda design, structural=True: texts[structural])
+    spec = specs.foundation_spec_for(None)
+    assert spec.slab_thickness_mm == 102.0
+    assert "A2-201: slab 102mm" in spec.sources

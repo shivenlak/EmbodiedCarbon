@@ -198,6 +198,10 @@ _MATERIAL_LIKE_NAME_RE = re.compile(
     r"|\bBATT\b|\bDECKING\b|STUD\s+FRAMING\s*@|FURRING\s+CHANNEL",
     re.I,
 )
+# A thickness cell that runs on into its material: `5/8"/16mm  TYPE 'X' GYPSUM`.
+_THICK_THEN_MATERIAL_RE = re.compile(
+    r"^\s*(?:[\d\s/]+\"\s*/\s*)?\d+(?:\.\d+)?\s*mm\s+(.*[A-Za-z]{3,}.*)$", re.I
+)
 # A cell carrying words rather than a dimension: three or more letters in a row.
 _WORDY_RE = re.compile(r"[A-Za-z]{3,}")
 # The words that make up a schedule table's header row. Used to find a table's
@@ -698,10 +702,15 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
         nxt = [y for y, x in headers if y > desc_y and left <= x <= right]
         bottom = min(nxt) if nxt else float("inf")
 
+        # The right bound stops short of the next header: SK/MB print the
+        # performance notes 9 pt left of PERFORMANCE, and they out-numbered the
+        # real material column.
         cells = [
             (y, x, t)
             for y, x, t in spans
-            if desc_y < y < bottom and left < x < right and t.upper() not in _HEADER_WORDS
+            if desc_y < y < bottom
+            and left < x < right - COL_TOL
+            and t.upper() not in _HEADER_WORDS
         ]
         if not cells:
             continue
@@ -710,7 +719,19 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
         if mat_x is None:
             continue
         if name_x is None:
-            name_x = desc_x
+            # No name column of its own. On SK/MB the name is the material
+            # column's first row; the header's x holds no cells there, so it
+            # started no blocks at all. NOR's garage prints its name in the
+            # thickness column instead, and reading that as SK/MB cut its wall
+            # off above the studs, so that layout keeps reading nothing. Two
+            # words, because SK/MB wrap one-word tails ("STRUCTURAL]") there.
+            name_in_thickness = thick_x is not None and any(
+                abs(x - thick_x) < COL_TOL
+                and len(_WORDY_RE.findall(t)) >= 2
+                and not _looks_like_thickness(t)
+                for _, x, t in cells
+            )
+            name_x = desc_x if name_in_thickness else mat_x
 
         band = [
             (y, x, t)
@@ -749,6 +770,19 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             if (abs(x - mat_x) < COL_TOL or (name_x is not None and abs(x - name_x) < COL_TOL))
             and t.upper() not in _CONTINUATION
         ]
+        # SK/MB write some rows as one span in the thickness column,
+        # `1 1/2"/38mm CONTINUOUS RIGID INSULATION`: the thickness pairs as it
+        # is, and the words after it are that row's material.
+        if thick_x is not None:
+            for y, x, t in band:
+                m = _THICK_THEN_MATERIAL_RE.match(t)
+                if (
+                    m
+                    and abs(x - thick_x) < COL_TOL
+                    and not any(abs(ty - y) <= ROW_DY for ty, _, _ in text_cells)
+                ):
+                    text_cells.append((y, mat_x, m.group(1)))
+            text_cells.sort()
 
         # How a new assembly is recognised depends on the layout, and the two
         # strategies disagree on each other's sheets.

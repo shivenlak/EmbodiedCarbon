@@ -61,6 +61,13 @@ _SLAB_ALT_RES = (
     # 'QC: SLAB ON GRADE 100mm'
     re.compile(r"SLAB\s+ON\s+GRADE\s*[:\-,]?\s*(\d{2,3})\s*mm\b", re.I),
 )
+# US sets state inches only: 'G14 4" CONCRETE SLAB ON GRADE', '4" CONC SLAB W/
+# #4 @ 18" O.C.'. CONC is required, so a cover note ('2" CLR CVR @ 4" SLAB')
+# never reads as the slab.
+_SLAB_IN_RE = re.compile(
+    r"(?<![\d/@])(\d{1,2})\s*[\"”]\s*(?:THICK\s*|THK\.?\s*)?CONC(?:RETE)?\.?\s*SLAB(?!\s*:)",
+    re.I,
+)
 # A slab outside this range is a misread, not a slab-on-grade.
 SLAB_MM_RANGE = (75.0, 250.0)
 
@@ -330,6 +337,14 @@ def _first_int(*groups: str | None) -> float | None:
     return None
 
 
+def _slab_inches_mm(flat: str) -> float | None:
+    for m in _SLAB_IN_RE.finditer(flat):
+        mm = float(round(int(m.group(1)) * 25.4))
+        if SLAB_MM_RANGE[0] <= mm <= SLAB_MM_RANGE[1]:
+            return mm
+    return None
+
+
 def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
     """Read a foundation specification from structural sheet text.
 
@@ -370,6 +385,9 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
                         spec.slab_thickness_mm = hit
                         found.append(f"slab {hit:.0f}mm")
                         break
+            if spec.slab_thickness_mm is None and (hit := _slab_inches_mm(flat)):
+                spec.slab_thickness_mm = hit
+                found.append(f"slab {hit:.0f}mm")
 
         if spec.grade_beam_width_mm is None:
             m = _BEAM_RE.search(flat) or _BEAM_ALT_RE.search(flat)
@@ -448,8 +466,9 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
 # PLANS", neither of which the type rules matched. Taking every readable
 # structural sheet is both simpler and more robust: a spec note is a spec note
 # wherever it is drawn.
-def structural_texts(design, max_sheets: int = 40) -> dict[str, str]:
-    """Text of every readable structural sheet, keyed by sheet number."""
+def structural_texts(design, max_sheets: int = 40, structural: bool = True) -> dict[str, str]:
+    """Text of every readable structural sheet (or, with `structural=False`,
+    every other readable sheet), keyed by sheet number."""
     import pymupdf
 
     from ecarbon.intake import inventory
@@ -462,7 +481,7 @@ def structural_texts(design, max_sheets: int = 40) -> dict[str, str]:
             if not s.readable or len(out) >= max_sheets:
                 continue
             no = (s.sheet_no or "").upper()
-            if no.startswith("S"):
+            if no.startswith("S") == structural:
                 out[s.sheet_no or f"p{s.page + 1}"] = doc[s.page].get_text("text")
     finally:
         doc.close()
@@ -471,4 +490,18 @@ def structural_texts(design, max_sheets: int = 40) -> dict[str, str]:
 
 def foundation_spec_for(design) -> FoundationSpec:
     """Read the foundation specification for one design, end to end."""
-    return parse_foundation_spec(structural_texts(design))
+    spec = parse_foundation_spec(structural_texts(design))
+    if spec.slab_thickness_mm is not None or spec.generic_slab_mm is not None:
+        return spec
+    # Small US sets often state the slab only on the architectural sheets
+    # (a keynote, a wall section) or have no structural sheet numbers at all.
+    # Only the slab is taken from them; beams and footings stay structural.
+    rest = parse_foundation_spec(structural_texts(design, structural=False))
+    if rest.slab_thickness_mm is not None:
+        slab = next(s.split(":")[0] for s in rest.sources if "slab" in s)
+        spec.sources.append(f"{slab}: slab {rest.slab_thickness_mm:.0f}mm")
+        if spec.designer_declined:
+            spec.generic_slab_mm = rest.slab_thickness_mm
+        else:
+            spec.slab_thickness_mm = rest.slab_thickness_mm
+    return spec
