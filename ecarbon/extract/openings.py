@@ -171,8 +171,13 @@ class Opening:
     note: str | None = None
     sheet: str | None = None
     page: int | None = None
-    # Instances of this tag found on the plans, by base sheet number.
+    # Instances of this tag found on the plans, by base sheet number, or under
+    # "schedule" when the schedule states the quantity itself.
     counts: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def counted_by_schedule(self) -> bool:
+        return "schedule" in self.counts or ONE_PER_ROW in self.counts
 
     @property
     def count(self) -> int:
@@ -281,6 +286,150 @@ def openings_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Openi
     return out
 
 
+# Count key for a numbered schedule row taken as one opening.
+ONE_PER_ROW = "schedule row"
+
+# US schedules: a header row names the columns, the tag is whatever sits under
+# the leftmost one ("A", "01", "W-1"), and a feet-inches size is often set as
+# two spans ("3'-" over '0"').
+_SCHEDULE_TITLE_RE = re.compile(r"^(WINDOW|DOOR)\s+SCHEDULE$", re.I)
+_QTY_HEADER_RE = re.compile(r"^(QTY\.?|QNTY\.?|QUANTITY|COUNT)$", re.I)
+# A tag is one letter or carries a number ("A", "01", "W-1", "101A"); a word
+# from a description column ("CORE") is not.
+_TAG_CELL_RE = re.compile(r"^(?:[A-Z]|[A-Z]{0,2}-?\d{1,3}[A-Z]?)$")
+# How far below its title a schedule's header row may sit, in points.
+_HEADER_REACH = 80.0
+
+
+def _size_mm(text: str) -> float | None:
+    t = re.sub(r"\s+", "", text)
+    if (m := _MM_CELL_RE.match(t)) and MIN_OPENING_MM <= float(m.group(1)) <= MAX_OPENING_MM:
+        return float(m.group(1))
+    v = parse_ft_in(t)
+    return v if v is not None and MIN_OPENING_MM <= v <= MAX_OPENING_MM else None
+
+
+_FEET_HEAD_RE = re.compile(r"^\d+'\s*-?$")
+_INCH_TAIL_RE = re.compile(r'^[\d\s/-]+"$')
+
+
+def _join_feet(row: list[tuple[float, str]]) -> list[tuple[float, str]]:
+    """Rejoin "3'-" with the '0"' set just right of it, at the feet's x.
+
+    The inches half can sit nearer the next column's header than its own.
+    """
+    out: list[tuple[float, str]] = []
+    used: set[int] = set()
+    for i, (x, t) in enumerate(row):
+        if i in used:
+            continue
+        if _FEET_HEAD_RE.match(t):
+            j = next(
+                (
+                    j
+                    for j, (x2, t2) in enumerate(row)
+                    if j not in used and j != i and 0 < x2 - x < 25 and _INCH_TAIL_RE.match(t2)
+                ),
+                None,
+            )
+            if j is not None:
+                used.add(j)
+                t = t.rstrip("-").rstrip() + "-" + row[j][1]
+        out.append((x, t))
+    return out
+
+
+def header_schedule_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Opening]:
+    """Rows of a WINDOW/DOOR SCHEDULE laid out under a WIDTH / HEIGHT header.
+
+    The quantity is taken only from the schedule's own QTY column: a US plan
+    tags openings with bare letters or numbers, which cannot be told apart
+    from every other "A" on the sheet, so they are not counted off the plan.
+    """
+    spans = _spans(page)
+    titles = sorted((y, x, t.upper()) for y, x, t in spans if _SCHEDULE_TITLE_RE.match(t.strip()))
+    out: list[Opening] = []
+    for ty, tx, title in titles:
+        kind = "door" if title.startswith("DOOR") else "window"
+        # Tables set side by side share a band of rows; each ends where the
+        # next title to its right begins.
+        left = tx - 60
+        right = min((x for y, x, _t in titles if abs(y - ty) < 20 and x > tx), default=float("inf")) - 20
+        spans_here = [(y, x, t) for y, x, t in spans if left <= x < right]
+        width_hdr = min(
+            (
+                (abs(x - tx) + (y - ty), y, x)
+                for y, x, t in spans_here
+                if t.strip().upper() == "WIDTH" and ty < y < ty + _HEADER_REACH
+            ),
+            default=None,
+        )
+        if width_hdr is None:
+            continue
+        _d, hy, hx = width_hdr
+        # The header's bottom line: a label with another label right under it
+        # ("HEAD" over "HEIGHT", "WINDOW SIZE" over "WIDTH") is a group label.
+        band = [(y, x, t.strip().upper()) for y, x, t in spans_here if abs(y - hy) <= 12]
+        header = [
+            (y, x, t)
+            for y, x, t in band
+            if not any(0 < y2 - y <= 15 and abs(x2 - x) < 30 for y2, x2, _ in band)
+        ]
+        cols = sorted((x, t) for _y, x, t in header)
+        heights = [x for x, t in cols if t == "HEIGHT" and x > hx]
+        if not heights:
+            continue
+        height_x = min(heights)
+        qty_x = next((x for x, t in cols if _QTY_HEADER_RE.match(t)), None)
+        tag_x = cols[0][0]
+        top = max(y for y, _x, _t in header) + 4
+        bottom = min((y for y, x, _t in titles if y > top and left <= x < right), default=float("inf"))
+
+        def column(x: float, cols=cols) -> float:
+            return min(cols, key=lambda col: abs(col[0] - x))[0]
+
+        # A table ends a little past its last header column.
+        body = [
+            (y, x, t.strip())
+            for y, x, t in spans_here
+            if top < y < bottom and t.strip() and x < cols[-1][0] + 120
+        ]
+        tags = sorted(
+            (y, t)
+            for y, x, t in body
+            if column(x) == tag_x and _TAG_CELL_RE.match(t) and abs(x - tag_x) < 40
+        )
+        if not tags:
+            continue
+        # The table's rows are evenly spaced; it ends at the first break of
+        # more than twice that pitch (a tag-shaped label further down the
+        # sheet is not a row).
+        pitch = next((b[0] - a[0] for a, b in zip(tags, tags[1:], strict=False) if b[0] - a[0] > 2), 12.0)
+        for k in range(1, len(tags)):
+            if tags[k][0] - tags[k - 1][0] > 2.5 * pitch:
+                tags = tags[:k]
+                break
+        reach = 0.45 * pitch
+        for y, tag in tags:
+            row = _join_feet(sorted((x, t) for y2, x, t in body if abs(y2 - y) <= reach))
+
+            def cell(cx: float, row=row) -> str:
+                return "".join(t for x, t in row if column(x) == cx)
+
+            width, height = _size_mm(cell(hx)), _size_mm(cell(height_x))
+            opening = Opening(
+                tag=tag, kind=kind, width_mm=width, height_mm=height, sheet=sheet, page=page.number
+            )
+            if qty_x is not None:
+                if (q := cell(qty_x)).isdigit() and 0 < int(q) < 100:
+                    opening.counts["schedule"] = int(q)
+            elif any(c.isdigit() for c in tag):
+                # A numbered schedule (door 1, 2, 3...) lists each opening once.
+                opening.counts[ONE_PER_ROW] = 1
+            out.append(opening)
+    return out
+
+
 def count_on_plans(design, openings: list[Opening]) -> tuple[dict[str, str], list[str]]:
     """Count each tag's instances on the plans, one variant per storey.
 
@@ -339,6 +488,11 @@ def openings_for(design) -> tuple[list[Opening], list[str]]:
             if s.sheet_type is not SheetType.OPENING_SCHEDULE or not s.readable:
                 continue
             found.extend(openings_on_page(doc[s.page], s.sheet_no))
+        if not found:
+            # No CMHC-style schedule: US sets draw theirs on the plan sheets.
+            for s in sheets:
+                if s.readable:
+                    found.extend(header_schedule_on_page(doc[s.page], s.sheet_no))
     finally:
         doc.close()
 

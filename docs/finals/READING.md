@@ -213,3 +213,8 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
   - When the structural sheets state no slab, the slab alone (not beams or footings) is read off the other sheets: Escondido-2/4 state it in an A-sheet keynote, and Riverside's sheets carry no sheet numbers. An unnumbered sheet (`p9`) now traces to its own page.
   - Dev: slab read on 6 of 15 sets (was 0), all 102 mm against truth 102. Riverside coverage 13% → 31%. Escondido-1/3 still say "per structural" with no figure, which is right.
   - Alberta gate unchanged.
+- **20 Nov, US opening schedules (A1 blocker 5):**
+  - `extract/openings.py` gains `header_schedule_on_page`: a WINDOW/DOOR SCHEDULE whose columns are named by a header row (WIDTH, HEIGHT, QTY). Feet-inches cells split across two spans (`3'-` over `0"`) are rejoined; side-by-side tables are bounded by x; a table ends at its first row break. It runs only where the CMHC reader finds nothing.
+  - Count: the schedule's QTY column where there is one. A numbered schedule (door 1, 2, 3) counts each row once, stated as an assumption on the line. Lettered types with no quantity are not counted, and each gets a gap. Plan tags are not counted for US sets: a bare "A" cannot be told from every other "A" on the sheet.
+  - Dev: openings read on 10 of 15 sets (was 0). Opening error (|windows| + |doors| against truth): Escondido 13/16/21/21 → 1/7/0/1; Riverside 11/13/14/17 → 0/1/7/3; Santa Cruz 13/18 → 2/13. Coverage: Escondido 68 → 70–77%, Riverside 31 → 40%.
+  - Truth fix: Riverside-1 windows 5 → 7. The schedule says QNTY 1+2+1+1+2, and plan A1.1 shows seven window tags (E, E, C, B, B, D, A); 5 was the type count. Riverside-3 (truth 3 against a QNTY sum of 10) is probably the same mistake, but it is unchecked.
