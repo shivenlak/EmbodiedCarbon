@@ -330,13 +330,24 @@ class TestAcrossFirms:
 
     @pytest.mark.parametrize(
         ("design", "at_least"),
-        [("AB_Fourplex_01", 17), ("BC_Duplex", 8), ("QC_Fourplex_01", 10), ("ON_ADU_02", 8)],
+        [("AB_Fourplex_01", 17), ("BC_Duplex", 8), ("QC_Fourplex_01", 10), ("ON_ADU_02", 8), ("SKMB_Fourplex_01", 12)],
     )
     def test_several_firms_parse(self, design, at_least):
         from ecarbon.extract.assemblies import assemblies_for
 
         kept, _rejected = assemblies_for(get_design(design))
         assert len(kept) >= at_least
+
+    def test_a_thickness_run_on_into_its_material_is_both(self):
+        # SK/MB print `1 1/2"/38mm CONTINUOUS RIGID INSULATION` as one span in
+        # the thickness column; the notes column beside it must not be read.
+        from ecarbon.extract.assemblies import assemblies_for
+
+        kept, _ = assemblies_for(get_design("SKMB_Fourplex_01"))
+        layers = [(lay.thickness_mm, lay.material) for lay in kept["W1"].layers]
+        assert (38.0, "CONTINUOUS RIGID INSULATION") in layers
+        assert (140.0, "WOOD STUD FRAMING @406mm O/C") in layers
+        assert not any("NOTE" in m for _, m in layers)
 
     def test_alberta_is_unchanged_by_generalising(self):
         """The regression guard. Segmenting by tag position rather than by the
