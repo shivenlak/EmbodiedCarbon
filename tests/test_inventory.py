@@ -225,6 +225,18 @@ class TestGapReport:
         assert all(g.severity is GapSeverity.BLOCKING for g in gaps)
         assert any("assembly schedule" in g.message for g in gaps)
 
+    def test_skipped_services_sheets_are_named(self):
+        from ecarbon.intake import coverage_gaps
+        from ecarbon.models import GapCode, GapSeverity, SheetInfo
+
+        sheets = [
+            SheetInfo(page=3, readable=True, sheet_no="M-101", sheet_type=SheetType.MECHANICAL),
+            SheetInfo(page=4, readable=True, sheet_type=SheetType.ELECTRICAL),
+        ]
+        (note,) = [g for g in coverage_gaps(sheets) if g.code is GapCode.MODULE_SCOPE_MISMATCH]
+        assert note.severity is GapSeverity.INFO
+        assert "M-101, page 5" in note.message
+
 
 class TestSheetTyping:
     """Title -> SheetType, including the cases that disagree across regions."""
@@ -233,6 +245,9 @@ class TestSheetTyping:
         ("title", "want"),
         [
             ("ASSEMBLIES SCHEDULE", SheetType.ASSEMBLY_SCHEDULE),
+            ("WALL TYPES", SheetType.ASSEMBLY_SCHEDULE),  # US
+            ("GENERAL ARRANGEMENT - GROUND FLOOR", SheetType.FLOOR_PLAN),  # UK/AU
+            ("FIRST FLOOR GA PLAN", SheetType.FLOOR_PLAN),
             ("EXTERIOR ASSEMBLIES SCHEDULE", SheetType.ASSEMBLY_SCHEDULE),  # BC splits these
             ("INTERIOR ASSEMBLIES SCHEDULE", SheetType.ASSEMBLY_SCHEDULE),
             ("OPENINGS SCHEDULE", SheetType.OPENING_SCHEDULE),  # AB

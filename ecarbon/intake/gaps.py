@@ -103,6 +103,21 @@ def coverage_gaps(sheets: list[SheetInfo]) -> list[Gap]:
                 ),
             )
         )
+    mep = [s for s in sheets if s.sheet_type in (SheetType.MECHANICAL, SheetType.ELECTRICAL)]
+    if mep:
+        names = ", ".join(s.sheet_no or f"page {s.page + 1}" for s in mep[:12])
+        more = f" (and {len(mep) - 12} more)" if len(mep) > 12 else ""
+        gaps.append(
+            Gap(
+                code=GapCode.MODULE_SCOPE_MISMATCH,
+                severity=GapSeverity.INFO,
+                message=(
+                    f"{len(mep)} mechanical or electrical sheet(s) were skipped ({names}{more}). "
+                    f"Building services are outside this bill, so their equipment, ducts "
+                    f"and wiring carry no carbon here."
+                ),
+            )
+        )
     return gaps
 
 

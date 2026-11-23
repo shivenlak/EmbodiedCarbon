@@ -56,7 +56,7 @@ us-riverside-adu-1:
   footprint_m: [5.182, 8.839]   # 17'-0" x 29'-0"; 499 SQ. FT.
   storeys: 1
   storey_heights_m: [2.438]     # 8'-0" PLATE HEIGHT
-  windows: 5
+  windows: 7                    # schedule QNTY 1+2+1+1+2; plan A1.1 tags E,E,C,B,B,D,A (was 5: the type count)
   doors: 6
   slab_mm: 102                  # 4" conc slab
   notes: "A1.1 craftsman plan (A1.2, A1.3 are the same plan in other styles); schedules on A0.1"

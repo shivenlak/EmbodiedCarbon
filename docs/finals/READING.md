@@ -148,7 +148,7 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 
 - [x] **One design from a folder.** `config.pdf_designs(folder)` (or a new `folder_design`) makes **one** `Design` from all the PDFs in a folder, so the inventory sees every sheet across every file. Pages need a stable global index, plus a `(file, page)` mapping for provenance and trace. Check how `Design.drawings_pdf` is used (`config.py:44`, `intake/inventory.py`, `trace.render_page`), and keep single-PDF behaviour unchanged.
 - [x] **Sheet classification across files.** File names are a strong hint ("Foundation.pdf", "Roof Layout.pdf"). Use them only when the title block is unreadable, and record that as the basis.
-- [ ] **Skip trades we don't count.** *(recognised as MECHANICAL/ELECTRICAL from the file name; the info note is still to do)* Mechanical/electrical sheets are recognised and skipped, with an info note.
+- [x] **Skip trades we don't count.** Mechanical/electrical sheets are recognised and skipped, with an info note.
 - [ ] **Score the Landmark sets** with `score_blind.py` (rules only), using `~/ec-data/landmark/` as a dev source. Put the "what broke" items into the A3 queue. Scores go in Findings without any Landmark quantities quoted.
 - [x] **Hand-off for B2b:** tell B the function to call, e.g. `folder_design(path) -> Design`, under Requests in SHARED.md.
 
@@ -208,3 +208,19 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
   - Partitions use one wall stroke per set (the commonest across floors, ties to the heavier). QC_ADU_02's main floor found its outline in a 0.48 line that also draws fixtures (89 m of partitions; now 2.6 m at 1.32).
   - Partition changes, all explained: BC_ADU_02 A102 80.5 → 11.5 m (the known overcount, fixed). ON_ADU_01 42.7 → 20.8 m (it was measured against a 30 × 25 m sheet outline). Second floors that read near nothing now read: BC_Rowhouse A102 37 m, QC_Fourplex_01 A101 5 → 59 m, QC_Rowhouse_01 A102 2 → 32 m.
   - CMHC coverage (`run_pipeline.py`, main → branch): no set moved. Carbon moved on the sets above, plus NOR_ADU_Municipal_Garage (footprint 5.0 × 6.6 → 7.3 × 8.3 m; its IFC box is the site, so unscoreable either way).
+- **20 Nov, imperial slab (A1 blocker 4):**
+  - `extract/specs.py` reads `4" CONCRETE SLAB ON GRADE` / `4" CONC SLAB W/ #4 @ 18" O.C.` as 102 mm. CONC is required next to the figure, so a cover note (`2" CLR CVR @ 4" SLAB`) is refused.
+  - When the structural sheets state no slab, the slab alone (not beams or footings) is read off the other sheets: Escondido-2/4 state it in an A-sheet keynote, and Riverside's sheets carry no sheet numbers. An unnumbered sheet (`p9`) now traces to its own page.
+  - Dev: slab read on 6 of 15 sets (was 0), all 102 mm against truth 102. Riverside coverage 13% → 31%. Escondido-1/3 still say "per structural" with no figure, which is right.
+  - Alberta gate unchanged.
+- **20 Nov, US opening schedules (A1 blocker 5):**
+  - `extract/openings.py` gains `header_schedule_on_page`: a WINDOW/DOOR SCHEDULE whose columns are named by a header row (WIDTH, HEIGHT, QTY). Feet-inches cells split across two spans (`3'-` over `0"`) are rejoined; side-by-side tables are bounded by x; a table ends at its first row break. It runs only where the CMHC reader finds nothing.
+  - Count: the schedule's QTY column where there is one. A numbered schedule (door 1, 2, 3) counts each row once, stated as an assumption on the line. Lettered types with no quantity are not counted, and each gets a gap. Plan tags are not counted for US sets: a bare "A" cannot be told from every other "A" on the sheet.
+  - Dev: openings read on 10 of 15 sets (was 0). Opening error (|windows| + |doors| against truth): Escondido 13/16/21/21 → 1/7/0/1; Riverside 11/13/14/17 → 0/1/7/3; Santa Cruz 13/18 → 2/13. Coverage: Escondido 68 → 70–77%, Riverside 31 → 40%.
+  - Truth fix: Riverside-1 windows 5 → 7. The schedule says QNTY 1+2+1+1+2, and plan A1.1 shows seven window tags (E, E, C, B, B, D, A); 5 was the type count. Riverside-3 (truth 3 against a QNTY sum of 10) is probably the same mistake, but it is unchecked.
+- **20 Nov, SK/MB assembly schedules (B's request):**
+  - Cause: SK/MB print some rows as one span in the thickness column (`1 1/2"/38mm CONTINUOUS RIGID INSULATION`). The performance notes sit 9 pt left of the PERFORMANCE header, so they fell inside the table and out-numbered the real material column. And with no name column, the fallback looked for names at the header's x, where nothing sits.
+  - Fix (`extract/assemblies.py`): a thickness cell that runs on into words also gives that row's material. The table stops COL_TOL short of the next header. With no name column, the name is the material column's first row, unless a multi-word name sits in the thickness column (NOR's garage), which keeps reading nothing rather than a wall cut off above its studs.
+  - CMHC assemblies kept: 413 → 493. SK/MB 0–1 → 5–13 per set (W1, F1, F2, R1 and the P walls read in full). Also new: ATL_Fourplex_03 P1–P6, QC_ADU_01 P1, ATL_Fourplex_01 R3/R4, ATL_Sixplex W1 gains its cladding placeholder. No AB, BC or ON assembly moved; Alberta gate unchanged.
+  - Still wrong: SK/MB F3+ blocks are cut by the tag midpoint (the known BC limitation), and SKMB_ADU_02's floor tables still read nothing.
+

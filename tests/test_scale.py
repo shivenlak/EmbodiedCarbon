@@ -101,6 +101,9 @@ class TestScaleText:
             ('1/4" = 1\'-0"', 48.0),
             ('SCALE: 1/8"=1\'0"', 96.0),
             ('3/16" = 1\'-0"', 64.0),
+            ('SCALE: 1/8 " = 1 \' - 0 "', 96.0),
+            ("1:100 @ A1", 100.0),
+            ("1:100@a3", 100.0),
         ],
     )
     def test_parses(self, text, ratio):
@@ -108,9 +111,15 @@ class TestScaleText:
         assert mm_per_pt is not None
         assert mm_per_pt / PT_TO_MM == pytest.approx(ratio, rel=0.01)
 
-    @pytest.mark.parametrize("text", ["AS INDICATED", "SCALE:", "", "NOT TO SCALE"])
+    @pytest.mark.parametrize("text", ["AS INDICATED", "SCALE:", "", "NOT TO SCALE", "SCALE: NTS"])
     def test_rejects(self, text):
         assert parse_scale_text(text) is None
+
+    def test_a_stated_sheet_size_rescales_to_the_page(self):
+        """'1:100 @ A1' exported at A3 (420 mm) draws at 1:200."""
+        assert parse_scale_text("1:100 @ A1", 420.0) / PT_TO_MM == pytest.approx(200.2, rel=0.01)
+        assert parse_scale_text("1:100 @ A1", 841.0) / PT_TO_MM == pytest.approx(100.0)
+        assert parse_scale_text("1:100", 420.0) / PT_TO_MM == pytest.approx(100.0)
 
 
 class TestEstimateSemantics:
