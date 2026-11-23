@@ -21,6 +21,11 @@ def cache_dir() -> Path:
     ).expanduser()
 
 
+def max_classify_pages() -> int:
+    """Pages vision may classify (Task.SHEET) where the rules typed none."""
+    return int(os.environ.get("ECARBON_VISION_MAX_CLASSIFY", "60"))
+
+
 def max_pages() -> int:
     return int(os.environ.get("ECARBON_VISION_MAX_PAGES", "12"))
 

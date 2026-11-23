@@ -57,6 +57,7 @@ from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
 from ecarbon.geometry.footprint import Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
 from ecarbon.intake import coverage_gaps, inventory, readability_gaps
+from ecarbon.intake.classify import discipline_of, sheet_type_of
 from ecarbon.models import (
     Basis,
     BasisSource,
@@ -86,7 +87,8 @@ from ecarbon.takeoff.overrides import (
     label_stated,
 )
 from ecarbon.vision import Reading, Task, provider_from_env, read_page
-from ecarbon.vision.cache import max_pages
+from ecarbon.vision.cache import max_classify_pages, max_pages
+from ecarbon.vision.validate import RASTER_NOTE
 
 PLAN_TYPES = (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN)
 
@@ -151,6 +153,9 @@ class TakeoffInputs:
     vision_levels_page: int | None = None
     vision_by: str | None = None
     vision_sheets: int = 0
+    # Sheet types vision read from title blocks the rules could not (page ->
+    # (sheet no, type)); typed by the same title rules as the text reader.
+    vision_types: dict | None = None
 
     def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
         """The assembly of one group that this design actually uses."""
@@ -284,7 +289,7 @@ def gather(
         provider = provider_from_env() if inputs.footprint is None else None
         if provider is not None:
             inputs.vision_by = f"{provider.name} ({provider.model})"
-            for s in [s for s in sheets if s.sheet_type in PLAN_TYPES][: max_pages()]:
+            for s in _vision_candidates(provider, doc, sheets, inputs, PLAN_TYPES)[: max_pages()]:
                 inputs.vision_sheets += 1
                 got = {r.field: r for r in read_page(provider, doc[s.page], s.sheet_no, Task.FOOTPRINT)}
                 if "width" in got and "depth" in got:
@@ -390,6 +395,37 @@ def gather(
     return inputs, sheets, gaps
 
 
+def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> list:
+    """Sheets of `types` for vision to read.
+
+    The rules' own classification first. Where it typed none of them (an
+    image-only set, or a title block it cannot parse), vision reads each
+    unclassified page's title block (Task.SHEET, validated like any answer)
+    and the title is typed by the same rules as text. The sheets returned
+    carry that sheet number and type; the inventory itself is unchanged.
+    """
+    ruled = [s for s in sheets if s.sheet_type in types]
+    if ruled:
+        return ruled
+    if inputs.vision_types is None:
+        inputs.vision_types = {}
+        unknown = [s for s in sheets if s.sheet_type is SheetType.UNKNOWN]
+        for s in unknown[: max_classify_pages()]:
+            got = {r.field: r for r in read_page(provider, doc[s.page], s.sheet_no, Task.SHEET)}
+            if "title" not in got:
+                continue
+            no = got["sheet_no"].value if "sheet_no" in got else s.sheet_no
+            stype = sheet_type_of(str(got["title"].value), discipline_of(no))
+            if stype is not SheetType.UNKNOWN:
+                inputs.vision_types[s.page] = (no, stype)
+    by_page = {s.page: s for s in sheets}
+    return [
+        by_page[p].model_copy(update={"sheet_no": no, "sheet_type": t})
+        for p, (no, t) in sorted(inputs.vision_types.items())
+        if t in types
+    ]
+
+
 def _vision_levels(design, sheets, inputs: TakeoffInputs) -> None:
     """A4: vision for the level datums, only where the sections gave no height."""
     provider = provider_from_env()
@@ -399,7 +435,11 @@ def _vision_levels(design, sheets, inputs: TakeoffInputs) -> None:
     inputs.vision_by = f"{provider.name} ({provider.model})"
     doc = pymupdf.open(design.drawings_pdf)
     try:
-        for s in [s for s in sheets if s.sheet_type is SheetType.SECTION][:budget]:
+        wanted = (SheetType.SECTION, SheetType.ELEVATION)
+        found_sheets = _vision_candidates(provider, doc, sheets, inputs, wanted)
+        # Sections first: their datums are the drawn ones; elevations repeat them.
+        found_sheets.sort(key=lambda s: s.sheet_type is not SheetType.SECTION)
+        for s in found_sheets[:budget]:
             inputs.vision_sheets += 1
             got = read_page(provider, doc[s.page], s.sheet_no, Task.LEVELS)
             found = StoreyHeights(
@@ -413,6 +453,16 @@ def _vision_levels(design, sheets, inputs: TakeoffInputs) -> None:
                 return
     finally:
         doc.close()
+
+
+def _vision_check_phrase(readings) -> str:
+    """How far a vision reading was checked: in the text, or only an image."""
+    if any(RASTER_NOTE in r.note for r in readings):
+        return (
+            "the sheet has no usable text layer, so the quotes were read from an image of it "
+            "and could not be checked against the drawing's text."
+        )
+    return "each quote was located in the drawing's text."
 
 
 def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
@@ -440,7 +490,8 @@ def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
             )
             assumptions.append(
                 f"Footprint read by {inputs.vision_by} from the overall dimensions on "
-                f"{inputs.footprint_sheet}; each quote was located in the drawing's text."
+                f"{inputs.footprint_sheet}; "
+                + _vision_check_phrase(inputs.vision)
             )
             if line.provenance.page == inputs.footprint_page:
                 bbox = inputs.vision[0].bbox
@@ -453,8 +504,8 @@ def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
                 + f". Storey heights {heights} m from these datums. {note}"
             ).strip()
             assumptions.append(
-                f"Level datums read by {inputs.vision_by}; each label and elevation "
-                "was located in the drawing's text."
+                f"Level datums read by {inputs.vision_by}; "
+                + _vision_check_phrase(inputs.vision_levels)
             )
             if bbox is None and line.provenance.page == inputs.vision_levels_page:
                 bbox = inputs.vision_levels[0].bbox
