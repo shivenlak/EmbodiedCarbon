@@ -1,20 +1,20 @@
 {
- "generated": "2026-11-20",
+ "generated": "2026-11-23",
  "designs": 53,
  "quantity_error_pct": {
   "exterior wall area vs IFC model": {
    "n": 38,
-   "median": 4.6,
+   "median": 5.8,
    "q1": -11.1,
    "q3": 27.0,
    "within_10pct": 8
   },
   "footprint vs energy model ceiling": {
-   "n": 26,
-   "median": 9.0,
-   "q1": -2.8,
-   "q3": 16.0,
-   "within_10pct": 12
+   "n": 32,
+   "median": 6.1,
+   "q1": -3.6,
+   "q3": 14.4,
+   "within_10pct": 16
   },
   "window area vs energy model": {
    "n": 37,
@@ -24,9 +24,9 @@
    "within_10pct": 12
   },
   "slab concrete vs IFC (plausible IFC slabs only)": {
-   "n": 18,
-   "median": 10.2,
-   "q1": 8.1,
+   "n": 19,
+   "median": 9.3,
+   "q1": -41.9,
    "q3": 22.0,
    "within_10pct": 5
   },
@@ -39,7 +39,7 @@
   },
   "Concrete, CIP volume vs IFC model": {
    "n": 33,
-   "median": -2.8,
+   "median": 1.2,
    "q1": -44.9,
    "q3": 37.7,
    "within_10pct": 6
@@ -47,9 +47,9 @@
   "Gypsum Board volume vs IFC model": {
    "n": 38,
    "median": -20.9,
-   "q1": -49.7,
-   "q3": 7.9,
-   "within_10pct": 7
+   "q1": -47.7,
+   "q3": 6.3,
+   "within_10pct": 10
   },
   "Insulation, Rigid volume vs IFC model": {
    "n": 18,
@@ -60,16 +60,16 @@
   },
   "Plywood volume vs IFC model": {
    "n": 38,
-   "median": -22.7,
+   "median": -22.4,
    "q1": -42.9,
    "q3": 18.0,
    "within_10pct": 2
   },
   "Wood Framing volume vs IFC model": {
    "n": 38,
-   "median": -92.8,
-   "q1": -94.9,
-   "q3": -90.8,
+   "median": -92.9,
+   "q1": -94.1,
+   "q3": -90.9,
    "within_10pct": 0
   }
  },
@@ -82,48 +82,48 @@
  "carbon_vs_ifc_same_factors": {
   "n": 38,
   "median_ratio": 0.82,
-  "q1": 0.36,
-  "q3": 1.17,
+  "q1": 0.38,
+  "q3": 1.12,
   "note": "Our carbon over the architect's IFC quantities priced with OUR factors, for the materials both name (concrete, gypsum, insulation, sheathing; framing excluded because the IFC models it as solid layers). This isolates quantity error from factor and module differences."
  },
  "intensity_vs_cmhc_a1_a5": {
-  "n": 33,
-  "median_ratio": 0.47,
-  "q1": 0.3,
-  "q3": 0.64,
+  "n": 39,
+  "median_ratio": 0.44,
+  "q1": 0.31,
+  "q3": 0.62,
   "note": "Our kg CO2e per m2 of measured floor area over CMHC's A1-A5 per m2 of its own floor area: robust to a report that covers one unit of a block the drawings show whole."
  },
  "carbon_vs_cmhc_a1_a5": {
   "n": 44,
-  "median_ratio": 0.45,
-  "q1": 0.24,
+  "median_ratio": 0.46,
+  "q1": 0.32,
   "q3": 0.58,
   "note": "Our A1-A3 total over CMHC's reported A1-A5 for the same design. Below 1 is expected (A4 transport and A5 construction are not counted) and the rest of the gap is scope we flag as not counted: cladding and roofing placeholders, joists, trusses, steel studs, foundation walls."
  },
  "element_share_diff_points": {
   "foundations": {
    "n": 43,
-   "median": -6.4
+   "median": -4.1
   },
   "upper_floors": {
    "n": 38,
-   "median": -4.8
+   "median": -5.1
   },
   "roofs": {
    "n": 43,
-   "median": 5.2
+   "median": 1.7
   },
   "external_walls": {
    "n": 43,
-   "median": 14.9
+   "median": 12.4
   },
   "windows_doors": {
    "n": 43,
-   "median": 4.2
+   "median": 3.4
   },
   "interiors": {
    "n": 36,
-   "median": -12.0
+   "median": -10.9
   },
   "stairs": {
    "n": 30,
@@ -167,16 +167,16 @@
     "within_10pct": 0
    },
    "with_carbon": 7,
-   "intensity_ratio_median": 0.53,
+   "intensity_ratio_median": 0.54,
    "carbon_ratio_median": 0.58
   },
   "NOR": {
    "designs": 9,
    "wall_vs_ifc": {
     "n": 1,
-    "median": -56.0,
-    "q1": -56.0,
-    "q3": -56.0,
+    "median": -41.1,
+    "q1": -41.1,
+    "q3": -41.1,
     "within_10pct": 0
    },
    "with_carbon": 1,
@@ -193,7 +193,7 @@
     "within_10pct": 0
    },
    "with_carbon": 7,
-   "intensity_ratio_median": 0.78,
+   "intensity_ratio_median": 0.73,
    "carbon_ratio_median": 0.32
   },
   "QC": {
@@ -219,8 +219,8 @@
     "within_10pct": 0
    },
    "with_carbon": 7,
-   "intensity_ratio_median": null,
-   "carbon_ratio_median": 0.18
+   "intensity_ratio_median": 0.38,
+   "carbon_ratio_median": 0.34
   }
  }
 }

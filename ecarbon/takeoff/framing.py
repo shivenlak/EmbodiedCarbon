@@ -328,7 +328,16 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
     #   (BC, most of QC): 100 mm, the common Part 9 slab (NBC 9.16.4.3 sets a
     #   75 mm minimum).
     spec = inputs.spec
-    has_slab = any(ln.id == "ln-slab-on-grade" for ln in built)
+    # A slab is already counted if the spec gave one ("ln-slab-on-grade") or
+    # the slab assembly's own concrete layer stated its thickness
+    # ("ln-slab-on-grade-<tag>-l<n>", e.g. SK/MB's F1 "152 mm"): the assumed
+    # slab must not stack a second one on top.
+    has_slab = any(
+        ln.id == "ln-slab-on-grade"
+        or (ln.id.startswith("ln-slab-on-grade-") and ln.material
+            and "concrete" in ln.material.lower())
+        for ln in built
+    )
     if not has_slab and spec is not None:
         generic = getattr(spec, "generic_slab_mm", None)
         drawn_slab = inputs.slab_assembly is not None

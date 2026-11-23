@@ -210,3 +210,18 @@ class TestSingleStoreyLimitation:
         assert any("wall height is assumed 2.74 m" in a for a in wall.assumptions)
         covered, missing = coverage_report(t.lines)
         assert ElementClass.EXTERIOR_WALL not in missing
+
+
+@needs_data
+def test_a_slab_is_counted_once_and_its_insulation_layer_separately():
+    # SK/MB's F1 states 152 mm of rigid insulation under a concrete slab whose
+    # thickness it defers to structural. The concrete is the one assumed slab;
+    # the insulation is its own inferred line, not a second slab.
+    from ecarbon.takeoff.builder import build_takeoff
+
+    takeoff = build_takeoff(get_design("SKMB_Fourplex_01"))
+    slab = [ln for ln in takeoff.lines if ln.id.startswith("ln-slab-on-grade")]
+    concrete = [ln for ln in slab if ln.material and "Concrete" in ln.material]
+    assert [ln.id for ln in concrete] == ["ln-slab-on-grade"]
+    assert concrete[0].confidence is Confidence.ASSUMED
+    assert any(ln.material == "CMHC_Insulation, Rigid" for ln in slab)
