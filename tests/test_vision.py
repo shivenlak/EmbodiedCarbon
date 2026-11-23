@@ -194,3 +194,64 @@ def test_a_wall_on_vision_heights_keeps_its_own_note_behind_the_quotes():
     assert any("Level datums" in a for a in wall.assumptions)
     # A slab does not rest on storey heights.
     assert slab.basis.note == "perimeter off the linework"
+
+
+class TestOutlinedText:
+    """A sheet whose dimensions are linework, with only a stamp as text (NOR)."""
+
+    def stamped_page(self) -> pymupdf.Page:
+        doc = pymupdf.open()
+        page = doc.new_page(width=800, height=600)
+        page.insert_text((600, 580), "NOT FOR PERMIT", fontsize=8)
+        page.insert_text((600, 590), "OR CONSTRUCTION", fontsize=8)
+        return page
+
+    def test_a_text_layer_without_a_number_is_checked_as_an_image(self):
+        got = {
+            r.field: r
+            for r in validate(self.stamped_page(), "A100", Task.FOOTPRINT, answer("footprint_found"), DPI)
+        }
+        assert got["width"].value == 9100
+        assert got["width"].confidence is Confidence.INFERRED
+        assert RASTER_NOTE in got["width"].note
+
+    def test_one_number_in_the_text_keeps_the_full_check(self):
+        page = self.stamped_page()
+        page.insert_text((50, 50), "REV 2", fontsize=8)
+        got = validate(page, "A100", Task.FOOTPRINT, answer("footprint_hallucinated"), DPI)
+        assert got == []
+
+
+class TestRender:
+    def test_a_sheet_too_large_to_send_is_rendered_smaller(self, monkeypatch):
+        from ecarbon import vision
+
+        monkeypatch.setattr(vision, "MAX_PNG_BYTES", 20_000)
+        page = plan_page()
+        for i in range(400):  # enough ink to make the PNG large
+            page.draw_line((i * 2, 0), (800 - i * 2, 600))
+        png, dpi = vision.render(page)
+        assert dpi < DPI
+        assert len(png) <= 20_000 or dpi <= 40
+
+
+class TestVisionSheetTypes:
+    def test_an_unclassified_page_is_typed_from_its_vision_read_title(self, monkeypatch):
+        import ecarbon.takeoff.builder as b
+        from ecarbon.models import SheetInfo, SheetType
+        from ecarbon.vision.validate import Reading
+
+        def fake_read(provider, page, sheet_no, task):
+            assert task is Task.SHEET
+            n = Confidence.INFERRED
+            return [
+                Reading("sheet_no", "A100", "A100", (0, 0, 1, 1), n, "vision: page 1: 'A100'"),
+                Reading("title", "MAIN FLOOR PLAN", "MAIN FLOOR PLAN", (0, 0, 1, 1), n, "vision"),
+            ]
+
+        monkeypatch.setattr(b, "read_page", fake_read)
+        sheets = [SheetInfo(page=0, sheet_type=SheetType.UNKNOWN)]
+        inputs = b.TakeoffInputs()
+        got = b._vision_candidates(object(), [None], sheets, inputs, b.PLAN_TYPES)
+        assert [(s.page, s.sheet_no, s.sheet_type) for s in got] == [(0, "A100", SheetType.FLOOR_PLAN)]
+        assert sheets[0].sheet_type is SheetType.UNKNOWN  # the inventory is untouched
