@@ -75,7 +75,7 @@ Tick each box in the PR that lands it.
 
 Work in the order of the A1 failure list. Each new pattern gets a unit test, and **the Alberta gate must not move**.
 
-- [ ] **`extract/levels.py`:**
+- [x] **`extract/levels.py`:** *(24 Nov: datums printed with their label in one span; relative `100'-0"` works because only differences are used; a bare AU `RL` is refused, it needs `FFL RL`)*
   - feet elevations: `T.O. PLATE 9'-1 1/8"`, `TOP OF PLATE EL. 109'-1"`, `FIN. FLR. EL. 100'-0"`
   - relative datums such as `100'-0"` taken as ±0
   - AU `RL 12.450` (reduced levels)
@@ -83,18 +83,18 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - DE `OKFF ±0,00`
   - Reuse `scale.parse_imperial`. Keep the plate-vs-ridge distinction (`roof_level_m`).
 - [ ] **`extract/specs.py`:** `4" CONC. SLAB ON GRADE`, `16" x 8" CONT. FTG`, `#4 @ 12" O.C.`, `N12-300` (AU rebar), `150 THK SLAB`, `100mm thick`.
-- [ ] **`extract/assemblies.py`:**
-  - Nominal lumber: 2x4 → 89, 2x6 → 140, 2x8 → 184, 2x10 → 235, 2x12 → 286 mm. Also AU/UK `90x45` / `140x45` (stud depth is the first number).
-  - Framing fraction from the stated spacing: `@ 16" O.C.` / `@ 24" O.C.` / `@ 400 crs` / `@ 600 crs`. Use the spacing to compute stud share instead of always `FRAMING_FRACTION = 0.15`; the no-spacing case keeps 0.15, so CMHC is unchanged.
+- [ ] **`extract/assemblies.py`:** *(24 Nov: nominal lumber, AU/UK depth-first and spacing-based framing share done; decimal comma not)*
+  - [x] Nominal lumber: 2x4 → 89, 2x6 → 140, 2x8 → 184, 2x10 → 235, 2x12 → 286 mm. Also AU/UK `90x45` / `140x45` (stud depth is the first number).
+  - [x] Framing fraction from the stated spacing: `@ 16" O.C.` / `@ 24" O.C.` / `@ 400 crs` / `@ 600 crs`. Use the spacing to compute stud share instead of always `FRAMING_FRACTION = 0.15`; the no-spacing case keeps 0.15, so CMHC is unchanged.
   - Decimal comma (`2,40`).
   - US wall-type legends that are a list of notes rather than a layer table. *(done 23 Nov: `legend_assemblies_on_page`, Escondido and Santa Cruz format)*
-- [ ] **`extract/openings.py`:** imperial as primary when there's no metric column; `3068` / `2868` / `2668` door codes (W×H in feet-inches); tags `W-1`, `W01`, `D1`, `101A`.
-- [ ] **`intake/classify.py`:**
+- [ ] **`extract/openings.py`:** *(24 Nov: no `3068`-style door code occurs in the dev or Landmark corpus, so not built)* imperial as primary when there's no metric column; `3068` / `2868` / `2668` door codes (W×H in feet-inches); tags `W-1`, `W01`, `D1`, `101A`.
+- [x] **`intake/classify.py`:** *(24 Nov: all listed numbers and titles type; ISO 19650 added; a title-block-column title now beats a nearer drawing heading)*
   - US `A-101`, `A2.1`, `S-1`, `G-001`
   - UK BS 1192 / ISO 19650 numbering (`PRJ-XX-ZZ-DR-A-1001`)
   - AU `DA-01` / `CC-101`
   - titles such as "BUILDING SECTIONS", "WALL SECTIONS", "WALL TYPES", "DOOR & WINDOW SCHEDULE", "GENERAL ARRANGEMENT", "GROUND FLOOR PLAN", "FIRST FLOOR PLAN" (= the second storey in UK/AU usage!)
-- [ ] **`geometry/scale.py`:** `1:100 @ A1`, `1:100 @A3`, `SCALE: 1/8" = 1'-0"` spacing variants, `NTS` as "no scale". Graphic bar scales only if cheap.
+- [x] **`geometry/scale.py`:** *(24 Nov: all listed forms already parse; `NTS` gives no scale)* `1:100 @ A1`, `1:100 @A3`, `SCALE: 1/8" = 1'-0"` spacing variants, `NTS` as "no scale". Graphic bar scales only if cheap.
 - [ ] **The old `feat/pipeline-improvements` work** (tag `archive/pipeline-improvements`):
   - It merges cleanly into `main` and keeps the Alberta gate.
   - But it makes `BC_Duplex`'s exterior wall parse where `main` refuses it as unreliable, so `tests/test_assemblies.py::TestAcrossFirms::test_an_unreliable_parse_is_reported_rather_than_used` fails.
@@ -149,7 +149,7 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 - [x] **One design from a folder.** `config.pdf_designs(folder)` (or a new `folder_design`) makes **one** `Design` from all the PDFs in a folder, so the inventory sees every sheet across every file. Pages need a stable global index, plus a `(file, page)` mapping for provenance and trace. Check how `Design.drawings_pdf` is used (`config.py:44`, `intake/inventory.py`, `trace.render_page`), and keep single-PDF behaviour unchanged.
 - [x] **Sheet classification across files.** File names are a strong hint ("Foundation.pdf", "Roof Layout.pdf"). Use them only when the title block is unreadable, and record that as the basis.
 - [x] **Skip trades we don't count.** Mechanical/electrical sheets are recognised and skipped, with an info note.
-- [ ] **Score the Landmark sets** with `score_blind.py` (rules only), using `~/ec-data/landmark/` as a dev source. Put the "what broke" items into the A3 queue. Scores go in Findings without any Landmark quantities quoted.
+- [x] **Score the Landmark sets** with `score_blind.py` (rules only), using `~/ec-data/landmark/` as a dev source. Put the "what broke" items into the A3 queue. Scores go in Findings without any Landmark quantities quoted.
 - [x] **Hand-off for B2b:** tell B the function to call, e.g. `folder_design(path) -> Design`, under Requests in SHARED.md.
 
 ## A5. Image-only sets (Tue 24)
@@ -229,3 +229,13 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
   - Only the stud depth is stated, so only the studs are counted. Sheathing and gypsum are kept as layers with no thickness and each gets a warning; no standard thickness is filled in. Words from the neighbouring column are dropped unless they name a known material. "GYP." is spelled out in the legend reader only, so CMHC's own layers do not move.
   - The builder counts a legend assembly as referenced (US plans mark wall types by hatch, not tag). Its P depth also lets partitions be found.
   - Dev: assemblies read on 6 of 15 sets (was 0). Escondido 1–4 coverage 77/70/77/77 → 85/78/85/85%. Santa Cruz reads both walls but still has no footprint, so coverage does not move. Riverside has no wall legend in this form and still reads no assembly; its wall types are not yet surveyed.
+- **24 Nov, A3 conventions (framing notes, inline datums, sheet numbers, titles) and Landmark scores:**
+  - `extract/assemblies.stud_note_assemblies_on_page` reads `ALL EXTERIOR STUDS TO BE 2x6 @ 16" O.C.` (Riverside's structural notes) and AU/UK `EXTERIOR WALL STUDS SHALL BE 90x45 @ 600 CRS` as W1, studs only. Nominal 2x4/6/8/10/12 → 89/140/184/235/286 mm. It runs only where no schedule or legend gives an exterior wall. Nailing and trimmer notes are not wall specs.
+  - `Layer.framing_share`: a stated spacing sets the stud share (38 mm / spacing, plus the plates' fixed 5.5%). Unstated or within 5% of 400 mm (16" is 406) keeps 0.15. Every CMHC framing layer states 406 mm, so none moved.
+  - `extract/levels.inline_level`: a datum printed with its label in one span (`8'-0" PLATE HEIGHT`, `0'-0" FINISHED FLOOR`, `T.O. PLATE 9'-1 1/8"`, `FIN. FLR. EL. 100'-0"`, `FFL +3.000`, `FFL RL 12.450`, `OKFF ±0,00`). Only floor and plate labels count, so `TOP OF TRELLIS` / `TOP OF COLUMN` are not floors. Metric needs a datum code, so CMHC ladders are untouched.
+  - `intake/classify`: ISO 19650 numbers (`PRJ-ORG-ZZ-00-DR-A-1001`, discipline from the role). The fallback title now prefers the title-block column, so Santa Cruz A2-101 types as FLOOR PLANS rather than a drawing heading "LEGEND".
+  - **New refusal (`builder.gather`):** an outline whose sides disagree with its own dimension strings by more than 25% (`footprint.REFUSE_PCT`) is not used as the footprint; a WARNING gap names it. Every CMHC footprint agrees within 7.53%. Partitions still use such an outline as a page bound (refusing it there moved AB_Sixplex partitions).
+  - Dev (rules only): Riverside 1–4 coverage 40 → 60%, storeys now right, height error 0.0 m, W1 read. Santa Cruz 2: the plan is now found and its 8.8 × 9.4 m outline (53% off its dimensions) refused, so no footprint, as before. Santa Cruz 3 is **worse**: 2 → 50% coverage, but on a footprint 40% short. The main plan's wall stroke splits in two, and the right half's 7.5 m matches a partial chain to 2.4%. This is the next footprint task (it is the Riverside class of "succeeds wrongly").
+  - CMHC: `run_pipeline.py` coverage identical on all 53 sets (`out/after_legend.json` → `out/after_a3.json`), none below `out/baseline.json`. IFC footprint median 3.1%, 25/38 within 5%, unchanged. Alberta gate unchanged. 937 tests pass.
+  - Landmark (rules only): RPL 13%, RSL 13%, Townhome 66% coverage; sheets typed 79/83/95%; a scale found on all three. None read an assembly schedule or openings schedule; RPL and RSL read no floor datum. These go in the A3 queue.
+  - Not built: `3068` door codes (none in the dev or Landmark corpus), decimal comma, AU rebar `N12-300`. The AU sets state `1 : 100` but draw their dimensions as outlines (878 characters on a 13,509-path sheet), so they wait for vision.

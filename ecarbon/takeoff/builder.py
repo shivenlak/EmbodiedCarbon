@@ -54,7 +54,7 @@ from ecarbon.extract.assemblies import (
 )
 from ecarbon.extract.levels import Level, StoreyHeights, storey_heights_for
 from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
-from ecarbon.geometry.footprint import Footprint, detect_footprint
+from ecarbon.geometry.footprint import REFUSE_PCT, Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
 from ecarbon.intake import coverage_gaps, inventory, readability_gaps
 from ecarbon.intake.classify import discipline_of, sheet_type_of
@@ -93,9 +93,6 @@ from ecarbon.vision.validate import RASTER_NOTE
 
 PLAN_TYPES = (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN)
 
-# Framing occupies this fraction of a stud wall's cavity depth. A conventional
-# allowance, so any line using it is labelled `assumed` and says so.
-STUD_FRAMING_FRACTION = 0.15
 
 # How far the floor area the plans depict may sit from the area the project
 # states before the two are treated as describing different extents. Measured
@@ -263,9 +260,13 @@ def gather(
         # So the expectation is tried first and, only if nothing confident
         # survives it, the plans are read again without it. The second pass is
         # recorded so the caller knows the area was never corroborated.
+        refused: list[str] = []
         for expectation in (expected_area_m2, None):
             for s in plans:
                 fp = detect_footprint(doc[s.page], scale_for(s.page), expectation)
+                if fp and (fp.agreement_pct or 0.0) > REFUSE_PCT:
+                    refused.append(f"{s.sheet_no or f'p{s.page + 1}'}: {fp.width_m} x {fp.depth_m} m, {fp.agreement_pct:.0f}% from its dimensions")
+                    fp = None
                 if fp and fp.confident:
                     inputs.footprint, inputs.footprint_sheet, inputs.footprint_page = (
                         fp,
@@ -284,6 +285,20 @@ def gather(
                 break
             if expectation is None or expected_area_m2 is None:
                 break
+
+        if refused and inputs.footprint is None:
+            gaps.append(
+                Gap(
+                    code=GapCode.GEOMETRY_AMBIGUOUS,
+                    severity=GapSeverity.WARNING,
+                    message=(
+                        "An outline was found but its own dimension strings contradict it, "
+                        "so it is not used as the footprint: "
+                        + "; ".join(dict.fromkeys(refused))
+                        + ". Trace the outline or set the footprint to measure it."
+                    ),
+                )
+            )
 
         # A4: vision only where the rules found no footprint at all. Raster
         # sheets are tried too, since those are where the rules cannot read.
@@ -759,7 +774,10 @@ def _assembly_lines(
 
     for layer in asm.layers:
         material = cmhc_material(layer)
-        volume = layer.volume_m3(area_m2, STUD_FRAMING_FRACTION)
+        # The framing's stated spacing sets the split, for it and for the fill beside it.
+        framing = layer if layer.is_framing or layer.shares_cavity_with is None else asm.layers[layer.shares_cavity_with]
+        fraction = framing.framing_share
+        volume = layer.volume_m3(area_m2, fraction)
         if volume is None or material is None:
             continue
 
@@ -771,7 +789,7 @@ def _assembly_lines(
             notes.append(layer.note)
         if layer.shares_cavity_with is not None:
             partner = asm.layers[layer.shares_cavity_with]
-            share = STUD_FRAMING_FRACTION if layer.is_framing else 1 - STUD_FRAMING_FRACTION
+            share = fraction if layer.is_framing else 1 - fraction
             notes.append(
                 f"Shares the {layer.thickness_mm:.0f} mm cavity with "
                 f"'{partner.material}', so it takes {share:.0%} of it rather than the "
@@ -781,7 +799,7 @@ def _assembly_lines(
             )
         elif layer.is_framing:
             notes.append(
-                f"Studs at centres take {STUD_FRAMING_FRACTION:.0%} of the "
+                f"Studs at centres take {fraction:.0%} of the "
                 f"{layer.thickness_mm:.0f} mm depth; the rest of the cavity is empty."
             )
 

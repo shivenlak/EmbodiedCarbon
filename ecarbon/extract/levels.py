@@ -222,6 +222,41 @@ def _elevation_m(text: str) -> float | None:
     return round((-mm if m.group(1) == "-" else mm) / 1000.0, 3)
 
 
+# A datum printed with its label in one span, as US sections and UK/AU/DE
+# drawings do: `8'-0" PLATE HEIGHT`, `0'-0" FINISHED FLOOR`, `T.O. PLATE
+# 9'-1 1/8"`, `FIN. FLR. EL. 100'-0"`, `FFL +3.000`, `RL 12.450`, `OKFF ±0,00`.
+# Only labels that name a floor or the top plate: an inline `TOP OF TRELLIS`
+# or `TOP OF COLUMN` would otherwise count as a floor.
+_INLINE_LABEL = (
+    r"(?:FIN(?:ISHED|\.)?\s*(?:FLOOR|FLR)\.?|F\.?F\.?L\.?|SSL|OKFF|SUB-?FLOOR"
+    r"|(?:T\.?\s*O\.?|TOP\s+OF)\s*(?:SUB-?)?(?:FLOOR|PLATE|SLAB)|PLATE(?:\s+HEIGHT|\s+HT\.?)?)"
+)
+_FT_IN = r"(\d{1,3}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\")"
+_INLINE_LEAD_RE = re.compile(rf"^([-+±]?)\s*{_FT_IN}\s+({_INLINE_LABEL})$", re.I)
+_INLINE_TRAIL_RE = re.compile(rf"^({_INLINE_LABEL})\s*(?:EL\.?\s*)?([-+±]?)\s*{_FT_IN}$", re.I)
+# Metric needs an explicit datum code, so CMHC's "3.000 m" ladders are untouched.
+# A bare AU `RL 12.450` could be a ridge or an eave, so it needs its FFL.
+_INLINE_METRIC_RE = re.compile(r"^(FFL|SSL|OKFF)\s*(?:RL\s*)?([-+±]?\s*\d{1,3}[.,]\d{2,3})$", re.I)
+
+
+def inline_level(text: str) -> tuple[str, float] | None:
+    """(label, elevation m) from a span that carries both, or None."""
+    t = re.sub(r"\s+", " ", text.strip())
+    m = _INLINE_METRIC_RE.match(t)
+    if m:
+        value = m.group(2).replace(" ", "").replace(",", ".").replace("±", "")
+        return m.group(1).upper(), float(value)
+    m = _INLINE_LEAD_RE.match(t)
+    sign, ftin, label = (m.group(1), m.group(2), m.group(3)) if m else (None, None, None)
+    if not m:
+        m = _INLINE_TRAIL_RE.match(t)
+        if not m:
+            return None
+        label, sign, ftin = m.group(1), m.group(2), m.group(3)
+    elev = _elevation_m(f"{sign}{ftin}")
+    return None if elev is None else (label.upper(), elev)
+
+
 def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
     """Level datums on one section sheet."""
     # Rotation-corrected, because a datum's elevation is printed on the line
@@ -233,6 +268,10 @@ def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
 
     out: list[Level] = []
     for y, x, text in spans:
+        inline = inline_level(text)
+        if inline is not None:
+            out.append(Level(label=inline[0], elevation_m=inline[1], sheet=sheet))
+            continue
         if not _LEVEL_LABEL_RE.search(text) or _elevation_m(text) is not None:
             continue
         # The elevation sits on the line directly below its label.

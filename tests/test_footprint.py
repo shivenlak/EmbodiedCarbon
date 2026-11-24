@@ -298,3 +298,37 @@ class TestDimensionStrings:
             for i in range(3):
                 page.insert_text((100, top + 60 * i), "10'-0\"", fontsize=8)
         assert sorted(round(t, 3) for t in _string_totals_m(find_dimension_labels(page), 50.8)) == [9.144, 9.144]
+
+
+
+def test_the_takeoff_refuses_an_outline_its_dimensions_contradict(tmp_path):
+    """50'-0" x 25'-0" stated around a 33'-4" x 16'-8" outline: 50% out, so no footprint."""
+    import pymupdf
+
+    from ecarbon.config import pdf_designs
+    from ecarbon.takeoff.builder import gather
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=1000, height=1000)
+    page.insert_text((800, 950), "FLOOR PLAN", fontsize=24)
+    page.insert_text((800, 980), "A-101", fontsize=40)
+    page.insert_text((600, 900), 'SCALE: 1/4" = 1\'-0"', fontsize=8)
+    for i in range(30):  # enough text for the sheet to count as readable
+        page.insert_text((100, 450 + 12 * i), f"{i + 1}. ALL DIMENSIONS TO FACE OF STUD UNLESS NOTED OTHERWISE.", fontsize=8)
+    # At 1/4" = 1'-0" (16.93 mm/pt), 600 x 300 pt is 10.16 x 5.08 m.
+    corners = [(100, 100), (700, 100), (700, 400), (100, 400), (100, 100)]
+    for (x0, y0), (x1, y1) in zip(corners, corners[1:], strict=False):
+        for i in range(4):
+            page.draw_line(
+                (x0 + (x1 - x0) * i / 4, y0 + (y1 - y0) * i / 4),
+                (x0 + (x1 - x0) * (i + 1) / 4, y0 + (y1 - y0) * (i + 1) / 4),
+                width=1.4,
+            )
+    for x, y, text in [(380, 90, "50'-0\""), (710, 250, "25'-0\""), (380, 420, "50'-0\"")]:
+        page.insert_text((x, y), text, fontsize=8)
+    doc.save(tmp_path / "set.pdf")
+
+    (design,) = pdf_designs(tmp_path)
+    inputs, _, gaps = gather(design)
+    assert inputs.footprint is None
+    assert any("contradict" in g.message for g in gaps)

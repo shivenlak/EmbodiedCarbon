@@ -52,6 +52,11 @@ MIN_SIDE_M = 2.5
 MAX_SIDE_M = 120.0
 # How close a candidate extent must be to a dimension chain total to count.
 MATCH_TOL_PCT = 6.0
+# Past this the outline contradicts the drawing's own dimensions, and the
+# takeoff refuses it as the building's footprint (partitions may still use it
+# as a page bound). Every CMHC footprint agrees within 8%; Santa Cruz 2's
+# porch-and-plan box, 53%.
+REFUSE_PCT = 25.0
 # Residential plans are not extreme slivers; a ratio past this is a sheet
 # artefact rather than a building.
 MAX_ASPECT_RATIO = 6.0
@@ -368,6 +373,4 @@ def detect_footprint(
             if ranked and (best is None or ranked[0] < best[0]):
                 best = ranked
 
-    if best is None or not best[1].confident:
-        return best[1] if best else None
-    return best[1]
+    return best[1] if best else None

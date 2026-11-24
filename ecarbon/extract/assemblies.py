@@ -128,6 +128,10 @@ _DEFER_RE = re.compile(r"\(?\s*REFER\s+TO\s+(\w+)[^)]*\)?", re.I)
 # Share of a stud cavity the studs and plates take, at 400 mm centres; the
 # fill takes the rest. Also used where framing is carried only as a wall area.
 FRAMING_FRACTION = 0.15
+# A stated stud spacing: `@406mm O/C`, `@ 16" O.C.`, `@ 600 CRS`.
+_STUD_SPACING_RE = re.compile(
+    r'@\s*(\d+(?:\.\d+)?)\s*(MM|"|IN\b)?\s*(?:O\.?\s*/?\s*C\b\.?|CRS\b|CTRS\b|CENTRES\b)', re.I
+)
 _CONCRETE_RE = re.compile(r"\bCONCRETE\b", re.I)
 STEEL_RE = re.compile(r"\b(METAL|STEEL)\b", re.I)
 
@@ -313,6 +317,25 @@ class Layer:
                 "state, so no volume can be computed for it"
             )
         return 1.0, None
+
+    @property
+    def framing_share(self) -> float:
+        """Share of the framing depth that is timber, from the stated spacing.
+
+        At 400 mm centres studs are 38/400 of the wall and plates, blocking and
+        headers the rest of FRAMING_FRACTION; only the studs move with spacing.
+        Unstated, or within 5% of 400 (16" is 406), keeps FRAMING_FRACTION.
+        """
+        m = _STUD_SPACING_RE.search(self.material)
+        if not m:
+            return FRAMING_FRACTION
+        unit = (m.group(2) or "").upper()
+        spacing = float(m.group(1)) * (25.4 if unit in ('"', "IN") else 1.0)
+        if unit == "" and spacing < 50:  # a bare `@ 24 O.C.` is inches
+            spacing *= 25.4
+        if spacing <= 0 or abs(spacing - 400) <= 20:
+            return FRAMING_FRACTION
+        return round(min(38 / spacing + FRAMING_FRACTION - 38 / 400, 1.0), 4)
 
     @property
     def is_framing(self) -> bool:
@@ -960,6 +983,47 @@ def legend_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> l
     return list(found.values())
 
 
+# Dressed depth of nominal US lumber, mm: a 2x6 is 5 1/2".
+NOMINAL_DEPTH_MM = {"4": 89.0, "6": 140.0, "8": 184.0, "10": 235.0, "12": 286.0}
+# A framing note that sizes every exterior stud: `ALL EXTERIOR STUDS TO BE 2x6
+# @ 16" O.C.`, `EXTERIOR WALL STUDS SHALL BE 140x45 @ 600 CRS` (AU/UK: depth first).
+_STUD_NOTE_RE = re.compile(
+    r"\bEXTERIOR\s+(?:WALL\s+)?STUDS?\s+(?:TO\s+BE|SHALL\s+BE|:)\s*"
+    r"(?:2\s*X\s*(4|6|8|10|12)|(\d{2,3})\s*X\s*(?:35|38|45|42))\b"
+    r"(\s*@\s*\d+(?:\.\d+)?\s*(?:MM|\")?\s*(?:O\.?\s*/?\s*C\b\.?|CRS\b|CTRS\b))?",
+    re.I,
+)
+
+
+def stud_note_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Assembly]:
+    """The exterior wall's studs from a framing note, where no schedule or legend gives one.
+
+    Only the studs are stated, so only the studs are counted; the spacing,
+    when given, sets their share of the wall.
+    """
+    for text in join_rows(_spans(page)):
+        m = _STUD_NOTE_RE.search(text)
+        if not m:
+            continue
+        depth = NOMINAL_DEPTH_MM[m.group(1)] if m.group(1) else float(m.group(2))
+        if not 60 <= depth <= 300:
+            continue
+        spacing = re.sub(r"\s+", " ", m.group(3) or "").strip()
+        material = f"WOOD STUD FRAMING {spacing}".strip()
+        return [
+            Assembly(
+                tag="W1",
+                name="Exterior wall (from the framing notes, untagged)",
+                group_letter="W",
+                layers=[Layer(0, material, depth, note=f"stated as '{m.group(0).strip()}' in the framing notes")],
+                sheet=sheet,
+                page=page.number,
+                from_legend=True,
+            )
+        ]
+    return []
+
+
 def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
     """Every trustworthy assembly in a design's schedule sheets, by tag.
 
@@ -1004,6 +1068,14 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                         found.setdefault(asm.tag, asm)
                 if len(found) == 2:
                     break
+        if "W1" not in found:
+            # Nor a legend: some US sets size the exterior studs in a framing note.
+            for s in sheets:
+                if s.readable:
+                    got = stud_note_assemblies_on_page(doc[s.page], s.sheet_no)
+                    if got:
+                        found["W1"] = got[0]
+                        break
     finally:
         doc.close()
     return found, rejected
