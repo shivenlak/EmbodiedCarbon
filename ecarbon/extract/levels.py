@@ -113,6 +113,9 @@ class StoreyHeights:
     floor_assembly_mm: float | None = None
     sources: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # The top storey's wall height where the drawing states it (a "SECOND
+    # FLOOR WALL HEIGHT" note), used instead of copying the storey below.
+    top_storey_m: float | None = None
 
     @property
     def floors(self) -> list[Level]:
@@ -158,7 +161,7 @@ class StoreyHeights:
         if not heights:
             return []
         # One more storey than there are gaps between floor datums.
-        top = heights[-1]
+        top = self.top_storey_m if self.top_storey_m is not None else heights[-1]
         heights.append(top)
         return heights
 
@@ -181,7 +184,9 @@ class StoreyHeights:
         if len(self.floors) == 1:
             # A one-storey height runs floor to top plate: no floor to deduct.
             return hs[0]
-        deduction = (self.floor_assembly_mm / 1000.0) * len(hs)
+        # A stated top-storey wall height already stops under the roof: no floor in it.
+        floors_in = len(hs) - (1 if self.top_storey_m is not None else 0)
+        deduction = (self.floor_assembly_mm / 1000.0) * floors_in
         return round(max(sum(hs) - deduction, 0.0), 3)
 
     def wall_area_m2(self, perimeter_m: float, basis: str = "gross") -> float | None:
@@ -312,6 +317,58 @@ def outvote_strays(levels: list[Level]) -> list[Level]:
     return [lv for lv in levels if votes[(key(lv), lv.elevation_m)] == top[key(lv)]]
 
 
+# Alberta builders' elevations label each storey's wall height beside its
+# dimension instead of a datum ladder: MAIN FLOOR WALL HEIGHT 9'-1 1/8",
+# SECOND FLOOR WALL HEIGHT 8'-1 1/8", FLOOR THICKNESS 1'-0 3/4".
+_WALL_HEIGHT_RE = re.compile(r"^(MAIN|GROUND|FIRST|SECOND|THIRD)\s+FLOOR\s+WALL\s+HEIGHT$", re.I)
+_FLOOR_THICKNESS_RE = re.compile(r"^FLOOR\s+THICKNESS$", re.I)
+_FT_IN_ONLY_RE = re.compile(r"^\d{1,2}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\"$")
+_STOREY_ORDER = {"MAIN": 1, "GROUND": 1, "FIRST": 1, "SECOND": 2, "THIRD": 3}
+# The figure sits in the dimension column beside its label (about 15 pt on
+# the Landmark sets), measured from the figure's centre to the label's box.
+WALL_HEIGHT_REACH_PT = 40.0
+
+
+def wall_heights_on_page(page: pymupdf.Page) -> tuple[dict[int, float], float | None]:
+    """({storey: wall height m}, floor thickness m) from wall-height notes."""
+    from ecarbon.geometry.scale import parse_imperial
+
+    spans = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            for sp in line["spans"]:
+                t = re.sub(r"\s+", " ", sp["text"]).strip()
+                if t:
+                    spans.append((t, sp["bbox"]))
+    figures = [(t, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for t, b in spans if _FT_IN_ONLY_RE.match(t)]
+
+    def nearest(box) -> float | None:
+        def dist(f) -> float:
+            dx = max(box[0] - f[1], 0.0, f[1] - box[2])
+            dy = max(box[1] - f[2], 0.0, f[2] - box[3])
+            return (dx * dx + dy * dy) ** 0.5
+
+        best = min(figures, key=dist, default=None)
+        if best is None or dist(best) > WALL_HEIGHT_REACH_PT:
+            return None
+        mm = parse_imperial(best[0])
+        return None if mm is None else round(mm / 1000.0, 3)
+
+    heights: dict[int, float] = {}
+    thickness = None
+    for t, box in spans:
+        m = _WALL_HEIGHT_RE.match(t)
+        if m:
+            h = nearest(box)
+            if h is not None and MIN_STOREY_M <= h <= MAX_STOREY_M:
+                heights.setdefault(_STOREY_ORDER[m.group(1).upper()], h)
+        elif _FLOOR_THICKNESS_RE.match(t) and thickness is None:
+            th = nearest(box)
+            if th is not None and 0.15 <= th <= 0.6:
+                thickness = th
+    return heights, thickness
+
+
 def storey_heights_for(design, floor_assembly_mm: float | None = None) -> StoreyHeights:
     """Read the level ladder from a design's section sheets."""
     from ecarbon.intake import inventory
@@ -335,6 +392,9 @@ def storey_heights_for(design, floor_assembly_mm: float | None = None) -> Storey
 
     result.levels = outvote_strays(result.levels)
 
+    if not result.storey_heights_m():
+        _from_wall_heights(design, sheets, result)
+
     hs = result.storey_heights_m()
     if len(hs) >= 2:
         result.notes.append(
@@ -342,3 +402,44 @@ def storey_heights_for(design, floor_assembly_mm: float | None = None) -> Storey
             "no plate datum above it"
         )
     return result
+
+
+def _from_wall_heights(design, sheets, result: StoreyHeights) -> None:
+    """Where no datum ladder reads: storey wall heights stated on the elevations
+    or sections. Floors are stacked as wall height plus the stated floor
+    thickness; with no thickness stated, nothing is built (it would be a guess).
+    Any readable sheet: the label is specific, and Landmark's elevations carry
+    no title the classifier can type."""
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for s in sheets:
+            if not s.readable:
+                continue
+            heights, thickness = wall_heights_on_page(doc[s.page])
+            storeys = sorted(heights)
+            if not storeys or storeys != list(range(1, len(storeys) + 1)):
+                continue
+            if len(storeys) > 1 and thickness is None:
+                continue
+            elev, levels = 0.0, []
+            for n in storeys:
+                levels.append(Level(label=f"STOREY {n} FLOOR (from wall height)", elevation_m=round(elev, 3), sheet=s.sheet_no))
+                elev += heights[n] + (thickness or 0.0)
+            # The top storey's wall stops at its plate, under no floor.
+            levels.append(Level(label="TOP PLATE (from wall height)", elevation_m=round(elev - (thickness or 0.0), 3), sheet=s.sheet_no))
+            result.levels = levels
+            if len(storeys) > 1:
+                result.top_storey_m = heights[storeys[-1]]
+                result.floor_assembly_mm = round(thickness * 1000.0, 1)
+            result.sources.append(
+                f"{s.sheet_no or f'p{s.page + 1}'}: wall heights "
+                + ", ".join(f"storey {n} {heights[n]} m" for n in storeys)
+                + (f", floor thickness {thickness} m" if thickness else "")
+            )
+            result.notes.append(
+                "storey heights from the wall heights stated on the drawings rather than a "
+                "datum ladder; each lower storey adds the stated floor thickness"
+            )
+            return
+    finally:
+        doc.close()

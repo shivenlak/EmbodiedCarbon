@@ -302,7 +302,7 @@ class TestDimensionStrings:
 
 
 def test_the_takeoff_refuses_an_outline_its_dimensions_contradict(tmp_path):
-    """50'-0" x 25'-0" stated around a 33'-4" x 16'-8" outline: 50% out, so no footprint."""
+    """20'-0" x 10'-0" stated around a 33'-4" x 16'-8" outline: 40% out, so no footprint."""
     import pymupdf
 
     from ecarbon.config import pdf_designs
@@ -324,7 +324,8 @@ def test_the_takeoff_refuses_an_outline_its_dimensions_contradict(tmp_path):
                 (x0 + (x1 - x0) * (i + 1) / 4, y0 + (y1 - y0) * (i + 1) / 4),
                 width=1.4,
             )
-    for x, y, text in [(380, 90, "50'-0\""), (710, 250, "25'-0\""), (380, 420, "50'-0\"")]:
+    # Shorter than the sides, so they contradict the outline without outrunning it.
+    for x, y, text in [(380, 90, "20'-0\""), (710, 250, "10'-0\""), (380, 420, "20'-0\"")]:
         page.insert_text((x, y), text, fontsize=8)
     doc.save(tmp_path / "set.pdf")
 
@@ -332,3 +333,39 @@ def test_the_takeoff_refuses_an_outline_its_dimensions_contradict(tmp_path):
     inputs, _, gaps = gather(design)
     assert inputs.footprint is None
     assert any("contradict" in g.message for g in gaps)
+
+
+def test_part_of_a_plan_is_not_the_footprint():
+    """An overall dimension beside a candidate that runs well past it (Santa
+    Cruz 3: half the plan at one stroke, 44'-0 1/4" across the whole)."""
+    import pymupdf
+
+    from ecarbon.geometry.footprint import detect_footprint
+    from ecarbon.geometry.scale import ScaleEstimate, ScaleSource
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=1000, height=1000)
+    corners = [(100, 100), (300, 100), (300, 200), (100, 200), (100, 100)]
+    for (x0, y0), (x1, y1) in zip(corners, corners[1:], strict=False):
+        for i in range(4):
+            page.draw_line(
+                (x0 + (x1 - x0) * i / 4, y0 + (y1 - y0) * i / 4),
+                (x0 + (x1 - x0) * (i + 1) / 4, y0 + (y1 - y0) * (i + 1) / 4),
+                width=1.4,
+            )
+    page.insert_text((300, 200 + 40), "16'-8\"", fontsize=8)  # the box's depth chain
+    page.insert_text((190, 90), "33'-4\"", fontsize=8)  # agrees with the box's width
+    sc = ScaleEstimate(mm_per_pt=50.8, source=ScaleSource.DIMENSION_CHAIN)
+    assert detect_footprint(page, sc) is not None
+    page.insert_text((300, 70), "66'-8\"", fontsize=8)  # 400 pt, centred past the box
+    assert detect_footprint(page, sc) is None
+
+
+@needs_data
+def test_a_setback_storey_keeps_its_own_outline_for_partitions():
+    """QC_Rowhouse_02's third storey is half the depth of the floors below,
+    whose 16.66 m overall dimension is also drawn on its sheet."""
+    from ecarbon.geometry.partitions import partitions_for
+
+    runs = partitions_for(get_design("QC_Rowhouse_02")).runs
+    assert "A102" in [r.sheet for r in runs]

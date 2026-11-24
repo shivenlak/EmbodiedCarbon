@@ -57,6 +57,9 @@ MATCH_TOL_PCT = 6.0
 # as a page bound). Every CMHC footprint agrees within 8%; Santa Cruz 2's
 # porch-and-plan box, 53%.
 REFUSE_PCT = 25.0
+# A dimension drawn beside a candidate and this much longer than its side
+# measures a bigger building, of which the candidate is a part.
+OUTRUN_RATIO = 1.25
 # Residential plans are not extreme slivers; a ratio past this is a sheet
 # artefact rather than a building.
 MAX_ASPECT_RATIO = 6.0
@@ -240,6 +243,7 @@ def detect_footprint(
     page: pymupdf.Page,
     scale: ScaleEstimate,
     expected_area_m2: float | None = None,
+    whole_building: bool = True,
 ) -> Footprint | None:
     """Find the building footprint on a plan sheet.
 
@@ -255,6 +259,11 @@ def detect_footprint(
     61 m2 ADU. A floor area is a project fact the scope already requires Stage 1
     to prompt for ("conditioned floor area basis"), so it is legitimately an
     input rather than ground truth leaking in.
+
+    `whole_building=False` keeps an outline that a larger overall dimension
+    runs past: a setback upper storey is legitimately smaller than the
+    building (QC_Rowhouse_02 A102), and partitions want that storey's own
+    bound, not the building's.
     """
     if scale.mm_per_pt is None:
         return None
@@ -281,6 +290,26 @@ def detect_footprint(
                 out.append(lb.value_mm / 1000.0)
         return out
 
+    def outrun(box: tuple[float, float, float, float], across_x: bool) -> str | None:
+        """A dimension just outside one side of `box` whose drawn span covers
+        that side and runs well past it: `box` is part of a larger building
+        (Santa Cruz 3: the bedroom half drawn at one stroke, the living room
+        poched, and 44'-0 1/4" dimensioned across both)."""
+        x0, y0, x1, y1 = box if across_x else (box[1], box[0], box[3], box[2])
+        side = x1 - x0
+        for lb in labels:
+            u, v = (lb.x, lb.y) if across_x else (lb.y, lb.x)
+            span = lb.value_mm / s  # drawn length in points, centred on its label
+            tol = 0.02 * span
+            if (
+                span > OUTRUN_RATIO * side
+                and (y0 - reach <= v < y0 or y1 < v <= y1 + reach)
+                and u - span / 2 <= x0 + tol
+                and u + span / 2 >= x1 - tol
+            ):
+                return lb.text
+        return None
+
     groups: dict[float, list[Segment]] = {}
     for sg in long_segs:
         groups.setdefault(sg.width, []).append(sg)
@@ -305,6 +334,12 @@ def detect_footprint(
             max(max(sg.x0, sg.x1) for sg in segs),
             max(max(sg.y0, sg.y1) for sg in segs),
         )
+        # A stated per-storey area this candidate matches says it is the
+        # intended unit: a rowhouse unit sits inside its block's overall
+        # dimension by design (AB_Rowhouse_02), which is not a contradiction.
+        stated_unit = bool(expected_area_m2) and abs(w_m * d_m / expected_area_m2 - 1.0) <= 0.15
+        if whole_building and not stated_unit and (outrun(box, True) or outrun(box, False)):
+            return None
         errs = [
             e
             for e in (
