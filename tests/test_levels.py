@@ -267,3 +267,14 @@ class TestImperialDatums:
 
     def test_a_ceiling_datum_is_not_a_floor(self):
         assert not Level("2546 CEILING", 2.54).is_floor
+
+
+def test_a_single_storey_wall_tops_out_at_the_underside_of_the_roof_framing():
+    from ecarbon.extract.levels import Level, StoreyHeights
+
+    for roof in ("U/S ROOF FRAMING", "U.S. ROOF FRAMING"):
+        h = StoreyHeights(
+            levels=[Level("T/O F/F GROUND", 0.0, "A300"), Level(roof, 2.505, "A300")],
+            floor_assembly_mm=333,
+        )
+        assert h.storey_heights_m() == [2.505]

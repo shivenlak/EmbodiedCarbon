@@ -99,8 +99,12 @@ def _value(task: Task, field: str, quote: str) -> float | str | None:
 
         if field == "label":
             return quote if _LEVEL_LABEL_RE.search(quote) else None
-        return _elevation_m(quote)
+        # NOR writes its datums "EL 2.505 m"; the figure follows the prefix.
+        return _elevation_m(_EL_PREFIX.sub("", quote.strip()))
     return quote.strip() or None
+
+
+_EL_PREFIX = re.compile(r"^(?:EL(?:EV(?:ATION)?)?\.?|ELEV\.?)\s*:?\s*", re.I)
 
 
 def _check(page, spans, where: str, task: Task, field: str, q, dpi: int) -> Reading | None:

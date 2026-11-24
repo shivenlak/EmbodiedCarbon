@@ -255,3 +255,10 @@ class TestVisionSheetTypes:
         got = b._vision_candidates(object(), [None], sheets, inputs, b.PLAN_TYPES)
         assert [(s.page, s.sheet_no, s.sheet_type) for s in got] == [(0, "A100", SheetType.FLOOR_PLAN)]
         assert sheets[0].sheet_type is SheetType.UNKNOWN  # the inventory is untouched
+
+
+def test_an_el_prefixed_elevation_parses():
+    from ecarbon.vision.validate import _value
+
+    assert _value(Task.LEVELS, "elevation", "EL 2.505 m") == 2.505
+    assert _value(Task.LEVELS, "elevation", "ELEV. 0.000 m") == 0.0

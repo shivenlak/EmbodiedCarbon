@@ -60,7 +60,9 @@ _NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM|CEILING)
 # Labels that are the top of the structure rather than a floor.
 _ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
 # The top of the wall: a one-storey house's wall height, with no floor above.
-_PLATE_RE = re.compile(r"(?i)\bPLATE\b")
+# The top of the wall: a plate datum, or the underside of the roof framing
+# that bears on it (NOR's single-storey sections: "U/S ROOF FRAMING EL 2.505").
+_PLATE_RE = re.compile(r"(?i)\bPLATE\b|\bU\s*[/.]\s*S\.?\s+(?:OF\s+)?ROOF\s+FRAMING\b")
 
 # A datum's elevation sits within this many points below its label. Kept
 # tight for a plain metric figure: 16 pt paired AB_ADU_02's "2546 CEILING"
