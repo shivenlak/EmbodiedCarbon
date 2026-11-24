@@ -16,15 +16,15 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from dataclasses import dataclass, field
 from typing import Literal
 
 import pymupdf
 
 from ecarbon.geometry.scale import _SCALE_IMPERIAL_RE, _SCALE_RATIO_RE, parse_dimension
-from ecarbon.intake.spans import read_spans
+from ecarbon.intake.spans import join_rows, read_spans
 
 # Fewer votes than this names no unit system.
 MIN_UNIT_VOTES = 10
@@ -34,7 +34,6 @@ UNIT_MAJORITY = 0.8
 DUAL_SHARE = 0.2
 # Sheets a region must appear on, and its lead over the next country.
 MIN_REGION_PAGES = 2
-ROW_TOL_PT = 3.0
 # Sheets read, evenly spaced: a title block repeats on every one, and reading
 # all 46 of a CMHC set doubled the locale's cost for the same answer.
 MAX_SHEETS = 12
@@ -70,7 +69,7 @@ def _detect(pdf: str, _mtime: float) -> Locale:
                 value, system = parse_dimension(text)
                 if value is not None and not (system == "metric" and _BARE_SMALL.match(text)):
                     votes[system] += 1
-            for line in _lines(spans):
+            for line in join_rows(spans):
                 if _SCALE_RATIO_RE.search(line):
                     votes["metric"] += 1
                 elif _SCALE_IMPERIAL_RE.search(line):
@@ -125,15 +124,3 @@ def _geo(line: str) -> str | None:
     if sum(c.isdigit() for c in line) > 0.5 * len(line):
         return None
     return from_text(line)
-
-
-def _lines(spans) -> list[str]:
-    """Spans joined into rows, so "Boise, ID" + "83702" read as one address."""
-    rows: list[list[tuple[float, str]]] = []
-    last_y = None
-    for y, x, text in spans:
-        if last_y is None or abs(y - last_y) > ROW_TOL_PT:
-            rows.append([])
-        rows[-1].append((x, text))
-        last_y = y
-    return [re.sub(r"\s+", " ", " ".join(t for _, t in sorted(r))).strip() for r in rows]

@@ -87,7 +87,7 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - Nominal lumber: 2x4 → 89, 2x6 → 140, 2x8 → 184, 2x10 → 235, 2x12 → 286 mm. Also AU/UK `90x45` / `140x45` (stud depth is the first number).
   - Framing fraction from the stated spacing: `@ 16" O.C.` / `@ 24" O.C.` / `@ 400 crs` / `@ 600 crs`. Use the spacing to compute stud share instead of always `FRAMING_FRACTION = 0.15`; the no-spacing case keeps 0.15, so CMHC is unchanged.
   - Decimal comma (`2,40`).
-  - US wall-type legends that are a list of notes rather than a layer table.
+  - US wall-type legends that are a list of notes rather than a layer table. *(done 23 Nov: `legend_assemblies_on_page`, Escondido and Santa Cruz format)*
 - [ ] **`extract/openings.py`:** imperial as primary when there's no metric column; `3068` / `2868` / `2668` door codes (W×H in feet-inches); tags `W-1`, `W01`, `D1`, `101A`.
 - [ ] **`intake/classify.py`:**
   - US `A-101`, `A2.1`, `S-1`, `G-001`
@@ -224,4 +224,8 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
   - Fix (`extract/assemblies.py`): a thickness cell that runs on into words also gives that row's material. The table stops COL_TOL short of the next header. With no name column, the name is the material column's first row, unless a multi-word name sits in the thickness column (NOR's garage), which keeps reading nothing rather than a wall cut off above its studs.
   - CMHC assemblies kept: 413 → 493. SK/MB 0–1 → 5–13 per set (W1, F1, F2, R1 and the P walls read in full). Also new: ATL_Fourplex_03 P1–P6, QC_ADU_01 P1, ATL_Fourplex_01 R3/R4, ATL_Sixplex W1 gains its cladding placeholder. No AB, BC or ON assembly moved; Alberta gate unchanged.
   - Still wrong: SK/MB F3+ blocks are cut by the tag midpoint (the known BC limitation), and SKMB_ADU_02's floor tables still read nothing.
-
+- **23 Nov, US wall legends (A1 blockers 2 and 6):**
+  - `extract/assemblies.legend_assemblies_on_page` reads `EXTERIOR - 5 1/2" WOOD STUD W/ PLYWOOD SHEATHING AND FINISH` / `INTERIOR - 3 1/2" WOOD STUD W/ ONE LAYER GYP. WALL BOARD` as assemblies W1 / P1, named "from the wall legend, untagged". It runs only where no schedule yields an assembly, on floor-plan and legend sheets.
+  - Only the stud depth is stated, so only the studs are counted. Sheathing and gypsum are kept as layers with no thickness and each gets a warning; no standard thickness is filled in. Words from the neighbouring column are dropped unless they name a known material. "GYP." is spelled out in the legend reader only, so CMHC's own layers do not move.
+  - The builder counts a legend assembly as referenced (US plans mark wall types by hatch, not tag). Its P depth also lets partitions be found.
+  - Dev: assemblies read on 6 of 15 sets (was 0). Escondido 1–4 coverage 77/70/77/77 → 85/78/85/85%. Santa Cruz reads both walls but still has no footprint, so coverage does not move. Riverside has no wall legend in this form and still reads no assembly; its wall types are not yet surveyed.

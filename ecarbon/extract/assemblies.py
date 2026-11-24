@@ -81,7 +81,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.intake.spans import read_spans
+from ecarbon.intake.spans import join_rows, read_spans
 from ecarbon.intake.textrepair import repair
 
 # "N - FOUNDATION WALL ASSEMBLIES", "W - EXTERIOR WALL ASSEMBLIES"
@@ -364,6 +364,9 @@ class Assembly:
     page: int | None = None
     # y of this assembly's name row, used to attach the tag beside its block.
     name_y: float | None = None
+    # Read from a wall legend (US practice: a hatch and a sentence, no tag), so
+    # the tag was given here and nothing on the plans references it.
+    from_legend: bool = False
 
     @property
     def total_thickness_mm(self) -> float:
@@ -907,6 +910,56 @@ def _attach_tags(assemblies: list[Assembly], tags: list[tuple[float, float, str]
             above[-1].tag = tag
 
 
+# A US wall legend line: `EXTERIOR - 5 1/2" WOOD STUD W/ PLYWOOD SHEATHING AND
+# FINISH`, `INTERIOR - 3 1/2" WOOD STUD W/ ONE LAYER GYP. WALL BOARD EACH SIDE`.
+# A rating in between (`EXTERIOR - 1 HOUR FIRE RATED - 5 1/2" ...`) is allowed.
+_LEGEND_RE = re.compile(
+    r'\b(EXTERIOR|INTERIOR)\s*-[^"]{0,40}?-?\s*(\d+\s+\d+/\d+|\d+/\d+|\d+)\s*"\s*(WOOD|METAL)\s+STUD\b(.*)$',
+    re.I,
+)
+_LEGEND_SPLIT_RE = re.compile(r"\s*(?:,|\bAND\b|\bW/)\s*", re.I)
+_LEGEND_STOP_RE = re.compile(r"\b(SEE|PER|REFER)\b.*$", re.I)
+
+
+def legend_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Assembly]:
+    """The exterior and interior wall from a US-style wall legend.
+
+    Only the stud depth is a thickness the legend states. The other materials
+    it names (sheathing, gypsum board, finish) are kept as layers with no
+    thickness, so they are reported rather than given a guessed depth.
+    """
+    found: dict[str, Assembly] = {}
+    for text in join_rows(_spans(page)):
+        m = _LEGEND_RE.search(text)  # the legend shares its row with other columns
+        if not m or m.group(1).upper() in found:
+            continue  # the first line of each kind is the standard wall; ratings follow
+        side, depth, kind, rest = m.group(1).upper(), m.group(2), m.group(3).upper(), m.group(4)
+        inches = _parse_inches(depth + '"')
+        if not inches:
+            continue
+        letter = "W" if side == "EXTERIOR" else "P"
+        layers = [Layer(0, f"{kind} STUD FRAMING", round(inches * 25.4, 1), note=f'stated {depth}" in the wall legend')]
+        for part in _LEGEND_SPLIT_RE.split(_LEGEND_STOP_RE.sub("", rest)):
+            part = part.strip(" .;-")
+            part = re.sub(r"(?i)\s+(ON|EACH(\s+SIDE)?)$", "", part)
+            # US shorthand, spelled out here rather than in the shared rules,
+            # which would move CMHC's own unmatched "GYP." layers.
+            part = re.sub(r"(?i)\bGYP\.?\s", "GYPSUM ", part)
+            # Only a named material: the row also carries the next column's words.
+            if part and any(p.search(part) for p, _ in _MATERIAL_RULES):
+                layers.append(Layer(len(layers), part, None, note="the legend states no thickness"))
+        found[side] = Assembly(
+            tag=f"{letter}1",
+            name=f"{side.title()} wall (from the wall legend, untagged)",
+            group_letter=letter,
+            layers=layers,
+            sheet=sheet,
+            page=page.number,
+            from_legend=True,
+        )
+    return list(found.values())
+
+
 def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
     """Every trustworthy assembly in a design's schedule sheets, by tag.
 
@@ -943,6 +996,14 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                     )
                     continue
                 found[asm.tag] = asm
+        if not found:
+            # No schedule: a US set states its walls in a legend on the plans.
+            for s in sheets:
+                if s.sheet_type in (SheetType.FLOOR_PLAN, SheetType.LEGEND) and s.readable:
+                    for asm in legend_assemblies_on_page(doc[s.page], s.sheet_no):
+                        found.setdefault(asm.tag, asm)
+                if len(found) == 2:
+                    break
     finally:
         doc.close()
     return found, rejected

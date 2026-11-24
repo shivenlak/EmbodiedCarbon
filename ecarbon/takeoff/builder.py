@@ -328,6 +328,9 @@ def gather(
     try:
         inputs.assemblies, rejected = assemblies_for(design)
         inputs.tag_refs = assembly_tags_used(design)
+        for tag, asm in inputs.assemblies.items():
+            if asm.from_legend:  # no tag on the plans to count; the legend is the reference
+                inputs.tag_refs.setdefault(tag, 1)
         for message in rejected:
             gaps.append(
                 Gap(
