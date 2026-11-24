@@ -492,3 +492,38 @@ class TestDeferralSaysWhereItIsCounted:
                               ("W2", "METAL STUD FRAMING"),
                               ("FW1.1", "CAST-IN-PLACE CONCRETE")):
             assert "not counted" in self.gap_for(tag, material), material
+
+
+class TestThicknessInTheName:
+    """A layer whose thickness cell is empty but whose description opens with
+    its depth (BC's F1 '11 1/4" UNFACED FIBERGLASS BATT INSULATION')."""
+
+    @pytest.mark.parametrize(
+        "material,mm",
+        [
+            ('11 1/4" UNFACED FIBERGLASS BATT INSULATION', 285.8),
+            ("150mm RIGID INSULATION", 150.0),
+            ('5/8" TYPE X GYPSUM BOARD', 15.9),
+        ],
+    )
+    def test_a_leading_depth_is_read(self, material, mm):
+        from ecarbon.extract.assemblies import thickness_in_name
+
+        got, note = thickness_in_name(material)
+        assert got == pytest.approx(mm, abs=0.1)
+        assert "material description" in note
+
+    @pytest.mark.parametrize(
+        "material",
+        [
+            'WOOD JOISTS @ 16" C/C',  # a spacing, not a depth
+            '16" O.C. STUDS',
+            "2-PLY SBS ROOFING MEMBRANE",
+            'DESIGN THICKNESS OF FLOOR FINISH 1 1/8"',  # not leading
+            "2x10 JOISTS",
+        ],
+    )
+    def test_anything_else_is_not(self, material):
+        from ecarbon.extract.assemblies import thickness_in_name
+
+        assert thickness_in_name(material) == (None, None)

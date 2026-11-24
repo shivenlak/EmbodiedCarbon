@@ -266,7 +266,12 @@ def openings_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Openi
                         f"schedule states {width:.0f} mm and {imperial[0]:.0f} mm "
                         f"({drift:.0f} mm apart) for the width; the metric value is used"
                     )
-            if height is None and len(imperial) >= 2:
+            if width is None and height is None and len(imperial) >= 2:
+                # An imperial-only schedule (BC: "3' - 0"" / "6' - 0"", no mm
+                # column) states both sizes in feet and inches.
+                width, height = imperial[0], imperial[1]
+                note = "size taken from the imperial columns; the schedule states no metric size"
+            elif height is None and len(imperial) >= 2:
                 height = imperial[1]
                 note = "height taken from the imperial column; metric not stated"
 

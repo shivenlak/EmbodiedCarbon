@@ -378,3 +378,17 @@ class TestHeaderSchedule:
         door = got[("door", "02")]
         assert (door.width_mm, door.height_mm) == (812.8, 2032.0)
         assert door.counts == {ONE_PER_ROW: 1}
+
+
+@needs_data
+def test_an_imperial_only_window_schedule_gives_window_areas():
+    # BC's schedules state "3' - 0"" x "6' - 0"" with no mm column; the width
+    # was dropped and every BC set lost its windows.
+    from ecarbon.extract.openings import openings_for
+
+    ops, _ = openings_for(get_design("BC_Duplex"))
+    windows = [o for o in ops if o.kind == "window"]
+    assert windows and all(o.area_m2 for o in windows)
+    wa04 = next(o for o in windows if o.tag == "WA04")
+    assert (wa04.width_mm, wa04.height_mm) == (914.4, 1828.8)
+    assert "imperial" in wa04.note

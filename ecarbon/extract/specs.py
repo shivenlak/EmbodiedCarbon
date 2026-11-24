@@ -164,7 +164,12 @@ _PILE_DIA_RE = re.compile(
 # "100mm FROST" insulation under grade beams
 _FROST_RE = re.compile(r"(\d{2,4})\s*mm\s*FROST", re.I)
 # Frost protection depth for footings: QC's S030 "FROST PROTECTION 1220 MIN".
-_FROST_DEPTH_RE = re.compile(r"FROST\s+(?:PROTECTION|DEPTH|COVER)[^0-9]{0,25}(\d{3,4})", re.I)
+_FROST_DEPTH_RE = re.compile(
+    r"FROST\s+(?:PROTECTION|DEPTH|COVER)[^0-9]{0,25}(\d{3,4})"
+    # Ontario's S001: 'FOUND ALL FOOTINGS AT 1200mm BELOW GRADE'.
+    r"|FOOTINGS?\s+AT\s+(\d{3,4})\s*mm\s+BELOW\s+(?:FINISHED\s+)?GRADE",
+    re.I,
+)
 # Foundation wall thickness from a schedule: BC's S001
 # 'FOUNDATION WALL SCHEDULE [110 - 150 kg/m3] 8" [200mm]'.
 _FOUNDATION_WALL_RE = re.compile(r"FOUNDATION\s+WALL\s+SCHEDULE.{0,80}?(\d{3})\s*mm", re.I)
@@ -174,7 +179,20 @@ _REBAR_COUNT_RE = re.compile(r"(\d{1,2})\s*-\s*(\d{1,2})M", re.I)
 
 SCREW_PILE_RE = re.compile(r"SCREW\s*PILE|HELICAL\s*PILE", re.I)
 CAST_PILE_RE = re.compile(r"(?:CAST[- ]?IN[- ]?PLACE|CONCRETE)\s*(?:PILE|PIER|CAISSON)", re.I)
-STRIP_FOOTING_RE = re.compile(r"(?:STRIP|SPREAD|CONTINUOUS)\s*FOOTING", re.I)
+# Ontario's S001 'RE-SIZE ALL STRIP AND PAD FOOTING WIDTHS' names both.
+STRIP_FOOTING_RE = re.compile(r"(?:STRIP|SPREAD|CONTINUOUS)(?:\s+AND\s+PAD)?\s*FOOTING", re.I)
+# SK/MB's S001 'THICKENED EDGE SLAB ON GRADE': the slab is the foundation,
+# deepened at its perimeter; there is no strip footing or frost wall.
+THICKENED_EDGE_RE = re.compile(r"THICKENED\s+EDGE\s+SLAB", re.I)
+# A drawn frost wall: Atlantic's S100 'FROST WALL, SEE DETAIL' and its detail
+# title 'GRADE 6" FROST WALL DETAIL'. A frost wall is a concrete wall on a
+# strip footing down to frost depth, so it is evidence of both. The singular
+# is required: the general note '3500 psi FOR FOOTINGS AND FROST WALLS' is a
+# concrete-strength rule, not a drawn element.
+FROST_WALL_RE = re.compile(
+    r"(?:(\d{1,2})\s*(?:\"|\u201d|IN\.?)\s*)?FROST\s+WALL\b(?!S)\s*(?:,\s*SEE\s+DETAIL|DETAIL)",
+    re.I,
+)
 
 # Some drawings decline to specify the foundation at all. Every Atlantic set
 # in the catalogue -- 9 of 9, and no other region -- carries this on its
@@ -223,6 +241,7 @@ class FoundationSpec:
     screw_piles: bool = False
     cast_in_place_piles: bool = False
     strip_footings: bool = False
+    thickened_edge: bool = False
     rebar_notes: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
 
@@ -237,6 +256,8 @@ class FoundationSpec:
             return "grade_beam"
         if self.strip_footings:
             return "strip_footing"
+        if self.thickened_edge:
+            return "thickened_edge_slab"
         return "unknown"
 
     @property
@@ -407,7 +428,7 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
                 found.append(f"pile dia {v:.0f}mm")
 
         if spec.frost_depth_mm is None and (m := _FROST_DEPTH_RE.search(flat)):
-            v = float(m.group(1))
+            v = float(m.group(1) or m.group(2))
             if 600 <= v <= 2400:
                 spec.frost_depth_mm = v
                 found.append(f"frost protection {v:.0f}mm")
@@ -433,6 +454,18 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
         if STRIP_FOOTING_RE.search(flat):
             spec.strip_footings = True
             found.append("strip footings")
+        if not spec.thickened_edge and THICKENED_EDGE_RE.search(flat):
+            spec.thickened_edge = True
+            found.append("thickened edge slab")
+        for m in FROST_WALL_RE.finditer(flat):
+            if not spec.strip_footings:
+                spec.strip_footings = True
+                found.append("frost wall on strip footings")
+            if m.group(1) and spec.foundation_wall_mm is None:
+                v = round(float(m.group(1)) * 25.4)
+                if 150 <= v <= 400:
+                    spec.foundation_wall_mm = float(v)
+                    found.append(f"frost wall {v}mm")
 
         if spec.footing_width_mm is None:
             sections = footing_sections(flat)

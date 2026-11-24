@@ -225,3 +225,82 @@ def test_a_slab_is_counted_once_and_its_insulation_layer_separately():
     assert [ln.id for ln in concrete] == ["ln-slab-on-grade"]
     assert concrete[0].confidence is Confidence.ASSUMED
     assert any(ln.material == "CMHC_Insulation, Rigid" for ln in slab)
+
+
+@needs_data
+def test_an_unreadable_foundation_takes_a_standard_one_marked_assumed():
+    # ON_Fourplex_01 outlines its structural sheets' text: nothing about the
+    # foundation can be read, so a standard Part 9 one stands in, assumed,
+    # and says what a basement would do to it.
+    from ecarbon.takeoff.builder import build_takeoff
+    from ecarbon.takeoff.framing import UNREAD_FOUNDATION
+
+    t = build_takeoff(get_design("ON_Fourplex_01"))
+    by_id = {ln.id: ln for ln in t.lines}
+    for lid in ("ln-slab-on-grade", "ln-strip-footing", "ln-foundation-wall"):
+        assert by_id[lid].confidence is Confidence.ASSUMED
+    assert UNREAD_FOUNDATION in by_id["ln-foundation-wall"].assumptions
+    assert not any("cannot be produced" in g.message and "foundation plan" in g.message for g in t.gaps)
+    # Said once, not once per foundation note.
+    assert sum("Estimated instead" in g.message for g in t.gaps) == 1
+
+
+@needs_data
+def test_a_named_system_is_never_replaced_by_the_standard():
+    from ecarbon.takeoff.builder import build_takeoff
+
+    edge = build_takeoff(get_design("SKMB_Fourplex_01"))
+    ids = {ln.id for ln in edge.lines}
+    assert "ln-thickened-edge" in ids
+    assert not ids & {"ln-strip-footing", "ln-foundation-wall"}
+
+    alberta = build_takeoff(get_design("AB_Fourplex_01"))
+    assert not {ln.id for ln in alberta.lines} & {"ln-strip-footing", "ln-foundation-wall"}
+
+
+@needs_data
+def test_atlantic_frost_wall_is_counted_on_its_strip_footing():
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("ATL_Sixplex"))
+    wall = next(ln for ln in t.lines if ln.id == "ln-foundation-wall")
+    assert wall.confidence is Confidence.ASSUMED
+    assert "203 mm" in wall.basis.note or "203" in wall.description
+    assert any(ln.id == "ln-strip-footing" for ln in t.lines)
+
+
+@needs_data
+def test_a_joist_layer_with_no_depth_still_gets_its_joists():
+    # ON's F2 names "ENGINEERED WOOD JOIST OR I-JOIST" with an empty
+    # thickness cell; the floor had no structure at all.
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("ON_Fourplex_01"))
+    assert any(ln.id.startswith("ln-floor-joists-f2") for ln in t.lines)
+    note = next(g for g in t.gaps if "'ENGINEERED WOOD JOIST OR I-JOIST'" in g.message)
+    assert "estimated from a stated standard" in note.message
+
+
+@needs_data
+def test_unmeasurable_partitions_are_assumed_from_floor_area_and_say_so():
+    from ecarbon.takeoff.builder import (
+        PARTITION_LINE_PREFIX,
+        PARTITION_M2_PER_FLOOR_M2,
+        build_takeoff,
+    )
+
+    t = build_takeoff(get_design("ON_Fourplex_01"))
+    parts = [ln for ln in t.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
+    assert parts and all(ln.confidence is Confidence.ASSUMED for ln in parts)
+    assert any(f"{PARTITION_M2_PER_FLOOR_M2} m2 per m2 of floor" in a for a in parts[0].assumptions)
+
+
+@needs_data
+def test_measured_partitions_are_kept_where_the_linework_reads():
+    # Alberta's partitions are measured (median 5.7% against the IFC); the
+    # floor-area estimate must never stand in for them.
+    from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX, build_takeoff
+
+    t = build_takeoff(get_design("AB_Fourplex_01"))
+    parts = [ln for ln in t.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
+    assert parts and all(ln.confidence is Confidence.INFERRED for ln in parts)
