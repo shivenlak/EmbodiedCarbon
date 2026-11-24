@@ -14,8 +14,9 @@ from ecarbon.vision.tasks import Task
 from ecarbon.vision.validate import Reading, validate
 
 DPI = 110  # as trace.render_page
-# Claude rejects an image over 10 MB; a large NOR sheet renders at 14.2 MB.
-MAX_PNG_BYTES = 9_000_000
+# Claude rejects an image over 10 MB once base64-encoded (4/3 of the PNG); a
+# large NOR sheet renders at 14.2 MB. 7 MB of PNG is 9.3 MB encoded.
+MAX_PNG_BYTES = 7_000_000
 
 __all__ = ["DPI", "Reading", "Task", "read_page", "render", "provider_from_env"]
 

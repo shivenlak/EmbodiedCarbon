@@ -3,11 +3,11 @@
  "designs": 53,
  "quantity_error_pct": {
   "exterior wall area vs IFC model": {
-   "n": 38,
-   "median": 5.8,
-   "q1": -11.1,
-   "q3": 27.0,
-   "within_10pct": 8
+   "n": 46,
+   "median": -3.8,
+   "q1": -21.7,
+   "q3": 23.6,
+   "within_10pct": 11
   },
   "footprint vs energy model ceiling": {
    "n": 32,
@@ -45,10 +45,10 @@
    "within_10pct": 6
   },
   "Gypsum Board volume vs IFC model": {
-   "n": 38,
-   "median": -20.9,
-   "q1": -47.7,
-   "q3": 6.3,
+   "n": 46,
+   "median": -29.8,
+   "q1": -63.0,
+   "q3": 3.7,
    "within_10pct": 10
   },
   "Insulation, Rigid volume vs IFC model": {
@@ -59,17 +59,17 @@
    "within_10pct": 2
   },
   "Plywood volume vs IFC model": {
-   "n": 38,
-   "median": -22.4,
-   "q1": -42.9,
-   "q3": 18.0,
-   "within_10pct": 2
+   "n": 46,
+   "median": -23.9,
+   "q1": -54.8,
+   "q3": 10.2,
+   "within_10pct": 3
   },
   "Wood Framing volume vs IFC model": {
-   "n": 38,
+   "n": 46,
    "median": -92.9,
-   "q1": -94.1,
-   "q3": -90.9,
+   "q1": -95.0,
+   "q3": -90.5,
    "within_10pct": 0
   }
  },
@@ -80,10 +80,10 @@
   "Material gaps the tool already reports as not counted: floor joists and roof trusses (wood framing), foundation walls (concrete), steel studs, and the cladding and roofing placeholders."
  ],
  "carbon_vs_ifc_same_factors": {
-  "n": 38,
-  "median_ratio": 0.82,
-  "q1": 0.38,
-  "q3": 1.12,
+  "n": 46,
+  "median_ratio": 0.7,
+  "q1": 0.21,
+  "q3": 1.01,
   "note": "Our carbon over the architect's IFC quantities priced with OUR factors, for the materials both name (concrete, gypsum, insulation, sheathing; framing excluded because the IFC models it as solid layers). This isolates quantity error from factor and module differences."
  },
  "intensity_vs_cmhc_a1_a5": {
@@ -94,39 +94,39 @@
   "note": "Our kg CO2e per m2 of measured floor area over CMHC's A1-A5 per m2 of its own floor area: robust to a report that covers one unit of a block the drawings show whole."
  },
  "carbon_vs_cmhc_a1_a5": {
-  "n": 44,
-  "median_ratio": 0.46,
-  "q1": 0.32,
+  "n": 52,
+  "median_ratio": 0.41,
+  "q1": 0.22,
   "q3": 0.58,
   "note": "Our A1-A3 total over CMHC's reported A1-A5 for the same design. Below 1 is expected (A4 transport and A5 construction are not counted) and the rest of the gap is scope we flag as not counted: cladding and roofing placeholders, joists, trusses, steel studs, foundation walls."
  },
  "element_share_diff_points": {
   "foundations": {
-   "n": 43,
-   "median": -4.1
+   "n": 51,
+   "median": -6.2
   },
   "upper_floors": {
-   "n": 38,
-   "median": -5.1
+   "n": 42,
+   "median": -5.0
   },
   "roofs": {
-   "n": 43,
-   "median": 1.7
+   "n": 51,
+   "median": 2.6
   },
   "external_walls": {
-   "n": 43,
-   "median": 12.4
+   "n": 51,
+   "median": 12.7
   },
   "windows_doors": {
-   "n": 43,
-   "median": 3.4
+   "n": 51,
+   "median": 2.2
   },
   "interiors": {
-   "n": 36,
-   "median": -10.9
+   "n": 44,
+   "median": -10.6
   },
   "stairs": {
-   "n": 30,
+   "n": 37,
    "median": -1.0
   }
  },
@@ -173,15 +173,15 @@
   "NOR": {
    "designs": 9,
    "wall_vs_ifc": {
-    "n": 1,
-    "median": -41.1,
+    "n": 9,
+    "median": -21.7,
     "q1": -41.1,
-    "q3": -41.1,
-    "within_10pct": 0
+    "q3": -6.7,
+    "within_10pct": 3
    },
-   "with_carbon": 1,
+   "with_carbon": 9,
    "intensity_ratio_median": null,
-   "carbon_ratio_median": null
+   "carbon_ratio_median": 0.15
   },
   "ON": {
    "designs": 7,
