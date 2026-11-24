@@ -58,6 +58,7 @@ from ecarbon.geometry.footprint import Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
 from ecarbon.intake import coverage_gaps, inventory, readability_gaps
 from ecarbon.intake.classify import discipline_of, sheet_type_of
+from ecarbon.intake.locale import detect_locale
 from ecarbon.models import (
     Basis,
     BasisSource,
@@ -463,6 +464,30 @@ def _vision_check_phrase(readings) -> str:
             "and could not be checked against the drawing's text."
         )
     return "each quote was located in the drawing's text."
+
+
+def mark_units(lines: list[TakeoffLine], locale) -> list[Gap]:
+    """A2: on a set drawn in feet and inches, the dimension text each line
+    rests on was imperial, not metric. Mixed (CMHC) and unknown sets keep
+    their sources exactly as they were."""
+    if locale.unit_system != "imperial":
+        return []
+    for line in lines:
+        line.basis.sources = [
+            BasisSource.DIM_TEXT_IMPERIAL if s is BasisSource.DIM_TEXT_METRIC else s
+            for s in line.basis.sources
+        ]
+    # models.py is frozen, so there is no units code; this is the nearest.
+    return [
+        Gap(
+            code=GapCode.GEOMETRY_AMBIGUOUS,
+            severity=GapSeverity.INFO,
+            message=(
+                "Drawn in feet and inches; quantities converted to SI. "
+                + "; ".join(e for e in locale.evidence if e.startswith("units"))
+            ),
+        )
+    ]
 
 
 def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
@@ -1461,6 +1486,8 @@ def build_takeoff(
                 affects=[ln.id for ln in lines],
             )
         )
+
+    gaps += mark_units(lines, detect_locale(design))
 
     # Every wall and partition on an assumed storey height says so.
     mark_assumed_heights(inputs, lines)

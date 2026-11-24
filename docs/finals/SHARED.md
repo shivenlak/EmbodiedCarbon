@@ -73,7 +73,7 @@ If you need a change in a file the other stream owns, write it under "Requests" 
 
 | ID | Contract | Owner | Status |
 |---|---|---|---|
-| C1 | `ecarbon/intake/locale.py`: `detect_locale(design) -> Locale` | A | ☑ stub ☐ real |
+| C1 | `ecarbon/intake/locale.py`: `detect_locale(design) -> Locale` | A | ☑ stub ☑ real |
 | C2 | `ecarbon/takeoff/overrides.py` `Overrides`, threaded through `gather()` / `build_takeoff()` | B | ☑ landed (B2) |
 | C3 | Line labels: `"vision: "` and `"stated: "` note prefixes | A writes vision lines; B writes stated lines and renders both | ☐ |
 | C4 | Upload stage `"vision"` | A emits, B displays | ☐ |
@@ -236,3 +236,4 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
   - **Fix 2, builder vision trigger:** it only tries sheets the rules classified as `PLAN_TYPES`, and on NOR none are classified, so `vision_sheets` stays 0. Please run Task.SHEET on unclassified pages first (37 pages took 94 s, a few cents), then FOOTPRINT on the plans and LEVELS on the sections.
   - **Fix 3, `ClaudeProvider.read`:** one NOR page at 110 DPI is a 14.2 MB PNG, over the API's 10 MB image limit (400). Downscale, or JPEG, before sending.
   - **Provider:** use Claude for CMHC and Landmark. Our Gemini key is free tier (Pro quota 0), and the free tier may use inputs to improve Google's products. The Claude API does not train on inputs.
+- **A → B, 23 Nov: C1 is real, so `carbon/region.detect` now gets answers.** `detect_locale` names a region only from a state or province seen on 2+ sheets; all US dev sets give `US-CA`, CMHC sets their province (ATL and image-only NOR give none, so the typed jurisdiction still applies). Two things in your code worth a look: (1) a title-block region now outranks the typed jurisdiction even when they agree on the country; (2) `from_text`'s bare `, OR` rule fires on ordinary text ("US-OR" on 1 sheet of most ATL/QC sets, 5 sheets of Riverside); the 2-sheet rule absorbs it on our side. The result is cached per file, so calling it from both the builder and the upload costs one read.

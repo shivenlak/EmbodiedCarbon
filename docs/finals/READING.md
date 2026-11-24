@@ -42,15 +42,15 @@ Tick each box in the PR that lands it.
   - CLI: `python scripts/score_blind.py --split dev` writes `out/blind.json` and prints a table.
   - B imports `score_set`, so keep it import-safe: no work at import time.
 - [x] **C1 stub.** `ecarbon/intake/locale.py` with the `Locale` dataclass and `detect_locale()` returning all-`None`. PR it on day 1 so B can build against it. Tick C1 "stub" in SHARED.md.
-- [ ] **Baseline.** *(`--json` added; needs the full catalogue, so run on Shiven's machine: `run_pipeline.py --json out/baseline.json`)* Run `scripts/run_pipeline.py` on CMHC and save `out/baseline.json`. If `--json` doesn't exist yet, add a minimal one: per design, coverage % and total. This is the "must not regress" line.
+- [x] **Baseline.** *(23 Nov, on Divyesh's machine, which has the catalogue too: 52 designs, median coverage 83%, median 23.8 s per design; the 8 image-only NOR sets produce nothing. `out/baseline.json`, local only.)* Run `scripts/run_pipeline.py` on CMHC and save `out/baseline.json`. If `--json` doesn't exist yet, add a minimal one: per design, coverage % and total. This is the "must not regress" line.
 - [x] **Failure list.** Rank the `broke` strings across dev sets by how many sets each one blocks. Paste the top 10 into this file under "Findings". That list orders A3.
 
 ## A2. `intake/locale.py`, the real version (Fri 20)
 
-- [ ] **Unit system:**
+- [x] **Unit system:** *(a bare number under 1000 casts no vote: US sheets are full of "24" and "250" that parse as mm)*
   - Vote across dimension labels using `DimLabel.unit_system` (`geometry/scale.py`, collected by `calibrate()`), plus the style of scale notes (`1:100` vs `1/4" = 1'-0"`).
   - Return `"metric"`, `"imperial"` or `"mixed"` (dual-dimensioned, as CMHC sets are), with counts in `evidence`.
-- [ ] **Country and region** from the title-block and cover-sheet text. Use the same span reading as the rest of the code (`intake/spans.read_spans`).
+- [x] **Country and region** *(CA/US/AU by state or province via `region.from_text`, on 2+ sheets and 2:1 over any other country; GB/IE/NZ/IN/EU stay hints only until a dev set exists to test them on)* from the title-block and cover-sheet text. Use the same span reading as the rest of the code (`intake/spans.read_spans`).
 
   | Country | What to match |
   |---|---|
@@ -64,12 +64,12 @@ Tick each box in the PR that lands it.
   | EU | country names; `Maßstab`/`échelle` scale words as a hint |
 
   - Low-confidence hints go into `evidence` but return `None`. Don't guess a country from one weak hint.
-- [ ] **Wire it in:**
+- [x] **Wire it in:** *(`builder.mark_units`; the info gap uses `GEOMETRY_AMBIGUOUS` since models.py is frozen)*
   - `build_takeoff` calls `detect_locale` once.
   - The `BasisSource.DIM_TEXT_METRIC` hard-codes in `builder.py` become `DIM_TEXT_IMPERIAL` where the set is imperial.
   - Add an info gap when imperial: "drawn in feet and inches; quantities converted to SI".
   - CMHC sets are `mixed` and must keep their sources and totals.
-- [ ] Unit tests: one per pattern, plus a CMHC set reading `CA` / `mixed`. Tick C1 "real".
+- [x] Unit tests: one per pattern, plus a CMHC set reading `CA` / `mixed`. Tick C1 "real".
 
 ## A3. Rules for global drafting conventions (Sat 21 – Sun 22)
 
@@ -168,6 +168,7 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 ## Findings (append as you go)
 
 - *(A1 failure list, A3 before/after, A4 bake-off, A5 NOR before/after)*
+- **23 Nov, A2 locale on every local set:** all 44 text CMHC sets read `mixed`; region is right on every AB, BC, ON, QC, SK/MB set and on NOR's garage set (CA-NT). ATL and the 8 image-only NOR sets name no region (no state or province on 2+ sheets). All 10 US dev sets read `imperial` / `US-CA`; AU sets read `metric` with no region (no `VIC 3000`-style address in their title blocks). Cost: 12 sampled sheets, 1–5 s per set, almost all of it PyMuPDF text extraction; cached per file.
 - **19 Nov, Landmark baseline (rules only, main @ dc8df88): 0 quantities on all three projects. This is the top priority.**
   - Not one sheet is classified: 0/13 (RPL), 0/14 (RSL) and 0/11 (Townhome blueprint) are `unknown`, and 0 scales are found. So every downstream extractor reports "no floor plan / section / schedule".
   - **Why:**
