@@ -304,3 +304,26 @@ def test_measured_partitions_are_kept_where_the_linework_reads():
     t = build_takeoff(get_design("AB_Fourplex_01"))
     parts = [ln for ln in t.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
     assert parts and all(ln.confidence is Confidence.INFERRED for ln in parts)
+
+
+def test_standard_stand_ins_name_the_code_of_the_country():
+    # A US set's assumed lines cite the IRC, not Canada's Part 9; a Canadian
+    # set, or one whose country is unknown, keeps the Part 9 wording exactly.
+    from types import SimpleNamespace
+
+    from ecarbon.intake.locale import Locale
+    from ecarbon.takeoff.framing import (
+        UNREAD_FOUNDATION,
+        UNREAD_FOUNDATION_US,
+        standard_code,
+        unread_foundation_note,
+    )
+
+    us = SimpleNamespace(locale=Locale("imperial", "US", "US-CA", []))
+    ca = SimpleNamespace(locale=Locale("metric", "CA", "CA-AB", []))
+    unknown = SimpleNamespace(locale=None)
+    assert standard_code(us) == "IRC"
+    assert standard_code(ca) == standard_code(unknown) == "Part 9"
+    assert unread_foundation_note(us) == UNREAD_FOUNDATION_US
+    assert "Part 9" not in UNREAD_FOUNDATION_US and "frost wall" not in UNREAD_FOUNDATION_US
+    assert unread_foundation_note(ca) == unread_foundation_note(unknown) == UNREAD_FOUNDATION

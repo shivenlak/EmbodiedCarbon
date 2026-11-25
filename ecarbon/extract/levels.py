@@ -53,11 +53,15 @@ _ELEV_INCHES_RE = re.compile(r"^(?:([-+±])\s*(\d{1,2}(?:\s+\d{1,2}/\d{1,2})?)|(
 _LEVEL_LABEL_RE = re.compile(
     # T/O CONCRETE / T/O SLAB: SK/MB's ground datum is the top of the slab.
     # FINISHED FLOOR: the US sections' "0'-0" FINISHED FLOOR" datum.
-    r"(?i)\b(T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|FINISHED\s+FLOOR|SECOND|THIRD|FOURTH"
+    # T.O.S.: Santa Cruz's "T.O.S. 0'-0"", the top of slab (see is_floor).
+    r"(?i)\b(T\.O\.S\.?(?!\w)|T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|FINISHED\s+FLOOR|SECOND|THIRD|FOURTH"
     r"|BASEMENT|ROOF|TRUSS|PLATE|CEILING|GRADE|LEVEL\s*\d)\b"
 )
 # Labels that mark a reference line rather than a constructed floor level.
 _NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM|CEILING)\b")
+# "T.O.S." is top of slab on an architectural section and top of steel on a
+# structural one; it counts as a floor only as the 0 datum itself.
+_TOS_RE = re.compile(r"(?i)\bT\.O\.S\b")
 # Labels that are the top of the structure rather than a floor.
 _ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
 # The top of the wall: a one-storey house's wall height, with no floor above.
@@ -104,6 +108,8 @@ class Level:
     def is_floor(self) -> bool:
         """A constructed floor level, as opposed to a reference line."""
         if _NOT_A_FLOOR_RE.search(self.label):
+            return False
+        if _TOS_RE.search(self.label) and abs(self.elevation_m) > 0.01:
             return False
         return not self.is_roof
 

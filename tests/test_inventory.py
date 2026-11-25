@@ -329,6 +329,26 @@ class TestUsTitleBlocks:
         page.insert_text((200, 900), "body text", fontsize=8)
         assert from_title_block(page) == ("A3-101", "FLOOR PLAN 3")
 
+    def test_a_notes_heading_nearer_the_number_does_not_steal_a_vertical_title(self):
+        """Santa Cruz: a horizontal 'LEGEND' panel heading sits closer to the
+        number than the vertical 'FLOOR PLANS' title column; both name a type."""
+        import pymupdf
+
+        from ecarbon.intake.classify import from_title_block
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=2592, height=1728)
+        page.insert_text((2387, 1677), "A2-201", fontsize=37.5)
+        page.insert_text((2330, 1686), "PUBLIC SET", fontsize=19, rotate=90)
+        page.insert_text((1891, 1194), "KEYNOTES", fontsize=25)
+        page.insert_text((2475, 1213), "EXTERIOR ELEVATIONS &", fontsize=25, rotate=90)
+        page.insert_text((2504, 1195), "BUILDING SECTIONS -", fontsize=25, rotate=90)
+        page.insert_text((2534, 1143), "BUNGALOW", fontsize=25, rotate=90)
+        page.insert_text((200, 900), "body text", fontsize=8)
+        assert from_title_block(page) == (
+            "A2-201", "EXTERIOR ELEVATIONS & BUILDING SECTIONS - BUNGALOW"
+        )
+
 
 class TestTypedFromTheDrawing:
     """Builders' sets whose title block names nothing but a sheet count."""

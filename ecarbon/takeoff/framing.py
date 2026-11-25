@@ -92,6 +92,28 @@ UNREAD_FOUNDATION = (
     "wall concrete, and piles or a raft would differ entirely; replace this with "
     "the foundation design."
 )
+# The same for a US set: the IRC, not Part 9, and in the Sun Belt a shallow
+# footing rather than a frost wall.
+UNREAD_FOUNDATION_US = (
+    "No foundation plan, section or structural note could be read from these "
+    "drawings, so a typical US light-frame foundation is assumed: a slab on grade "
+    "on perimeter strip footings with a short stem wall. A crawl space or basement "
+    "would differ; replace this with the foundation design."
+)
+
+
+def _is_us(inputs) -> bool:
+    return getattr(getattr(inputs, "locale", None), "country", None) == "US"
+
+
+def standard_code(inputs) -> str:
+    """The code a standard stand-in is named after: Part 9 in Canada (and when
+    the country is unknown, as before), the IRC in the United States."""
+    return "IRC" if _is_us(inputs) else "Part 9"
+
+
+def unread_foundation_note(inputs) -> str:
+    return UNREAD_FOUNDATION_US if _is_us(inputs) else UNREAD_FOUNDATION
 
 # When the sections give no roof datum: a 4:12 pitch.
 DEFAULT_PITCH = 4.0 / 12.0
@@ -414,14 +436,19 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                 f"the designed slab"
                 if generic
                 else (
-                    f"{t_mm:.0f} mm, the common Part 9 slab-on-grade (NBC 9.16.4.3 sets a "
-                    f"75 mm minimum): "
+                    (
+                        f"{t_mm:.0f} mm, a common US slab-on-grade (IRC R506.1 sets a "
+                        f"3 1/2 in, 89 mm minimum): "
+                        if _is_us(inputs)
+                        else f"{t_mm:.0f} mm, the common Part 9 slab-on-grade (NBC 9.16.4.3 sets a "
+                        f"75 mm minimum): "
+                    )
                     + (
                         f"{inputs.slab_assembly.tag} draws a slab on grade"
                         if drawn_slab
                         else "the drawings show strip footings, which carry a ground or basement slab"
                         if on_footings
-                        else "no foundation could be read, so a standard Part 9 foundation is assumed"
+                        else f"no foundation could be read, so a standard {standard_code(inputs)} foundation is assumed"
                     )
                     + " but no sheet read states its thickness"
                 )
@@ -442,7 +469,7 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                 assumptions=[
                     f"Slab thickness {why}.",
                     "Thickenings under bearing walls and at the perimeter are not counted.",
-                ] + ([UNREAD_FOUNDATION] if unread and not (generic or drawn_slab or on_footings) else []),
+                ] + ([unread_foundation_note(inputs)] if unread and not (generic or drawn_slab or on_footings) else []),
                 provenance=(
                     Provenance(page=asm.page or 0, sheet_no=asm.sheet, detail=f"{asm.tag} {asm.name}"[:80])
                     if asm is not None
@@ -516,16 +543,22 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                         if not unread
                         else "No foundation could be read, so strip footings are assumed"
                     )
-                    + f"; {w:.0f} x {d:.0f} mm is the "
-                    f"common Part 9 footing for a two- or three-storey wood frame. Run is the "
-                    f"measured footprint perimeter."
+                    + (
+                        f"; {w:.0f} x {d:.0f} mm is assumed, generous against the IRC's "
+                        f"minimum footing for a one- or two-storey wood frame (Table R403.1). "
+                        f"Run is the measured footprint perimeter."
+                        if _is_us(inputs)
+                        else f"; {w:.0f} x {d:.0f} mm is the "
+                        f"common Part 9 footing for a two- or three-storey wood frame. Run is the "
+                        f"measured footprint perimeter."
+                    )
                 ),
             ),
             assumptions=[
                 "Footing section assumed, not read; the structural design governs.",
                 "Run taken as the rectangular footprint perimeter; footings under interior "
                 "bearing and party walls are not counted.",
-            ] + ([UNREAD_FOUNDATION] if unread else []),
+            ] + ([unread_foundation_note(inputs)] if unread else []),
             provenance=Provenance(
                 page=page_of_footprint(inputs), sheet_no=inputs.footprint_sheet,
                 detail="STRIP FOOTING",
@@ -571,11 +604,14 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                     f"thickness {thick_src}; run is the measured footprint perimeter."
                 ),
             ),
-            assumptions=([UNREAD_FOUNDATION] if unread else [
+            assumptions=([unread_foundation_note(inputs)] if unread else [
                 "The drawings show strip footings, which carry a concrete wall from "
                 "frost depth to the slab, but state no wall height or quantity.",
             ]) + [
-                "A frost wall is assumed, not a full basement: a basement wall is about "
+                "A short stem wall is assumed, not a crawl space or basement: a basement "
+                "wall is several times taller, so if the building has one this understates it."
+                if _is_us(inputs)
+                else "A frost wall is assumed, not a full basement: a basement wall is about "
                 "twice as tall, so if the building has a basement this understates it.",
                 "Run taken as the rectangular footprint perimeter; interior bearing "
                 "and party walls are not counted.",
@@ -735,7 +771,7 @@ def standard_assembly_lines(inputs, built, expand):
         return lines, gaps, used
     std_note = (
         "No assembly of this element could be read from the drawings' schedule, so a "
-        "standard Part 9 build-up is assumed; replace it with the drawn assembly."
+        f"standard {standard_code(inputs)} build-up is assumed; replace it with the drawn assembly."
     )
 
     def unread(letter, prefix, exclude=None):
@@ -790,7 +826,7 @@ def standard_assembly_lines(inputs, built, expand):
             code=GapCode.ASSEMBLY_SCHEDULE_MISSING,
             severity=GapSeverity.WARNING,
             message=(
-                "Standard Part 9 assemblies are assumed for "
+                f"Standard {standard_code(inputs)} assemblies are assumed for "
                 + ", ".join({"W": "the exterior wall", "R": "the roof", "F": "the floors"}[k] for k in used)
                 + " because the drawings' own could not be read: "
                 + "; ".join(f"{a.tag} {a.name}" for a in used.values())

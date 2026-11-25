@@ -324,3 +324,19 @@ class TestValueFirstDatums:
 
         m = _LEADING_ELEV_RE.match(text)
         assert not (m and _LEAD_LABEL_RE.fullmatch(m.group(2)))
+
+
+class TestTopOfSlabDatum:
+    """Santa Cruz's sections: 'T.O.S. 0'-0"' and 'PLATE 8'-1"'."""
+
+    def test_top_of_slab_at_zero_is_the_floor(self):
+        from ecarbon.extract.levels import Level, StoreyHeights
+
+        h = StoreyHeights(levels=[Level("T.O.S.", 0.0), Level("PLATE", 2.464)])
+        assert h.n_storeys == 1
+        assert h.storey_heights_m() == [2.464]
+
+    def test_top_of_steel_above_zero_is_not_a_floor(self):
+        from ecarbon.extract.levels import Level
+
+        assert not Level("T.O.S.", 3.1).is_floor
