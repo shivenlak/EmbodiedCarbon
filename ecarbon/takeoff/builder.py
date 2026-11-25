@@ -936,7 +936,7 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
     declared; doors as a count, because a door is a manufactured unit and its
     factor is per door.
     """
-    from ecarbon.extract.openings import ONE_PER_ROW, openings_for
+    from ecarbon.extract.openings import ONE_PER_ROW, PLAN_LABEL_NOTE, openings_for
 
     try:
         openings, notes = openings_for(design)
@@ -974,7 +974,12 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
         if from_schedule
         else "count of each type from the tags written on the floor plans"
     )
+    from_labels = any(o.note == PLAN_LABEL_NOTE for o in openings)
+    if from_labels:
+        count_note = "count of each size from the labels written at the openings on the floor plans"
     size_sources = [BasisSource.SCHEDULE, BasisSource.DIM_TEXT_IMPERIAL if from_schedule else BasisSource.DIM_TEXT_METRIC]
+    if from_labels:
+        size_sources = [BasisSource.DIM_TEXT_IMPERIAL]
     count_assumptions = (
         [
             "A numbered schedule lists each opening once, so each numbered row is "
@@ -1014,7 +1019,10 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     sources=size_sources,
                     note=(
                         (
-                            "Size of each type from the openings schedule, in feet and inches; "
+                            "No schedule: size of each opening from the width-over-height label "
+                            "at it on the plan, in feet and inches; "
+                            if from_labels
+                            else "Size of each type from the openings schedule, in feet and inches; "
                             if from_schedule
                             else "Size of each type from the openings schedule, with the metric "
                             "and imperial columns agreeing; "
@@ -1029,6 +1037,12 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                 ),
                 assumptions=count_assumptions
                 if from_schedule
+                else [
+                    "Count is of size labels written on the plans, one plan per storey, so "
+                    "an opening drawn without its label is not counted. A label 6'-5\" or "
+                    "taller is taken as a door."
+                ]
+                if from_labels
                 else [
                     "Count is of tags written on the plans, so a single tag against a "
                     "mullioned assembly counts once, and a window shown only on an "
@@ -1097,7 +1111,10 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     sources=size_sources,
                     note=(
                         (
-                            "Count from the door schedule. "
+                            "Count of width-over-height labels at the doors on the floor plans, "
+                            "one plan per storey; interior and exterior doors are not told apart. "
+                            if from_labels
+                            else "Count from the door schedule. "
                             if from_schedule
                             else "Count of tags on the floor plans, one variant per storey. "
                         )

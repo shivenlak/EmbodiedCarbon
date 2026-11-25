@@ -480,6 +480,89 @@ def count_on_plans(design, openings: list[Opening]) -> tuple[dict[str, str], lis
     return chosen, notes
 
 
+# Builders with no schedule write each opening's size at the opening itself,
+# width over height ('3'-0"' above '6'-8"'), turned with the wall.
+PLAN_LABEL_NOTE = "size label on the plan"
+_SIZE_LABEL_RE = re.compile(r"^\d{1,2}'-\d{1,2}(?: \d{1,2}/\d{1,2})?\"$")
+# 6'-5": every door is at least this tall, and a window this tall is rare.
+DOOR_MIN_HEIGHT_MM = 1955.0
+OPENING_W_MM = (300.0, 6100.0)  # 1'-0" to 20'-0" (a double garage door)
+OPENING_H_MM = (300.0, 2750.0)  # 1'-0" to 9'-0"
+
+
+def size_labels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Opening]:
+    """Openings sized by a width-over-height label pair on a plan, by size."""
+    labels = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            text = " ".join(sp["text"] for sp in line["spans"]).strip()
+            if _SIZE_LABEL_RE.match(text):
+                r = pymupdf.Rect(line["bbox"])
+                labels.append((text, (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, line["dir"], line["spans"][0]["size"]))
+    used: set[int] = set()
+    sizes: Counter = Counter()
+    for i, (t, x, y, d, size) in sorted(enumerate(labels), key=lambda e: (e[1][2], e[1][1])):
+        if i in used:
+            continue
+        down = (-d[1], d[0])  # the next line of text, in the label's own frame
+        best = None
+        for j, (_t2, x2, y2, d2, _s) in enumerate(labels):
+            if j == i or j in used or d2 != d:
+                continue
+            along = (x2 - x) * d[0] + (y2 - y) * d[1]
+            across = (x2 - x) * down[0] + (y2 - y) * down[1]
+            if abs(along) < 0.6 * size and 0 < across < 2.2 * size and (best is None or across < best[0]):
+                best = (across, j)
+        if best is None:
+            continue
+        w, h = parse_ft_in(t), parse_ft_in(labels[best[1]][0])
+        if not (w and h and OPENING_W_MM[0] <= w <= OPENING_W_MM[1] and OPENING_H_MM[0] <= h <= OPENING_H_MM[1]):
+            continue
+        used |= {i, best[1]}
+        sizes[(t, labels[best[1]][0], w, h)] += 1
+    where = sheet or f"page {page.number + 1}"
+    return [
+        Opening(
+            tag=f"{wt} x {ht}",
+            kind="door" if h >= DOOR_MIN_HEIGHT_MM else "window",
+            width_mm=round(w),
+            height_mm=round(h),
+            note=PLAN_LABEL_NOTE,
+            sheet=sheet,
+            page=page.number,
+            counts={where: n},
+        )
+        for (wt, ht, w, h), n in sorted(sizes.items())
+    ]
+
+
+def _openings_from_size_labels(doc, sheets) -> tuple[list[Opening], list[str]]:
+    """One plan per storey, each opening's size read off its plan label."""
+    from ecarbon.models import SheetType
+
+    plans = [
+        s for s in sheets
+        if s.sheet_type in (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN) and s.readable
+    ]
+    by_size: dict[str, Opening] = {}
+    for members in group_by_storey(plans):
+        pick = members[0]
+        for o in size_labels_on_page(doc[pick.page], pick.sheet_no):
+            if o.tag in by_size:
+                by_size[o.tag].counts.update(o.counts)
+            else:
+                by_size[o.tag] = o
+    found = list(by_size.values())
+    if not found:
+        return [], []
+    return found, [
+        "No openings schedule: each opening is sized and counted from the "
+        "width-over-height label written at it on the floor plans. An opening "
+        "drawn without its label is not counted, and interior and exterior doors "
+        "are not told apart."
+    ]
+
+
 def openings_for(design) -> tuple[list[Opening], list[str]]:
     """Every scheduled opening with its instance count, plus any notes."""
     from ecarbon.intake import inventory
@@ -498,6 +581,8 @@ def openings_for(design) -> tuple[list[Opening], list[str]]:
             for s in sheets:
                 if s.readable:
                     found.extend(header_schedule_on_page(doc[s.page], s.sheet_no))
+        if not found:
+            return _openings_from_size_labels(doc, sheets)
     finally:
         doc.close()
 

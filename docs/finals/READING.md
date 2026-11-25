@@ -88,7 +88,7 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - [x] Framing fraction from the stated spacing: `@ 16" O.C.` / `@ 24" O.C.` / `@ 400 crs` / `@ 600 crs`. Use the spacing to compute stud share instead of always `FRAMING_FRACTION = 0.15`; the no-spacing case keeps 0.15, so CMHC is unchanged.
   - Decimal comma (`2,40`).
   - US wall-type legends that are a list of notes rather than a layer table. *(done 23 Nov: `legend_assemblies_on_page`, Escondido and Santa Cruz format)*
-- [ ] **`extract/openings.py`:** *(24 Nov: no `3068`-style door code occurs in the dev or Landmark corpus, so not built)* imperial as primary when there's no metric column; `3068` / `2868` / `2668` door codes (W×H in feet-inches); tags `W-1`, `W01`, `D1`, `101A`.
+- [ ] **`extract/openings.py`:** *(24 Nov: no `3068`-style door code occurs in the dev or Landmark corpus, so not built; plans with no schedule now read each opening's width-over-height label, see Findings)* imperial as primary when there's no metric column; `3068` / `2868` / `2668` door codes (W×H in feet-inches); tags `W-1`, `W01`, `D1`, `101A`.
 - [x] **`intake/classify.py`:** *(24 Nov: all listed numbers and titles type; ISO 19650 added; a title-block-column title now beats a nearer drawing heading)*
   - US `A-101`, `A2.1`, `S-1`, `G-001`
   - UK BS 1192 / ISO 19650 numbering (`PRJ-XX-ZZ-DR-A-1001`)
@@ -258,3 +258,9 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
   - Landmark (rules only): RPL 48 → 91%, RSL 48 → 91%, Townhome 66 → 91% coverage. Each now reads its footing section, foundation wall thickness and slab; RPL also its wall height. Still missing on all three: openings (sizes are stacked W/H labels at each opening, no schedule) and the floor/roof assemblies. No Landmark quantity is recorded here.
   - CMHC: `foundation_spec_for` gives identical specs on all 53 sets with and without this change, and no CMHC sheet states a foundation wall height. Alberta gate unchanged. `run_pipeline.py` coverage is at or above `out/baseline.json` on every set.
   - Dev (rules only, before this change): Escondido 78–85%, Riverside 85%, Santa Cruz 2–9%; the AU sets, Citrus Heights and the BC catalogue read 0% and need vision (outlined text or image only).
+- **24 Nov, openings from plan size labels (Landmark):**
+  - `extract/openings.size_labels_on_page`: with no schedule anywhere in the set, each opening's size is read from the width-over-height pair written at it on the plan (`3'-0"` over `6'-8"`), horizontal or turned with the wall. One plan per storey (`group_by_storey`), basement included. A pair 6'-5" or taller is a door. Lone dimensions, side-by-side chain labels and stacks outside 1'-20' x 1'-9' are not openings.
+  - The window and door lines say the count comes from plan labels, cite imperial dimension text, and carry a WARNING gap: an opening drawn without its label is not counted, and interior and exterior doors are not told apart.
+  - Landmark (rules only): coverage 91 -> 100% on all three. Counts checked by eye against the plans (the townhome row reads one garage door per unit); no Landmark quantity is recorded here.
+  - CMHC: no set takes this path (every one has a schedule), so nothing moves. No dev set takes it either.
+  - Not done: Landmark's floor and roof energy tables (they are rim joists, cantilevers and chases; their wrapped rows do not parse into thicknesses, and `framing.py` already estimates the main floor and roof framing).

@@ -392,3 +392,45 @@ def test_an_imperial_only_window_schedule_gives_window_areas():
     wa04 = next(o for o in windows if o.tag == "WA04")
     assert (wa04.width_mm, wa04.height_mm) == (914.4, 1828.8)
     assert "imperial" in wa04.note
+
+
+class TestSizeLabelsOnPlans:
+    """No schedule: each opening's width is written over its height at the opening."""
+
+    @staticmethod
+    def _page(labels):
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=800, height=600)
+        for (x, y), text, rotate in labels:
+            page.insert_text((x, y), text, fontsize=6.6, rotate=rotate)
+        return doc, page
+
+    def test_pairs_horizontal_and_turned_labels(self):
+        from ecarbon.extract.openings import size_labels_on_page
+
+        doc, page = self._page([
+            ((100, 100), '3\'-0"', 0), ((100, 108), '6\'-8"', 0),     # a door
+            ((300, 100), '5\'-0"', 0), ((300, 108), '4\'-0"', 0),     # a window
+            ((500, 300), '2\'-8"', 90), ((508, 300), '6\'-8"', 90),   # a door on a side wall
+            ((600, 100), '12\'-4"', 0),                               # a lone dimension
+        ])
+        got = {(o.tag, o.kind, o.count) for o in size_labels_on_page(page, "A1")}
+        assert got == {
+            ('3\'-0" x 6\'-8"', "door", 1),
+            ('5\'-0" x 4\'-0"', "window", 1),
+            ('2\'-8" x 6\'-8"', "door", 1),
+        }
+        doc.close()
+
+    def test_a_dimension_chain_is_not_an_opening(self):
+        from ecarbon.extract.openings import size_labels_on_page
+
+        # Side by side along one line, not stacked; and a stack too tall to be one.
+        doc, page = self._page([
+            ((100, 100), '12\'-4"', 0), ((140, 100), '4\'-8"', 0),
+            ((300, 100), '24\'-0"', 0), ((300, 108), '38\'-0"', 0),
+        ])
+        assert size_labels_on_page(page) == []
+        doc.close()
