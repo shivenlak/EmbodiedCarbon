@@ -97,3 +97,52 @@ def test_stud_spacing_sets_the_framing_share():
     assert share("WOOD STUD FRAMING @406mm O/C") == FRAMING_FRACTION
     assert share('WOOD STUD FRAMING @ 24" O.C.') == round(38 / 609.6 + 0.15 - 38 / 400, 4)
     assert share("WOOD STUD FRAMING @ 300 CRS") > FRAMING_FRACTION
+
+
+def _energy_table_page(title: str):
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=1224, height=792)
+    rows = [
+        (332, "OUTSIDE AIR FILM", "0.04"),
+        (338, '7/16" OSB SHEATHING', "0.10"),
+        (344, '2X6 STUDS @ 24" O.C. W/ R22', None),
+        (351, "BATTS", "2.70"),  # a wrapped row's value sits on its last line
+        (356, '5/8" DRYWALL', "0.10"),
+        (362, "INTERIOR AIR FILM", "0.11"),
+        (368, "TOTAL", "3.05"),
+    ]
+    page.insert_text((92, 326), "MATERIAL", fontsize=4.9)
+    page.insert_text((225, 326), "RSI", fontsize=4.9)
+    for y, text, value in rows:
+        page.insert_text((92, y + 5), text, fontsize=4.9)
+        if value:
+            page.insert_text((225, y + 5), value, fontsize=4.9)
+    page.insert_text((150, 440), "W3", fontsize=9.8)
+    page.insert_text((223, 458), title, fontsize=9.8)
+    page.insert_text((300, 300), "SEE NOTES", fontsize=4.9)
+    return page
+
+
+def test_an_alberta_energy_table_gives_the_exterior_wall():
+    from ecarbon.extract.assemblies import energy_table_assemblies_on_page
+
+    [asm] = energy_table_assemblies_on_page(_energy_table_page("TYPICAL EXTERIOR WALL"))
+    assert asm.tag == "W3"  # the detail's own tag
+    got = [(layer.material, layer.thickness_mm) for layer in asm.layers]
+    assert got == [
+        ("OSB SHEATHING", 11.1),
+        ('WOOD STUD FRAMING @ 24" O.C.', 140.0),
+        ("BATT INSULATION (R22) IN STUD CAVITY", 140.0),
+        ("GYPSUM BOARD (DRYWALL)", 15.9),
+    ]
+    assert asm.layers[1].shares_cavity_with == 2
+    assert asm.layers[1].framing_share < 0.15  # 24" centres, fewer studs than 16"
+    assert asm.implausible() is None
+
+
+def test_a_garage_energy_table_is_not_the_house_wall():
+    from ecarbon.extract.assemblies import energy_table_assemblies_on_page
+
+    assert energy_table_assemblies_on_page(_energy_table_page("ATTACHED GARAGE EXTERIOR WALL")) == []

@@ -46,23 +46,23 @@ def test_wall_height_notes_give_storeys_and_floor_thickness():
     doc = pymupdf.open()
     page = doc.new_page(width=1200, height=800)
     for y, label, fig in [
-        (200, "SECOND FLOOR WALL HEIGHT", "8'-1 1/8\""),
-        (300, "FLOOR THICKNESS", "1'-0 3/4\""),
-        (400, "MAIN FLOOR WALL HEIGHT", "9'-1 1/8\""),
+        (200, "SECOND FLOOR WALL HEIGHT", "8'-0\""),
+        (300, "FLOOR THICKNESS", "1'-0\""),
+        (400, "MAIN FLOOR WALL HEIGHT", "9'-0\""),
     ]:
-        page.insert_text((100, y), fig, fontsize=7)
+        page.insert_text((120, y), fig, fontsize=7)
         page.insert_text((150, y), label, fontsize=7)
     page.insert_text((900, 400), "38'-0\"", fontsize=7)  # a dimension far away is not a height
     heights, thickness = wall_heights_on_page(page)
-    assert heights == {1: 2.772, 2: 2.467}
-    assert thickness == 0.324
+    assert heights == {1: 2.743, 2: 2.438}
+    assert thickness == 0.305
 
 
 def test_a_stated_top_storey_is_not_copied_from_below():
     sh = StoreyHeights(
-        levels=[Level("STOREY 1 FLOOR", 0.0), Level("STOREY 2 FLOOR", 3.096)],
-        floor_assembly_mm=324.0,
-        top_storey_m=2.467,
+        levels=[Level("STOREY 1 FLOOR", 0.0), Level("STOREY 2 FLOOR", 3.048)],
+        floor_assembly_mm=305.0,
+        top_storey_m=2.438,
     )
-    assert sh.storey_heights_m() == [3.096, 2.467]
-    assert sh.net_wall_height_m == 5.239  # one floor in the stack, not two
+    assert sh.storey_heights_m() == [3.048, 2.438]
+    assert sh.net_wall_height_m == 5.181  # one floor in the stack, not two

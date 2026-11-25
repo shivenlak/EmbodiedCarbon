@@ -318,8 +318,8 @@ def outvote_strays(levels: list[Level]) -> list[Level]:
 
 
 # Alberta builders' elevations label each storey's wall height beside its
-# dimension instead of a datum ladder: MAIN FLOOR WALL HEIGHT 9'-1 1/8",
-# SECOND FLOOR WALL HEIGHT 8'-1 1/8", FLOOR THICKNESS 1'-0 3/4".
+# dimension instead of a datum ladder: MAIN FLOOR WALL HEIGHT, SECOND FLOOR
+# WALL HEIGHT and FLOOR THICKNESS, each beside a feet-inches figure.
 _WALL_HEIGHT_RE = re.compile(r"^(MAIN|GROUND|FIRST|SECOND|THIRD)\s+FLOOR\s+WALL\s+HEIGHT$", re.I)
 _FLOOR_THICKNESS_RE = re.compile(r"^FLOOR\s+THICKNESS$", re.I)
 _FT_IN_ONLY_RE = re.compile(r"^\d{1,2}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\"$")

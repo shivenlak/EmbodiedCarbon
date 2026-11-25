@@ -1024,6 +1024,129 @@ def stud_note_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -
     return []
 
 
+# Alberta's NBC 9.36 energy tables, which every Alberta permit set carries:
+# a MATERIAL | RSI table per detail, one layer per row, its thickness in its
+# name (`7/16" OSB SHEATHING`, `2X6 STUDS @ 16" O.C. W/ R22`), ending at
+# TOTAL, with the detail's title in lettering twice the size below it.
+_TABLE_STUD_RE = re.compile(
+    r"^2\s*X\s*(4|6|8|10|12)\b.*?\bSTUDS?\b\s*(@\s*\d+\s*\"\s*O\.?\s*C\.?)?(.*)$", re.I
+)
+_TABLE_INSULATION_RE = re.compile(r"\bW/\s*R-?\d+|\bBATT\b", re.I)
+_LEADING_INCHES_RE = re.compile(r"^((?:\d+\s+)?\d+/\d+|\d+)\s*\"\s*(.+)$")
+_RSI_RE = re.compile(r"^\d{1,2}\.\d{2,3}$")
+# A title is lettered well above the row size (about twice it, on the sets seen).
+TITLE_SIZE_RATIO = 1.6
+# How far below the TOTAL row a title is looked for, in multiples of row size.
+TITLE_REACH = 30.0
+
+
+def _table_layers(rows: list[str]) -> list[Layer]:
+    layers: list[Layer] = []
+    for text in rows:
+        if re.search(r"AIR\s+FILM", text, re.I):
+            continue  # a resistance, not a material
+        stud = _TABLE_STUD_RE.match(text)
+        if stud:
+            depth = NOMINAL_DEPTH_MM[stud.group(1)]
+            spacing = re.sub(r"\s+", " ", stud.group(2) or "").strip()
+            note = f"stated as '{text}' in the energy table"
+            layers.append(Layer(len(layers), f"WOOD STUD FRAMING {spacing}".strip(), depth, note=note))
+            if _TABLE_INSULATION_RE.search(stud.group(3) or ""):
+                r_value = re.search(r"R-?\d+", stud.group(3) or "")
+                fill = f"BATT INSULATION ({r_value.group(0)}) IN STUD CAVITY" if r_value else "BATT INSULATION IN STUD CAVITY"
+                layers.append(Layer(len(layers), fill, depth, note=note))
+            continue
+        m = _LEADING_INCHES_RE.match(text)
+        if m:
+            mm, _ = parse_thickness(m.group(1) + '"')
+            # Spelled out here only, as the legend reader does with GYP.
+            material = re.sub(r"(?i)\bDRYWALL\b", "GYPSUM BOARD (DRYWALL)", m.group(2))
+            layers.append(Layer(len(layers), material, mm, note="thickness stated in the energy table"))
+        else:
+            layers.append(Layer(len(layers), text, None, note="the energy table states no thickness"))
+    _mark_shared_cavities(layers)
+    return layers
+
+
+def energy_table_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Assembly]:
+    """The main exterior wall from 9.36 MATERIAL | RSI tables: the table titled
+    EXTERIOR WALL(S), not a garage or tall-wall variant, under the detail's own
+    tag (W1 when it has none). Other tables are not used yet."""
+    spans = []
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            for sp in line["spans"]:
+                t = re.sub(r"\s+", " ", sp["text"]).strip()
+                if t:
+                    spans.append((t, sp["bbox"], sp["size"]))
+    out: list[Assembly] = []
+    for t, (hx0, hy0, _hx1, hy1), size in spans:
+        if t.upper() != "MATERIAL":
+            continue
+        rsi = [b for u, b, _ in spans if u.upper() == "RSI" and abs(b[1] - hy0) <= size and 0 < b[0] - hx0 < 60 * size]
+        if not rsi:
+            continue
+        rsi_x0, rsi_x1 = rsi[0][0], rsi[0][2]
+        col = sorted(
+            (b[1], u) for u, b, sz in spans
+            if abs(b[0] - hx0) <= size and b[1] > hy1 - 0.5 and abs(sz - size) < 0.5
+        )
+        rows: list[str] = []
+        pending: list[str] = []
+        total_y = None
+        last_y = hy0
+        for y, u in col:
+            if y - last_y > 4 * size:
+                break
+            last_y = y
+            if u.upper() == "TOTAL":
+                total_y = y
+                break
+            has_value = any(
+                _RSI_RE.match(v) and abs(b[1] - y) <= size and rsi_x0 - size <= b[0] <= rsi_x1 + 4 * size
+                for v, b, _ in spans
+            )
+            pending.append(u)
+            if has_value:  # a wrapped row carries its value on its last line
+                rows.append(" ".join(pending))
+                pending = []
+        if total_y is None or not rows:
+            continue
+        titles = sorted(
+            (b[1], b[0], u) for u, b, sz in spans
+            if sz >= TITLE_SIZE_RATIO * size
+            and 0 < b[1] - total_y <= TITLE_REACH * size
+            and hx0 - 30 * size <= b[0] <= rsi_x1 + 40 * size
+        )
+        # The detail's tag (W3) may be lettered the same size as its title.
+        tag = next((u for _, _, u in titles if _TAG_RE.match(u)), "")
+        titles = [t for t in titles if not _TAG_RE.match(t[2])]
+        if not titles:
+            continue
+        ty, tx, title = titles[0]
+        for y, x, u in titles[1:]:  # a second line directly under the first
+            if 0 < y - ty <= 2.5 * size * TITLE_SIZE_RATIO and abs(x - tx) <= size and u != title:
+                title += " " + u
+                break
+        out.append(
+            Assembly(
+                tag=tag,
+                name=f"{title.title()} (from the energy table{'' if tag else ', untagged'})",
+                group_letter="W",
+                layers=_table_layers(rows),
+                sheet=sheet,
+                page=page.number,
+                from_legend=True,
+            )
+        )
+    for asm in out:
+        name = asm.name.upper()
+        if re.search(r"\bEXTERIOR WALLS?\b", name) and "TALL" not in name and "GARAGE" not in name:
+            asm.tag = asm.tag if tag_prefix(asm.tag) == "W" else "W1"
+            return [asm]
+    return []
+
+
 def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
     """Every trustworthy assembly in a design's schedule sheets, by tag.
 
@@ -1068,7 +1191,15 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                         found.setdefault(asm.tag, asm)
                 if len(found) == 2:
                     break
-        if "W1" not in found:
+        if not any(tag_prefix(t) == "W" for t in found):
+            # Alberta permit sets carry a 9.36 energy table per assembly.
+            for s in sheets:
+                if s.readable:
+                    got = energy_table_assemblies_on_page(doc[s.page], s.sheet_no)
+                    if got:
+                        found[got[0].tag] = got[0]
+                        break
+        if not any(tag_prefix(t) == "W" for t in found):
             # Nor a legend: some US sets size the exterior studs in a framing note.
             for s in sheets:
                 if s.readable:
