@@ -159,8 +159,8 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 
 ## A6. Hardening and numbers (Wed 25, freeze at end of day)
 
-- [ ] Rerun `score_blind.py --split dev` and `run_pipeline.py --json`. Fix the top regressions. CMHC coverage must be at or above `out/baseline.json`.
-- [ ] Hand B the numbers (under "Findings"): CMHC coverage before → after, dev stage scores before → after, the bake-off table, and NOR before → after.
+- [x] Rerun `score_blind.py --split dev` and `run_pipeline.py --json`. Fix the top regressions. CMHC coverage must be at or above `out/baseline.json`. *(24 Nov: no set down, mean 67.6 -> 79.6%; see Findings.)*
+- [x] Hand B the numbers (under "Findings"): CMHC coverage before → after, dev stage scores before → after, the bake-off table, and NOR before → after. *(Rules-only numbers given 24 Nov; the bake-off and NOR need a vision key.)*
 - [ ] Freeze. After this, bug fixes only.
 
 ---
