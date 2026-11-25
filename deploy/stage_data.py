@@ -40,7 +40,7 @@ from pathlib import Path
 #                    measured across the block. Uploaded without a stated
 #                    area they read correctly, so Rowhouse_02 is the demo's
 #                    live upload instead.
-#   NOR_Fourplex_Municipal is the exception: its lettering is outlines, so the
+#   NOR_Fourplex_Municipal and NOR_ADU_Municipal are the exception: their lettering is outlines, so the
 #   rules read nothing, and it is here to show the vision fallback. Its bill is
 #   mostly assumed and says so. Prebuild it with the saved answers:
 #     ECARBON_VISION=cache ECARBON_VISION_CACHE=deploy/data/_vision \
@@ -52,6 +52,7 @@ DEFAULT_SELECTION = (
     "AB_Fourplex_02",
     "AB_Sixplex",
     "NOR_Fourplex_Municipal",
+    "NOR_ADU_Municipal_Technical",  # not NOR_ADU_Municipal: that also matches the Garage set
 )
 
 HERE = Path(__file__).resolve().parent
