@@ -282,7 +282,7 @@ def partitions_for(design) -> Partitions:
             s = members[0]
             page = doc[s.page]
             scale = calibrate(page)
-            footprint = detect_footprint(page, scale)
+            footprint = detect_footprint(page, scale, whole_building=False)
             # A wall is drawn with a visible lineweight. A zero-width stroke
             # means the footprint detector fell back to the hairline fill
             # group, and measuring partitions there produced 124 phantom walls

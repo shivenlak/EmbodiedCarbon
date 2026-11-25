@@ -347,6 +347,11 @@ def _inventory_cached(
 ) -> tuple[list[SheetInfo], list[PageProbe], str]:
     from ecarbon.intake.classify import classify_page
 
+    if with_scale:
+        # Classifying is most of the cost; the scaled inventory is the plain
+        # one plus a calibration, so it is built on the cached plain one.
+        return _with_scales(path, *_inventory_cached(path, False))
+
     sheets: list[SheetInfo] = []
     with DrawingSet(path) as ds:
         producer = ds.producer_tag
@@ -379,23 +384,6 @@ def _inventory_cached(
                     stype, src = hinted, BasisSource.DEFAULT_RULE
                     title = f"{title or Path(origin[0]).stem} (from file name)"
 
-            scale_mm_per_pt: float | None = None
-            scale_src = None
-            if with_scale and p.readable and stype in SCALED_SHEET_TYPES:
-                from ecarbon.geometry.scale import ScaleSource, calibrate
-
-                est = calibrate(ds.doc[p.page])
-                # Only publish a scale we can defend; an untrustworthy estimate
-                # left as None makes downstream quantities impossible rather
-                # than quietly wrong, which is the behaviour we want.
-                if est.trustworthy:
-                    scale_mm_per_pt = est.mm_per_pt
-                    scale_src = {
-                        ScaleSource.DIMENSION_CHAIN: BasisSource.VECTOR_PATH,
-                        ScaleSource.SCALE_TEXT: BasisSource.SECTION_NOTE,
-                        ScaleSource.VIEWPORT_MATRIX: BasisSource.VECTOR_PATH,
-                    }.get(est.source)
-
             sheets.append(
                 SheetInfo(
                     page=p.page,
@@ -407,8 +395,6 @@ def _inventory_cached(
                     readable=p.readable,
                     width_in=p.width_in,
                     height_in=p.height_in,
-                    scale=scale_mm_per_pt,
-                    scale_source=scale_src,
                     classified_by=src,
                     layer_names=p.meaningful_layers[:40],
                     n_paths=p.n_paths,
@@ -416,6 +402,31 @@ def _inventory_cached(
                     n_images=p.n_images,
                 )
             )
+    return sheets, probes, producer
+
+
+def _with_scales(
+    path: str, sheets: list[SheetInfo], probes: list[PageProbe], producer: str
+) -> tuple[list[SheetInfo], list[PageProbe], str]:
+    """The inventory with each readable plan-like sheet calibrated (Step 8)."""
+    from ecarbon.geometry.scale import ScaleSource, calibrate
+
+    sheets = [s.model_copy(deep=True) for s in sheets]
+    with DrawingSet(path) as ds:
+        for s in sheets:
+            if not (s.readable and s.sheet_type in SCALED_SHEET_TYPES):
+                continue
+            est = calibrate(ds.doc[s.page])
+            # Only publish a scale we can defend; an untrustworthy estimate
+            # left as None makes downstream quantities impossible rather
+            # than quietly wrong, which is the behaviour we want.
+            if est.trustworthy:
+                s.scale = est.mm_per_pt
+                s.scale_source = {
+                    ScaleSource.DIMENSION_CHAIN: BasisSource.VECTOR_PATH,
+                    ScaleSource.SCALE_TEXT: BasisSource.SECTION_NOTE,
+                    ScaleSource.VIEWPORT_MATRIX: BasisSource.VECTOR_PATH,
+                }.get(est.source)
     return sheets, probes, producer
 
 

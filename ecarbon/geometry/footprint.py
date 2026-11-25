@@ -52,6 +52,14 @@ MIN_SIDE_M = 2.5
 MAX_SIDE_M = 120.0
 # How close a candidate extent must be to a dimension chain total to count.
 MATCH_TOL_PCT = 6.0
+# Past this the outline contradicts the drawing's own dimensions, and the
+# takeoff refuses it as the building's footprint (partitions may still use it
+# as a page bound). Every CMHC footprint agrees within 8%; Santa Cruz 2's
+# porch-and-plan box, 53%.
+REFUSE_PCT = 25.0
+# A dimension drawn beside a candidate and this much longer than its side
+# measures a bigger building, of which the candidate is a part.
+OUTRUN_RATIO = 1.25
 # Residential plans are not extreme slivers; a ratio past this is a sheet
 # artefact rather than a building.
 MAX_ASPECT_RATIO = 6.0
@@ -73,6 +81,9 @@ AREA_MIN_MULTIPLE = 0.4
 # stroke, and the whole group's extent spans them all (Escondido ADU 1:
 # 24 x 12 m for a 6.7 x 6.7 m building).
 CLUSTER_GAP_MM = 600.0
+# How close, on the ground, a run's end must come to another line to count
+# as joined rather than a free-ended spur.
+SPUR_TOUCH_MM = 100.0
 # How far two neighbouring labels' gap may sit from their runs, at the page
 # scale, and still be one dimension string.
 RUN_SCALE_TOL = 0.15
@@ -198,6 +209,28 @@ def _clusters(segs: list[Segment], gap_pt: float) -> list[list[Segment]]:
     return list(out.values())
 
 
+def _without_spurs(runs: list[Segment], touch: list[Segment], tol_pt: float) -> list[Segment]:
+    """`runs` less any segment with an end that touches nothing in `touch`.
+
+    A wall outline is closed, so every wall run meets another at both ends; a
+    grid-line stub drawn at the wall weight hangs off it to its bubble with one
+    free end (Santa Cruz 2: grid 2.2 added 1.7 m to the depth).
+    """
+
+    def near(x: float, y: float, sg: Segment) -> bool:
+        lo_x, hi_x = sorted((sg.x0, sg.x1))
+        lo_y, hi_y = sorted((sg.y0, sg.y1))
+        return lo_x - tol_pt <= x <= hi_x + tol_pt and lo_y - tol_pt <= y <= hi_y + tol_pt
+
+    def free_end(sg: Segment) -> bool:
+        return any(
+            not any(o is not sg and near(x, y, o) for o in touch)
+            for x, y in ((sg.x0, sg.y0), (sg.x1, sg.y1))
+        )
+
+    return [sg for sg in runs if not free_end(sg)]
+
+
 def _string_totals_m(labels: list[DimLabel], mm_per_pt: float) -> list[float]:
     """Totals of the dimension strings on the page, in metres.
 
@@ -235,6 +268,7 @@ def detect_footprint(
     page: pymupdf.Page,
     scale: ScaleEstimate,
     expected_area_m2: float | None = None,
+    whole_building: bool = True,
 ) -> Footprint | None:
     """Find the building footprint on a plan sheet.
 
@@ -250,6 +284,11 @@ def detect_footprint(
     61 m2 ADU. A floor area is a project fact the scope already requires Stage 1
     to prompt for ("conditioned floor area basis"), so it is legitimately an
     input rather than ground truth leaking in.
+
+    `whole_building=False` keeps an outline that a larger overall dimension
+    runs past: a setback upper storey is legitimately smaller than the
+    building (QC_Rowhouse_02 A102), and partitions want that storey's own
+    bound, not the building's.
     """
     if scale.mm_per_pt is None:
         return None
@@ -276,6 +315,26 @@ def detect_footprint(
                 out.append(lb.value_mm / 1000.0)
         return out
 
+    def outrun(box: tuple[float, float, float, float], across_x: bool) -> str | None:
+        """A dimension just outside one side of `box` whose drawn span covers
+        that side and runs well past it: `box` is part of a larger building
+        (Santa Cruz 3: the bedroom half drawn at one stroke, the living room
+        poched, and 44'-0 1/4" dimensioned across both)."""
+        x0, y0, x1, y1 = box if across_x else (box[1], box[0], box[3], box[2])
+        side = x1 - x0
+        for lb in labels:
+            u, v = (lb.x, lb.y) if across_x else (lb.y, lb.x)
+            span = lb.value_mm / s  # drawn length in points, centred on its label
+            tol = 0.02 * span
+            if (
+                span > OUTRUN_RATIO * side
+                and (y0 - reach <= v < y0 or y1 < v <= y1 + reach)
+                and u - span / 2 <= x0 + tol
+                and u + span / 2 >= x1 - tol
+            ):
+                return lb.text
+        return None
+
     groups: dict[float, list[Segment]] = {}
     for sg in long_segs:
         groups.setdefault(sg.width, []).append(sg)
@@ -300,6 +359,12 @@ def detect_footprint(
             max(max(sg.x0, sg.x1) for sg in segs),
             max(max(sg.y0, sg.y1) for sg in segs),
         )
+        # A stated per-storey area this candidate matches says it is the
+        # intended unit: a rowhouse unit sits inside its block's overall
+        # dimension by design (AB_Rowhouse_02), which is not a contradiction.
+        stated_unit = bool(expected_area_m2) and abs(w_m * d_m / expected_area_m2 - 1.0) <= 0.15
+        if whole_building and not stated_unit and (outrun(box, True) or outrun(box, False)):
+            return None
         errs = [
             e
             for e in (
@@ -360,14 +425,17 @@ def detect_footprint(
         parts = _clusters([sg for sg in all_segs if sg.width == width], CLUSTER_GAP_MM / s)
         # Only the largest drawing: the main plan outweighs its vignettes, and
         # offering every small cluster let a stair or a unit match some chain.
-        runs = max(
-            ([sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM] for part in parts), key=len
-        )
-        if len(runs) < len(groups[width]):
-            ranked = rank(width, runs)
+        part = max(parts, key=lambda p: sum(sg.length_mm >= MIN_SEGMENT_MM for sg in p))
+        runs = [sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM]
+        candidates = [runs] if len(runs) < len(groups[width]) else []
+        # The same drawing less its free-ended spurs, offered alongside; the
+        # dimension agreement decides between them.
+        trimmed = _without_spurs(runs, part, SPUR_TOUCH_MM / s)
+        if 0 < len(trimmed) < len(runs):
+            candidates.append(trimmed)
+        for cand in candidates:
+            ranked = rank(width, cand)
             if ranked and (best is None or ranked[0] < best[0]):
                 best = ranked
 
-    if best is None or not best[1].confident:
-        return best[1] if best else None
-    return best[1]
+    return best[1] if best else None

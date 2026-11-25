@@ -30,7 +30,7 @@ class FakePage:
         self._spans = spans
         self._dir = direction
 
-    def get_text(self, _kind):
+    def get_text(self, _kind, **_flags):
         return {
             "blocks": [
                 {

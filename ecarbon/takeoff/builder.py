@@ -54,7 +54,7 @@ from ecarbon.extract.assemblies import (
 )
 from ecarbon.extract.levels import Level, StoreyHeights, storey_heights_for
 from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
-from ecarbon.geometry.footprint import Footprint, detect_footprint
+from ecarbon.geometry.footprint import REFUSE_PCT, Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
 from ecarbon.intake import coverage_gaps, inventory, readability_gaps
 from ecarbon.intake.classify import discipline_of, sheet_type_of
@@ -92,9 +92,6 @@ from ecarbon.vision.validate import RASTER_NOTE
 
 PLAN_TYPES = (SheetType.FLOOR_PLAN, SheetType.FOUNDATION_PLAN)
 
-# Framing occupies this fraction of a stud wall's cavity depth. A conventional
-# allowance, so any line using it is labelled `assumed` and says so.
-STUD_FRAMING_FRACTION = 0.15
 
 # How far the floor area the plans depict may sit from the area the project
 # states before the two are treated as describing different extents. Measured
@@ -264,9 +261,13 @@ def gather(
         # So the expectation is tried first and, only if nothing confident
         # survives it, the plans are read again without it. The second pass is
         # recorded so the caller knows the area was never corroborated.
+        refused: list[str] = []
         for expectation in (expected_area_m2, None):
             for s in plans:
                 fp = detect_footprint(doc[s.page], scale_for(s.page), expectation)
+                if fp and (fp.agreement_pct or 0.0) > REFUSE_PCT:
+                    refused.append(f"{s.sheet_no or f'p{s.page + 1}'}: {fp.width_m} x {fp.depth_m} m, {fp.agreement_pct:.0f}% from its dimensions")
+                    fp = None
                 if fp and fp.confident:
                     inputs.footprint, inputs.footprint_sheet, inputs.footprint_page = (
                         fp,
@@ -285,6 +286,20 @@ def gather(
                 break
             if expectation is None or expected_area_m2 is None:
                 break
+
+        if refused and inputs.footprint is None:
+            gaps.append(
+                Gap(
+                    code=GapCode.GEOMETRY_AMBIGUOUS,
+                    severity=GapSeverity.WARNING,
+                    message=(
+                        "An outline was found but its own dimension strings contradict it, "
+                        "so it is not used as the footprint: "
+                        + "; ".join(dict.fromkeys(refused))
+                        + ". Trace the outline or set the footprint to measure it."
+                    ),
+                )
+            )
 
         # A4: vision only where the rules found no footprint at all. Raster
         # sheets are tried too, since those are where the rules cannot read.
@@ -329,6 +344,9 @@ def gather(
     try:
         inputs.assemblies, rejected = assemblies_for(design)
         inputs.tag_refs = assembly_tags_used(design)
+        for tag, asm in inputs.assemblies.items():
+            if asm.from_legend:  # no tag on the plans to count; the legend is the reference
+                inputs.tag_refs.setdefault(tag, 1)
         for message in rejected:
             gaps.append(
                 Gap(
@@ -395,6 +413,11 @@ def gather(
             )
         )
     return inputs, sheets, gaps
+
+
+def _footprint_where(inputs: TakeoffInputs) -> str:
+    """The footprint's sheet number, or its page on an unnumbered sheet ("p11")."""
+    return inputs.footprint_sheet or f"p{(inputs.footprint_page or 0) + 1}"
 
 
 def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> list:
@@ -467,6 +490,30 @@ def _vision_check_phrase(readings) -> str:
     return "each quote was located in the drawing's text."
 
 
+def mark_units(lines: list[TakeoffLine], locale) -> list[Gap]:
+    """A2: on a set drawn in feet and inches, the dimension text each line
+    rests on was imperial, not metric. Mixed (CMHC) and unknown sets keep
+    their sources exactly as they were."""
+    if locale.unit_system != "imperial":
+        return []
+    for line in lines:
+        line.basis.sources = [
+            BasisSource.DIM_TEXT_IMPERIAL if s is BasisSource.DIM_TEXT_METRIC else s
+            for s in line.basis.sources
+        ]
+    # models.py is frozen, so there is no units code; this is the nearest.
+    return [
+        Gap(
+            code=GapCode.GEOMETRY_AMBIGUOUS,
+            severity=GapSeverity.INFO,
+            message=(
+                "Drawn in feet and inches; quantities converted to SI. "
+                + "; ".join(e for e in locale.evidence if e.startswith("units"))
+            ),
+        )
+    ]
+
+
 def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
     """Mark every line resting on a vision-read value, in place (C3).
 
@@ -492,7 +539,7 @@ def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
             )
             assumptions.append(
                 f"Footprint read by {inputs.vision_by} from the overall dimensions on "
-                f"{inputs.footprint_sheet}; "
+                f"{_footprint_where(inputs)}; "
                 + _vision_check_phrase(inputs.vision)
             )
             if line.provenance.page == inputs.footprint_page:
@@ -635,7 +682,10 @@ def _foundation_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
             )
         )
 
-    if spec.screw_piles:
+    # Screw piles beside strip footings and no grade beam carry a deck or porch
+    # (Landmark's basements), not the house.
+    if spec.screw_piles and spec.system != "strip_footing":
+        dia = f", {spec.pile_diameter_mm:.0f} mm dia" if spec.pile_diameter_mm else ""
         out.append(
             TakeoffLine(
                 id="ln-screw-piles",
@@ -644,7 +694,7 @@ def _foundation_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
                 unit=Unit.M3,
                 confidence=Confidence.ASSUMED,
                 material="steel_screw_pile",
-                description=f"Screw piles, {spec.pile_diameter_mm or 0:.0f} mm dia (steel, by supplier)",
+                description=f"Screw piles{dia} (steel, by supplier)",
                 basis=Basis(sources=[BasisSource.SECTION_NOTE]),
                 assumptions=[
                     "Foundation is on screw piles, which are a steel product supplied by "
@@ -672,7 +722,8 @@ def _wall_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
     if len(heights.floors) == 1:
         basis_name = "floor to top plate"
     area = round(fp.perimeter_m * height, 2)
-    sheet = next((s.split(":")[0] for s in heights.sources), None)
+    # a vision source reads "vision: A300: 'T/O ROOF' ...", so its sheet is the second field
+    sheet = next((s.removeprefix("vision:").split(":")[0].strip() for s in heights.sources), None)
 
     note = (
         f"Perimeter {fp.perimeter_m:.1f} m from the measured footprint x {height:.3f} m "
@@ -733,7 +784,10 @@ def _assembly_lines(
 
     for layer in asm.layers:
         material = cmhc_material(layer)
-        volume = layer.volume_m3(area_m2, STUD_FRAMING_FRACTION)
+        # The framing's stated spacing sets the split, for it and for the fill beside it.
+        framing = layer if layer.is_framing or layer.shares_cavity_with is None else asm.layers[layer.shares_cavity_with]
+        fraction = framing.framing_share
+        volume = layer.volume_m3(area_m2, fraction)
         if volume is None or material is None:
             continue
 
@@ -745,7 +799,7 @@ def _assembly_lines(
             notes.append(layer.note)
         if layer.shares_cavity_with is not None:
             partner = asm.layers[layer.shares_cavity_with]
-            share = STUD_FRAMING_FRACTION if layer.is_framing else 1 - STUD_FRAMING_FRACTION
+            share = fraction if layer.is_framing else 1 - fraction
             notes.append(
                 f"Shares the {layer.thickness_mm:.0f} mm cavity with "
                 f"'{partner.material}', so it takes {share:.0%} of it rather than the "
@@ -755,7 +809,7 @@ def _assembly_lines(
             )
         elif layer.is_framing:
             notes.append(
-                f"Studs at centres take {STUD_FRAMING_FRACTION:.0%} of the "
+                f"Studs at centres take {fraction:.0%} of the "
                 f"{layer.thickness_mm:.0f} mm depth; the rest of the cavity is empty."
             )
 
@@ -889,7 +943,7 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
     declared; doors as a count, because a door is a manufactured unit and its
     factor is per door.
     """
-    from ecarbon.extract.openings import ONE_PER_ROW, openings_for
+    from ecarbon.extract.openings import ONE_PER_ROW, PLAN_LABEL_NOTE, openings_for
 
     try:
         openings, notes = openings_for(design)
@@ -914,8 +968,10 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
     ]
     sheet = next((o.sheet for o in openings if o.sheet), None)
     page = next((o.page for o in openings if o.page is not None), 0)
+    if sheet is None and openings:
+        sheet = f"p{page + 1}"  # an unnumbered sheet, labelled as _prov labels one
 
-    windows = [o for o in openings if o.kind == "window"]
+    windows =[o for o in openings if o.kind == "window"]
     doors = [o for o in openings if o.kind == "door"]
 
     # A US schedule states its own quantities (or numbers each opening), so
@@ -927,7 +983,12 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
         if from_schedule
         else "count of each type from the tags written on the floor plans"
     )
+    from_labels = any(o.note == PLAN_LABEL_NOTE for o in openings)
+    if from_labels:
+        count_note = "count of each size from the labels written at the openings on the floor plans"
     size_sources = [BasisSource.SCHEDULE, BasisSource.DIM_TEXT_IMPERIAL if from_schedule else BasisSource.DIM_TEXT_METRIC]
+    if from_labels:
+        size_sources = [BasisSource.DIM_TEXT_IMPERIAL]
     count_assumptions = (
         [
             "A numbered schedule lists each opening once, so each numbered row is "
@@ -967,7 +1028,10 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     sources=size_sources,
                     note=(
                         (
-                            "Size of each type from the openings schedule, in feet and inches; "
+                            "No schedule: size of each opening from the width-over-height label "
+                            "at it on the plan, in feet and inches; "
+                            if from_labels
+                            else "Size of each type from the openings schedule, in feet and inches; "
                             if from_schedule
                             else "Size of each type from the openings schedule, with the metric "
                             "and imperial columns agreeing; "
@@ -983,11 +1047,17 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                 assumptions=count_assumptions
                 if from_schedule
                 else [
+                    "Count is of size labels written on the plans, one plan per storey, so "
+                    "an opening drawn without its label is not counted. A label 6'-5\" or "
+                    "taller is taken as a door."
+                ]
+                if from_labels
+                else [
                     "Count is of tags written on the plans, so a single tag against a "
                     "mullioned assembly counts once, and a window shown only on an "
                     "elevation is not counted at all."
                 ],
-                provenance=Provenance(page=page, sheet_no=sheet, detail="WINDOW SCHEDULE"),
+                provenance=Provenance(page=page, sheet_no=sheet, detail="SIZE LABELS ON PLAN" if from_labels else "WINDOW SCHEDULE"),
             )
         )
     for o in unsized:
@@ -1050,7 +1120,10 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     sources=size_sources,
                     note=(
                         (
-                            "Count from the door schedule. "
+                            "Count of width-over-height labels at the doors on the floor plans, "
+                            "one plan per storey; interior and exterior doors are not told apart. "
+                            if from_labels
+                            else "Count from the door schedule. "
                             if from_schedule
                             else "Count of tags on the floor plans, one variant per storey. "
                         )
@@ -1062,7 +1135,7 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     "exterior, interior and fire-rated doors, which carry different "
                     "carbon; separating them needs a factor per door type."
                 ],
-                provenance=Provenance(page=page, sheet_no=sheet, detail="DOOR SCHEDULE"),
+                provenance=Provenance(page=page, sheet_no=sheet, detail="SIZE LABELS ON PLAN" if from_labels else "DOOR SCHEDULE"),
             )
         )
     return lines, gaps
@@ -1293,7 +1366,7 @@ def build_takeoff(
     fp = inputs.footprint
     tell(
         "geometry",
-        f"footprint {fp.area_m2:,.0f} m2 off sheet {inputs.footprint_sheet}"
+        f"footprint {fp.area_m2:,.0f} m2 off sheet {_footprint_where(inputs)}"
         if fp
         else "no footprint could be measured",
     )
@@ -1474,6 +1547,41 @@ def build_takeoff(
                 )
                 gap.severity = GapSeverity.WARNING
                 gap.affects = assumed_fdn
+    # A set with no schedule sheet can still state its openings and walls
+    # elsewhere (plan size labels, a wall legend, an energy table); the
+    # missing-sheet note must not say nothing was produced when it was.
+    instead = {
+        "No readable opening schedule": (
+            [ln.id for ln in lines if ln.id in ("ln-windows", "ln-doors")],
+            "the windows and doors are read from the size labels on the plans instead",
+        ),
+        "No readable assembly schedule": (
+            [ln.id for ln in lines if ln.id.startswith("ln-exterior-wall-")
+             and ln.confidence != Confidence.ASSUMED],
+            "the exterior wall is read from the drawings' own wall notes instead; "
+            "other assemblies are assumed where noted",
+        ),
+    }
+    # A sheet the rules could not read may still have been read as an image.
+    for start, readings, classes, what in (
+        ("No readable floor plan", inputs.vision, _FROM_FOOTPRINT, "footprint was"),
+        ("No readable section", inputs.vision_levels, _FROM_HEIGHTS, "storey heights were"),
+    ):
+        if readings:
+            sheet = readings[0].note.split(":")[1].strip()
+            instead[start] = (
+                [ln.id for ln in lines if ln.element_class in classes],
+                f"the {what} read by AI from the image of {sheet}, "
+                "which cannot be checked against text",
+            )
+    for gap in gaps:
+        for start, (ids, how) in instead.items():
+            if gap.message.startswith(start) and ids:
+                gap.message = gap.message.replace(
+                    ", so those quantities cannot be produced.", f"; {how} ({', '.join(ids[:4])})."
+                )
+                gap.severity = GapSeverity.WARNING
+                gap.affects = ids
 
     tell("assemblies", f"{len(inputs.assemblies)} assemblies resolved into their layers")
 
@@ -1596,6 +1704,9 @@ def build_takeoff(
                 affects=[ln.id for ln in lines],
             )
         )
+
+    if inputs.locale is not None:
+        gaps += mark_units(lines, inputs.locale)
 
     # Every wall and partition on an assumed storey height says so.
     mark_assumed_heights(inputs, lines)

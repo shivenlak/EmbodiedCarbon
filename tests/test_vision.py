@@ -215,9 +215,15 @@ class TestOutlinedText:
         assert got["width"].confidence is Confidence.INFERRED
         assert RASTER_NOTE in got["width"].note
 
-    def test_one_number_in_the_text_keeps_the_full_check(self):
+    def test_a_licence_stamp_and_date_are_still_an_image(self):
         page = self.stamped_page()
-        page.insert_text((50, 50), "REV 2", fontsize=8)
+        page.insert_text((600, 570), "C 080657   03/31/23", fontsize=8)
+        got = validate(page, "A100", Task.FOOTPRINT, answer("footprint_found"), DPI)
+        assert {r.field for r in got} >= {"width"}
+
+    def test_one_printed_dimension_keeps_the_full_check(self):
+        page = self.stamped_page()
+        page.insert_text((50, 50), "12'-6\"", fontsize=8)
         got = validate(page, "A100", Task.FOOTPRINT, answer("footprint_hallucinated"), DPI)
         assert got == []
 
@@ -262,3 +268,32 @@ def test_an_el_prefixed_elevation_parses():
 
     assert _value(Task.LEVELS, "elevation", "EL 2.505 m") == 2.505
     assert _value(Task.LEVELS, "elevation", "ELEV. 0.000 m") == 0.0
+
+
+def test_cache_mode_replays_saved_claude_answers_and_never_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("ECARBON_VISION_CACHE", str(tmp_path))
+    monkeypatch.setenv("ECARBON_VISION", "cache")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cached = provider_from_env()
+    assert read_page(cached, plan_page(), "A101", Task.FOOTPRINT) == []  # nothing saved yet
+
+    claude = Recorded("footprint_found")
+    claude.name, claude.model = cached.name, cached.model  # what a real Claude run saves under
+    assert len(read_page(claude, plan_page(), "A101", Task.FOOTPRINT)) == 2
+    assert len(read_page(cached, plan_page(), "A101", Task.FOOTPRINT)) == 2
+
+
+def test_a_seed_store_copies_only_the_answers_used(tmp_path, monkeypatch):
+    seed, ship = tmp_path / "seed", tmp_path / "ship"
+    monkeypatch.setenv("ECARBON_VISION_CACHE", str(seed))
+    claude = Recorded("footprint_found")
+    read_page(claude, plan_page(), "A101", Task.FOOTPRINT)
+    (seed / "unrelated.json").write_text("{}")
+
+    monkeypatch.setenv("ECARBON_VISION_CACHE", str(ship))
+    monkeypatch.setenv("ECARBON_VISION_SEED", str(seed))
+    assert len(read_page(claude, plan_page(), "A101", Task.FOOTPRINT)) == 2
+    assert claude.calls == 1
+    assert sorted(p.name for p in ship.iterdir()) == sorted(
+        p.name for p in seed.iterdir() if p.name != "unrelated.json"
+    )
