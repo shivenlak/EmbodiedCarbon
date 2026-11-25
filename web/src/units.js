@@ -15,7 +15,7 @@ const TO_IMPERIAL = {
   m3: [1.30795, "yd³"],
   mm: [1 / 25.4, "in"],
 };
-const METRIC_LABEL = { m3: "m³", m2: "m²", m: "m", each: "each", kg: "kg", mm: "mm" };
+const METRIC_LABEL = { m3: "m³", m2: "m²", m: "m", each: "each", kg: "kg (mass)", mm: "mm" };
 
 export const UnitsContext = createContext({ system: "metric", setSystem: () => {} });
 

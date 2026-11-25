@@ -77,8 +77,8 @@ This supersedes the North America section below.
   - `POST /projects/{id}/lines/{line_id}` takes `{quantity?, material?, factor_id?, thickness_mm?, excluded_walls?, note}`.
   - Edits are stored per workspace and replayed after every rebuild.
   - They are labelled `"stated: "` (C3).
-- **C10. Material library (A parses, B stores)**
-  - `ecarbon/intake/materials.py` `read_material_list(path) -> (list[UserMaterial], list[row_error])`, from CSV/XLSX in a template.
+- **C10. Material library (B, landed 25 Nov; A9 now only the optional EPD-PDF reading)**
+  - `ecarbon/carbon/user_factors.py` `read_material_list(content, filename) -> (list[FactorRef], list[row_error])`, from CSV/XLSX in a template (`GET /materials/template.csv`).
   - Template columns: name, category, declared_unit, gwp_value, gwp_unit, density_kg_m3, source, epd_id, valid_to.
   - B turns each row into a project factor (`geography="user"`, `data_type="epd"`, source "Builder library: <file>").
 

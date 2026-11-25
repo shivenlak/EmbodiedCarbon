@@ -19,6 +19,15 @@ from ecarbon.carbon.store import LocalSnapshotProvider
 from ecarbon.fixtures import example_takeoff
 from ecarbon.report import CSV_COLUMNS, module_label, report_html, takeoff_csv
 
+try:
+    from ecarbon.config import discover, get_design
+
+    _HAVE_DATA = len(discover()) >= 52
+except Exception:
+    _HAVE_DATA = False
+
+needs_data = pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+
 
 @pytest.fixture(scope="module")
 def pair():
@@ -70,7 +79,7 @@ class TestCsvExport:
         assert uncounted, "the fixture should include an unmatched material"
         for row in uncounted:
             assert row["missing_reason"]
-            assert row["kg_co2e"] == ""
+            assert row["kgCO2e"] == ""
 
     def test_a_counted_row_names_its_factor_and_module_scope(self, pair):
         takeoff, carbon = pair
@@ -92,7 +101,7 @@ class TestCsvExport:
         takeoff, _ = pair
         rows = list(csv.DictReader(io.StringIO(takeoff_csv(takeoff))))
         assert len(rows) == len(takeoff.lines)
-        assert all(r["kg_co2e"] == "" for r in rows)
+        assert all(r["kgCO2e"] == "" for r in rows)
 
 
 class TestPrintableReport:
@@ -215,3 +224,49 @@ class TestEndpoints:
     def test_an_unknown_project_is_a_404(self, client):
         assert client.get("/projects/nope/export.csv").status_code == 404
         assert client.get("/projects/nope/report.html").status_code == 404
+
+
+@needs_data
+class TestCalculationTrace:
+    """UX session, 25 Nov: every kgCO2e figure shows its arithmetic, and the
+    CSV alone lets an auditor recompute it."""
+
+    @pytest.mark.parametrize("key", ["AB_Fourplex_01", "AB_ADU_01", "ON_Fourplex_01", "BC_Duplex"])
+    def test_every_line_reproduces_its_carbon(self, key):
+        from ecarbon.carbon.calc_trace import explain_all
+        from ecarbon.carbon.calculate import calculate_carbon
+        from ecarbon.takeoff.builder import build_takeoff
+
+        t = build_takeoff(get_design(key))
+        c = calculate_carbon(t)
+        traces = explain_all(t, c)  # raises if any step list disagrees with the result
+        counted = [tr for tr in traces.values() if tr.counted]
+        assert counted
+        for tr in counted:
+            assert tr.steps[-1].unit == "kgCO₂e"
+            assert tr.formula.endswith("kgCO2e")
+
+    def test_the_csv_alone_recomputes_every_row(self):
+        from ecarbon.carbon.calculate import calculate_carbon
+        from ecarbon.takeoff.builder import build_takeoff
+
+        t = build_takeoff(get_design("AB_Fourplex_01"))
+        c = calculate_carbon(t)
+        rows = list(csv.DictReader(io.StringIO(takeoff_csv(t, c))))
+        total = 0.0
+        for r in rows:
+            if r["counted"] != "yes":
+                continue
+            kg = float(r["converted_quantity"]) * float(r["waste_factor"]) * float(r["gwp_value"])
+            assert kg == pytest.approx(float(r["kgCO2e"]), abs=0.02), r["line_id"]
+            total += float(r["kgCO2e"])
+        assert total == pytest.approx(c.total_kg_co2e, abs=0.5)
+
+    def test_the_export_carries_a_header_an_auditor_can_cite(self):
+        from ecarbon.carbon.calculate import calculate_carbon
+        from ecarbon.takeoff.builder import build_takeoff
+
+        t = build_takeoff(get_design("AB_Fourplex_01"))
+        text = takeoff_csv(t, calculate_carbon(t), "CA-AB", header=True)
+        assert text.startswith("# project,")
+        assert "# total kgCO2e," in text and "kg (mass)" in text

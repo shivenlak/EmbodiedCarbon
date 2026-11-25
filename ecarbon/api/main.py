@@ -70,6 +70,12 @@ class Project:
     # (Canadian) set, exactly as before. `region_source` says how it was set.
     geography: str | None = None
     region_source: str = "default"
+    # The user's material choices (line id -> factor id) and their own
+    # materials (typed, or from the builder's uploaded list). Kept on the
+    # project, so they survive a rebuild after "Help it read this".
+    material_edits: dict = field(default_factory=dict)
+    user_factors: dict = field(default_factory=dict)
+    library_files: list = field(default_factory=list)
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
@@ -78,8 +84,28 @@ class Project:
     def recompute(self) -> None:
         # Carbon is derived from the takeoff and never mutates it, so a
         # recompute after an override cannot corrupt the extraction output.
-        self.carbon = calculate_carbon(self.takeoff, _FACTORS, geography=self.geography)
+        from ecarbon.carbon.user_factors import EDIT_MARK
+
+        takeoff = self.takeoff
+        if self.material_edits:
+            # Priced on a copy, so the extraction output itself never changes:
+            # the line keeps the material the drawings name, and the chosen
+            # factor answers it.
+            takeoff = self.takeoff.model_copy(deep=True)
+            for ln in takeoff.lines:
+                fid = self.material_edits.get(ln.id)
+                if fid:
+                    ln.material = f"{ln.material or ln.element_class.value}{EDIT_MARK}{fid}"
+        self.carbon = calculate_carbon(
+            takeoff, self.factors, geography=self.geography
+        )
         self._check_intensity()
+
+    @property
+    def factors(self):
+        from ecarbon.carbon.user_factors import ProjectFactors
+
+        return ProjectFactors(_FACTORS, self.user_factors)
 
     def _check_intensity(self) -> None:
         """Surface an impossible intensity beside the other gaps.
@@ -260,6 +286,9 @@ def _own(project_id: str) -> Project:
             design=p.design,
             geography=p.geography,
             region_source=p.region_source,
+            material_edits=dict(p.material_edits),
+            user_factors=dict(p.user_factors),
+            library_files=list(p.library_files),
         )
         _FORKS[key] = fork
     return fork
@@ -397,12 +426,35 @@ class CreateProject(BaseModel):
 
 
 class OverrideQuantity(BaseModel):
-    """Stage 2: a human must be able to correct any quantity and see carbon update."""
+    """Stage 2: a human must be able to correct any quantity and see carbon update.
+
+    Since the UX session (25 Nov) also the material and the layer thickness.
+    Only the fields sent are changed: a material edit leaves the quantity alone.
+    """
 
     quantity: float | None = Field(
         default=None, description="null clears the override and restores the extracted value"
     )
     note: str | None = None
+    factor_id: str | None = Field(
+        default=None, description="price this line with this factor; null restores the one found"
+    )
+    thickness_mm: float | None = Field(
+        default=None, description="a layer's thickness; scales the volume by new / drawn thickness"
+    )
+
+
+class NewMaterial(BaseModel):
+    """A material the user types in, with the source an auditor would ask for."""
+
+    name: str
+    declared_unit: str
+    gwp_value: float = Field(description="kgCO2e per declared unit, A1-A3")
+    density_kg_m3: float | None = None
+    source: str = Field(description="EPD or database the factor comes from")
+    epd_id: str | None = None
+    valid_to: str | None = None
+    category: str | None = None
 
 
 class IntakeSummary(BaseModel):
@@ -421,6 +473,9 @@ class Substitution(BaseModel):
     to_material: str
     delta_kg_co2e: float
     pct_of_total: float
+    # The factor to apply, so a swap can be applied to the line itself
+    # (POST /lines/{id} with factor_id) and carried into the exports.
+    to_factor_id: str | None = None
 
 
 # -- endpoints -------------------------------------------------------------
@@ -528,6 +583,33 @@ def get_carbon(project_id: str) -> CarbonResult:
     return _get(project_id).carbon
 
 
+@app.get("/projects/{project_id}/calc")
+def get_calc(project_id: str) -> dict:
+    """How every line's kgCO2e was calculated, step by step (contract C8).
+
+    One call for the whole bill, so every number in the interface can open its
+    own calculation without a round trip. Each trace reproduces its line's
+    kgCO2e exactly or the request fails: a wrong explanation is worse than none.
+    """
+    from ecarbon.carbon.calc_trace import explain_all
+
+    p = _get(project_id)
+    return {k: v.to_dict() for k, v in explain_all(p.takeoff, p.carbon, p.material_edits).items()}
+
+
+@app.get("/projects/{project_id}/lines/{line_id}/calc")
+def get_line_calc(project_id: str, line_id: str) -> dict:
+    from ecarbon.carbon.calc_trace import explain
+
+    p = _get(project_id)
+    try:
+        line = p.takeoff.line(line_id)
+    except KeyError:
+        raise HTTPException(404, f"no line {line_id!r}") from None
+    cline = next((c for c in p.carbon.lines if c.line_id == line_id), None)
+    return explain(line, cline, p.material_edits.get(line_id)).to_dict()
+
+
 @app.post("/projects/{project_id}/lines/{line_id}", response_model=CarbonResult)
 def override_line(project_id: str, line_id: str, body: OverrideQuantity) -> CarbonResult:
     """Correct a quantity and get the updated carbon back in one round trip.
@@ -540,12 +622,129 @@ def override_line(project_id: str, line_id: str, body: OverrideQuantity) -> Carb
         line = p.takeoff.line(line_id)
     except KeyError:
         raise HTTPException(404, f"no line {line_id!r}") from None
-    if body.quantity is not None and body.quantity < 0:
-        raise HTTPException(422, "quantity must be >= 0")
-    line.user_override = body.quantity
-    line.override_note = body.note
+    sent = body.model_fields_set
+    if "quantity" in sent:
+        if body.quantity is not None and body.quantity < 0:
+            raise HTTPException(422, "quantity must be >= 0")
+        line.user_override = body.quantity
+        line.override_note = body.note
+    if "thickness_mm" in sent and body.thickness_mm is not None:
+        drawn = _drawn_thickness_mm(line)
+        if drawn is None:
+            raise HTTPException(422, "this line states no thickness to change")
+        if body.thickness_mm <= 0:
+            raise HTTPException(422, "thickness must be more than zero")
+        line.user_override = round(line.quantity * body.thickness_mm / drawn, 4)
+        line.override_note = (
+            f"stated: thickness {drawn:g} -> {body.thickness_mm:g} mm, so the volume is "
+            f"{line.quantity:g} x {body.thickness_mm:g} / {drawn:g}"
+        )
+    if "factor_id" in sent:
+        if body.factor_id is None:
+            p.material_edits.pop(line_id, None)
+        else:
+            f = p.factors.get_factor(body.factor_id)
+            if f is None:
+                raise HTTPException(404, f"no material {body.factor_id!r}")
+            if f.declared_unit.strip().lower() not in _convertible(line.unit.value, f):
+                raise HTTPException(
+                    422,
+                    f"{f.name} is declared per {f.declared_unit}; this line is in {line.unit.value}"
+                    + (" and the material states no density" if f.declared_unit == "kg" else ""),
+                )
+            p.material_edits[line_id] = body.factor_id
     p.recompute()
     return p.carbon
+
+
+def _drawn_thickness_mm(line) -> float | None:
+    """A layer's thickness as its description states it ("Gypsum Board, 13 mm")."""
+    if line.unit.value != "m3":
+        return None
+    m = re.findall(r"(\d+(?:\.\d+)?)\s*mm\b", line.description or "")
+    return float(m[-1]) if m else None
+
+
+def _convertible(unit: str, f) -> set[str]:
+    """Declared units a line in `unit` can be priced in."""
+    ok = {unit}
+    if unit == "m3":
+        ok |= {"kg"} if f.density_kg_m3 else set()
+        ok |= {"m2"}
+    if unit == "m2":
+        ok |= {"m3", "100m2"}
+    if unit == "kg" and f.density_kg_m3:
+        ok |= {"m3"}
+    return ok
+
+
+@app.get("/projects/{project_id}/materials")
+def list_materials(project_id: str) -> list[dict]:
+    """Every material a line can be priced with: the project's own first
+    (typed or from the builder's list), then Canadian factors, then the rest."""
+    p = _get(project_id)
+
+    def row(f, origin):
+        return {
+            "factor_id": f.factor_id, "name": f.name, "declared_unit": f.declared_unit,
+            "gwp_value": f.gwp_value, "source": f.source, "source_id": f.source_id,
+            "geography": f.geography, "data_type": f.data_type,
+            "density_kg_m3": f.density_kg_m3, "origin": origin,
+        }
+
+    own = [row(f, "yours") for f in p.user_factors.values()]
+    base = _FACTORS.list_factors()
+    ca = [row(f, "Canada") for f in base if (f.geography or "").upper().startswith("CA")]
+    rest = [row(f, "other") for f in base if not (f.geography or "").upper().startswith("CA")]
+    return own + sorted(ca, key=lambda r: r["name"]) + sorted(rest, key=lambda r: r["name"])
+
+
+@app.post("/projects/{project_id}/materials")
+def add_material(project_id: str, body: NewMaterial) -> dict:
+    from datetime import date as _date
+
+    from ecarbon.carbon.user_factors import user_factor
+
+    p = _own(project_id)
+    try:
+        f = user_factor(
+            body.name, body.declared_unit, body.gwp_value,
+            source=f"Entered by you: {body.source}".strip(),
+            density_kg_m3=body.density_kg_m3, epd_id=body.epd_id,
+            valid_to=_date.fromisoformat(body.valid_to) if body.valid_to else None,
+            category=body.category,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from None
+    p.user_factors[f.factor_id] = f
+    return {"factor_id": f.factor_id, "name": f.name}
+
+
+@app.get("/materials/template.csv", response_class=PlainTextResponse)
+def material_template() -> PlainTextResponse:
+    from ecarbon.carbon.user_factors import template_csv
+
+    return PlainTextResponse(
+        template_csv(), media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="material-library-template.csv"'},
+    )
+
+
+@app.post("/projects/{project_id}/materials/upload")
+async def upload_materials(project_id: str, file: UploadFile = File(...)) -> dict:  # noqa: B008
+    """The builder's own list of materials they can buy, with their factors."""
+    from ecarbon.carbon.user_factors import read_material_list
+
+    p = _own(project_id)
+    content = await file.read()
+    if len(content) > 5_000_000:
+        raise HTTPException(413, "a material list over 5 MB is not a list")
+    added, errors = read_material_list(content, file.filename or "materials.csv")
+    for f in added:
+        p.user_factors[f.factor_id] = f
+    if added:
+        p.library_files.append(file.filename or "materials.csv")
+    return {"added": [f.name for f in added], "errors": errors}
 
 
 @app.get("/projects/{project_id}/substitutions", response_model=list[Substitution])
@@ -574,12 +773,20 @@ def get_substitutions(project_id: str) -> list[Substitution]:
                 continue
             if cl.factor.factor_id != src.factor_id:
                 continue
-            delta = cl.quantity * (dst.gwp_value - src.gwp_value)
+            # In the factor's unit (m3, kg, ...), as the line was calculated:
+            # the takeoff quantity is in m2 for a wall billed by area.
+            from ecarbon.carbon.calc_trace import explain
+
+            conv = explain(p.takeoff.line(cl.line_id), cl).converted_quantity or cl.quantity
+            if src.declared_unit.strip().lower() != dst.declared_unit.strip().lower():
+                continue
+            delta = conv * (dst.gwp_value - src.gwp_value)
             out.append(
                 Substitution(
                     line_id=cl.line_id,
                     from_material=src.name,
                     to_material=dst.name,
+                    to_factor_id=dst.factor_id,
                     delta_kg_co2e=round(delta, 1),
                     pct_of_total=round(100 * delta / p.carbon.total_kg_co2e, 1)
                     if p.carbon.total_kg_co2e
@@ -587,8 +794,35 @@ def get_substitutions(project_id: str) -> list[Substitution]:
                 )
             )
 
+    # The builder's own materials first: a swap they can actually buy. Offered
+    # against lines whose factor is in the same category and declared unit.
+    cats = _FACTORS.factor_categories()
+    own: list[Substitution] = []
+    for dst in p.user_factors.values():
+        want = ((dst.attribution or "").removeprefix("category: ") or "").lower()
+        for cl in p.carbon.lines:
+            if not cl.is_counted or not cl.factor or cl.factor.factor_id == dst.factor_id:
+                continue
+            if cl.factor.declared_unit.strip().lower() != dst.declared_unit:
+                continue
+            have = f"{cats.get(cl.factor.factor_id, '')} {cl.factor.name}".lower()
+            if not want or want not in have:
+                continue
+            from ecarbon.carbon.calc_trace import explain
+
+            conv = explain(p.takeoff.line(cl.line_id), cl).converted_quantity or cl.quantity
+            delta = conv * (dst.gwp_value - cl.factor.gwp_value)
+            own.append(Substitution(
+                line_id=cl.line_id,
+                from_material=cl.factor.name,
+                to_material=f"{dst.name} (from your library)",
+                to_factor_id=dst.factor_id,
+                delta_kg_co2e=round(delta, 1),
+                pct_of_total=round(100 * delta / p.carbon.total_kg_co2e, 1) if p.carbon.total_kg_co2e else 0.0,
+            ))
     out.sort(key=lambda s: s.delta_kg_co2e)  # biggest saving first
-    return out
+    own.sort(key=lambda s: s.delta_kg_co2e)
+    return own + out
 
 
 @app.get("/projects/{project_id}/compare/{other_id}")
@@ -618,7 +852,7 @@ def export_csv(project_id: str) -> PlainTextResponse:
 
     p = _get(project_id)
     return PlainTextResponse(
-        takeoff_csv(p.takeoff, p.carbon),
+        takeoff_csv(p.takeoff, p.carbon, p.geography, header=True, chosen=p.material_edits),
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{project_id}-takeoff.csv"'
