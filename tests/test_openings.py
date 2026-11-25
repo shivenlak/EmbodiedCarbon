@@ -379,6 +379,42 @@ class TestHeaderSchedule:
         assert (door.width_mm, door.height_mm) == (812.8, 2032.0)
         assert door.counts == {ONE_PER_ROW: 1}
 
+    def test_a_grid_bubble_beside_the_header_is_not_the_tag_column(self):
+        """A "3.C" bubble left of the header, in line with it, is not a column."""
+        import pymupdf
+
+        from ecarbon.extract.openings import header_schedule_on_page
+
+        page = pymupdf.open().new_page(width=800, height=400)
+        page.insert_text((100, 40), "WINDOW SCHEDULE", fontsize=7)
+        for x, t in [(50, "3.C"), (100, "NO."), (150, "WIDTH"), (200, "HEIGHT")]:
+            page.insert_text((x, 70), t, fontsize=7)
+        page.insert_text((95, 90), "01", fontsize=7)
+        page.insert_text((150, 90), "5' - 0\"", fontsize=7)
+        page.insert_text((200, 90), "4' - 0\"", fontsize=7)
+        got = header_schedule_on_page(page)
+        assert [(o.tag, o.width_mm, o.height_mm) for o in got] == [("01", 1524.0, 1219.2)]
+
+    def test_a_legend_titled_table_counts_only_without_a_schedule(self):
+        import pymupdf
+
+        from ecarbon.extract.openings import header_schedule_on_page
+
+        def page(title_b):
+            pg = pymupdf.open().new_page(width=800, height=400)
+            for x0, title in ((60, "WINDOW LEGEND"), (460, title_b)):
+                pg.insert_text((x0, 40), title, fontsize=7)
+                for dx, t in [(0, "NO."), (50, "WIDTH"), (100, "HEIGHT")]:
+                    pg.insert_text((x0 + dx, 70), t, fontsize=7)
+                pg.insert_text((x0, 90), "1", fontsize=7)
+                pg.insert_text((x0 + 50, 90), "6' - 0\"", fontsize=7)
+                pg.insert_text((x0 + 100, 90), "4' - 0\"", fontsize=7)
+            return pg
+
+        assert len(header_schedule_on_page(page("DOOR LEGEND"))) == 2
+        # Beside a real WINDOW SCHEDULE the legend is not read as a second one.
+        assert len(header_schedule_on_page(page("WINDOW SCHEDULE"))) == 1
+
 
 @needs_data
 def test_an_imperial_only_window_schedule_gives_window_areas():

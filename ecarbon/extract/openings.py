@@ -298,7 +298,10 @@ ONE_PER_ROW = "schedule row"
 # US schedules: a header row names the columns, the tag is whatever sits under
 # the leftmost one ("A", "01", "W-1"), and a feet-inches size is often set as
 # two spans ("3'-" over '0"').
-_SCHEDULE_TITLE_RE = re.compile(r"^(WINDOW|DOOR)\s+SCHEDULE$", re.I)
+# A LEGEND title counts only where it heads a WIDTH / HEIGHT table and the
+# page has no SCHEDULE of that kind: Escondido 2 titles its window schedule
+# "WINDOW LEGEND", beside the drawn legend of the same name.
+_SCHEDULE_TITLE_RE = re.compile(r"^(WINDOW|DOOR)\s+(SCHEDULE|LEGEND)$", re.I)
 _QTY_HEADER_RE = re.compile(r"^(QTY\.?|QNTY\.?|QUANTITY|COUNT)$", re.I)
 # A tag is one letter or carries a number ("A", "01", "W-1", "101A"); a word
 # from a description column ("CORE") is not.
@@ -354,6 +357,10 @@ def header_schedule_on_page(page: pymupdf.Page, sheet: str | None = None) -> lis
     """
     spans = _spans(page)
     titles = sorted((y, x, t.upper()) for y, x, t in spans if _SCHEDULE_TITLE_RE.match(t.strip()))
+    scheduled = {t.split()[0] for _y, _x, t in titles if t.endswith("SCHEDULE")}
+    titles = [
+        (y, x, t) for y, x, t in titles if t.endswith("SCHEDULE") or t.split()[0] not in scheduled
+    ]
     out: list[Opening] = []
     for ty, tx, title in titles:
         kind = "door" if title.startswith("DOOR") else "window"
@@ -376,10 +383,14 @@ def header_schedule_on_page(page: pymupdf.Page, sheet: str | None = None) -> lis
         # The header's bottom line: a label with another label right under it
         # ("HEAD" over "HEIGHT", "WINDOW SIZE" over "WIDTH") is a group label.
         band = [(y, x, t.strip().upper()) for y, x, t in spans_here if abs(y - hy) <= 12]
+        # A header word carries no digit: a grid bubble ("3.C") or a
+        # neighbouring table's row beside the header is not a column, and
+        # taken as the leftmost it lost Santa Cruz 3 its whole window schedule.
         header = [
             (y, x, t)
             for y, x, t in band
             if not any(0 < y2 - y <= 15 and abs(x2 - x) < 30 for y2, x2, _ in band)
+            and not any(c.isdigit() for c in t)
         ]
         cols = sorted((x, t) for _y, x, t in header)
         heights = [x for x, t in cols if t == "HEIGHT" and x > hx]
