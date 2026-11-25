@@ -278,3 +278,30 @@ def test_a_single_storey_wall_tops_out_at_the_underside_of_the_roof_framing():
             floor_assembly_mm=333,
         )
         assert h.storey_heights_m() == [2.505]
+
+
+class TestGlyphShiftedSections:
+    """Ontario's sections are glyph-ID encoded (0x1D). The global repair
+    decodes some spans and refuses others, which cut the ladder at the second
+    floor of a three-storey building."""
+
+    def test_a_refused_label_and_elevation_are_recovered(self):
+        from ecarbon.extract.levels import _elevation_m, repair_level_span
+
+        assert repair_level_span("7\x122\x03)\x12)\x037+,5'") == "T/O F/F THIRD"
+        value = repair_level_span("\x14\x13\x11\x18\x13\x13\x03P\x12\x03\x16\x17\n\x10\x18\x03\x16\x12\x1b\x05")
+        assert _elevation_m(value) == 10.5
+
+    def test_plain_text_and_unrecoverable_spans_are_left_alone(self):
+        from ecarbon.extract.levels import repair_level_span
+
+        assert repair_level_span("GROUND FLOOR") == "GROUND FLOOR"
+        assert repair_level_span("\x01\x02\x03") == "\x01\x02\x03"
+
+
+@needs_data
+def test_ontario_multiplexes_read_three_storeys():
+    from ecarbon.extract.levels import storey_heights_for
+
+    h = storey_heights_for(get_design("ON_Sixplex"))
+    assert h.n_storeys == 3

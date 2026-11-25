@@ -58,6 +58,17 @@ ABOVE_GRADE_MM = 200.0
 STANDARD_FOUNDATION_WALL_MM = 200.0
 # A strip footing drawn with no section: 600 x 200 mm, the common Part 9 footing.
 STANDARD_FOOTING_MM = (600.0, 200.0)
+# A thickened-edge slab's perimeter thickening below the slab, where the
+# drawings name the system but no section is read: 300 wide x 300 deeper.
+THICKENED_EDGE_MM = (300.0, 300.0)
+# Said on every line of a foundation assumed because none could be read.
+UNREAD_FOUNDATION = (
+    "No foundation plan, section or structural note could be read from these "
+    "drawings, so a standard Part 9 foundation is assumed: a slab on grade on "
+    "strip footings with a frost wall. A basement would carry roughly twice the "
+    "wall concrete, and piles or a raft would differ entirely; replace this with "
+    "the foundation design."
+)
 
 # When the sections give no roof datum: a 4:12 pitch.
 DEFAULT_PITCH = 4.0 / 12.0
@@ -91,10 +102,18 @@ _RAFTER_RE = re.compile(r"\bRAFTER|ROOF FRAMING", re.I)
 
 
 def _deferred_framing(asm):
-    """The deferred framing layer of an assembly, if it has one."""
+    """The framing layer of an assembly the drawings give no quantity for.
+
+    Either it defers to the structural drawings ("PRE FABRICATED ROOF TRUSS,
+    REFER TO STRUCTURAL") or it is named with no depth at all (Ontario's F2
+    "ENGINEERED WOOD JOIST OR I-JOIST", thickness cell empty). Both leave the
+    floor or roof without its structure, which a standard then stands in for.
+    """
     for layer in asm.layers:
         mat = layer.material or ""
-        if layer.deferred_to and (_JOIST_RE.search(mat) or _TRUSS_RE.search(mat) or _RAFTER_RE.search(mat)):
+        if not (_JOIST_RE.search(mat) or _TRUSS_RE.search(mat) or _RAFTER_RE.search(mat)):
+            continue
+        if layer.deferred_to or (layer.thickness_mm is None and not layer.is_placeholder):
             return layer
     return None
 
@@ -171,7 +190,9 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
     # ---- floor joists, over every suspended floor ---------------------------
     upper = max(inputs.heights.n_storeys - 1, 0)
     slab_tags = {t for t, a in inputs.assemblies.items() if a.is_slab_on_grade}
-    fasm = inputs.assembly_for("F", exclude=slab_tags) or (standard or {}).get("F")
+    fasm = inputs.assembly_for("F", exclude=slab_tags)
+    if fasm is None or _deferred_framing(fasm) is None:
+        fasm = (standard or {}).get("F") or fasm
     flayer = _deferred_framing(fasm) if fasm is not None else None
     if flayer is not None and upper > 0 and _JOIST_RE.search(flayer.material or ""):
         area = fp.area_m2 * upper
@@ -218,7 +239,9 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
             covered[marker] = fid
 
     # ---- roof framing ------------------------------------------------------
-    rasm = inputs.assembly_for("R") or (standard or {}).get("R")
+    rasm = inputs.assembly_for("R")
+    if rasm is None or _deferred_framing(rasm) is None:
+        rasm = (standard or {}).get("R") or rasm
     rlayer = _deferred_framing(rasm) if rasm is not None else None
     if rlayer is not None:
         mat = rlayer.material or ""
@@ -338,13 +361,29 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
             and "concrete" in ln.material.lower())
         for ln in built
     )
+    # Nothing about the foundation could be read at all (Ontario's multiplexes
+    # outline their structural sheets' text): a standard Part 9 foundation is
+    # assumed, as the standard assemblies are for walls, roofs and floors. A
+    # system the drawings name -- grade beams, piles, a thickened edge, or a
+    # foundation left to the end user's engineer -- is never overridden.
+    unread = (
+        spec is not None
+        and spec.system == "unknown"
+        and not spec.designer_declined
+        and not spec.screw_piles
+        and not spec.cast_in_place_piles
+        and not any(
+            ln.element_class in (ElementClass.FOOTING, ElementClass.FOUNDATION_WALL)
+            for ln in built
+        )
+    )
     if not has_slab and spec is not None:
         generic = getattr(spec, "generic_slab_mm", None)
         drawn_slab = inputs.slab_assembly is not None
         # Strip footings carry a slab on grade or a basement slab; without a
         # slab the ground floor would have nothing to stand on.
         on_footings = bool(getattr(spec, "strip_footings", False))
-        if generic or drawn_slab or on_footings:
+        if generic or drawn_slab or on_footings or unread:
             t_mm = generic or STANDARD_SLAB_MM
             why = (
                 f"{t_mm:.0f} mm as drawn on the generic foundation detail; the drawings "
@@ -358,6 +397,8 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                         f"{inputs.slab_assembly.tag} draws a slab on grade"
                         if drawn_slab
                         else "the drawings show strip footings, which carry a ground or basement slab"
+                        if on_footings
+                        else "no foundation could be read, so a standard Part 9 foundation is assumed"
                     )
                     + " but no sheet read states its thickness"
                 )
@@ -378,7 +419,7 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                 assumptions=[
                     f"Slab thickness {why}.",
                     "Thickenings under bearing walls and at the perimeter are not counted.",
-                ],
+                ] + ([UNREAD_FOUNDATION] if unread and not (generic or drawn_slab or on_footings) else []),
                 provenance=(
                     Provenance(page=asm.page or 0, sheet_no=asm.sheet, detail=f"{asm.tag} {asm.name}"[:80])
                     if asm is not None
@@ -388,10 +429,53 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
             ))
             covered["slab thickness not stated"] = "ln-slab-on-grade"
             covered["foundation is the end user's to design"] = "ln-slab-on-grade"
+    if unread:
+        covered["foundation system not identified"] = (
+            "ln-slab-on-grade" if any(ln.id == "ln-slab-on-grade" for ln in lines) else "ln-strip-footing"
+        )
+
+    # ---- a thickened-edge slab's perimeter --------------------------------
+    # SK/MB's S001 names a "THICKENED EDGE SLAB ON GRADE": the slab itself is
+    # the foundation, deepened round its edge to bear the walls. The slab is
+    # counted from its assembly; the thickening is the concrete left out.
+    has_edge = any(ln.id == "ln-thickened-edge" for ln in built)
+    if spec is not None and getattr(spec, "thickened_edge", False) and not has_edge and fp.perimeter_m:
+        w, d = THICKENED_EDGE_MM
+        lines.append(TakeoffLine(
+            id="ln-thickened-edge",
+            element_class=ElementClass.FOOTING,
+            quantity=round(fp.perimeter_m * w * d / 1e6, 2),
+            unit=Unit.M3,
+            confidence=Confidence.ASSUMED,
+            material="CMHC_Concrete, CIP",
+            description=(
+                f"Thickened slab edge, {w:.0f} x {d:.0f} mm below the slab over "
+                f"{fp.perimeter_m:.1f} m perimeter (assumed section)"
+            ),
+            basis=Basis(
+                sources=[BasisSource.DEFAULT_RULE, BasisSource.SECTION_NOTE, BasisSource.VECTOR_PATH],
+                note=(
+                    f"The structural notes name a thickened-edge slab on grade but no "
+                    f"section was read; {w:.0f} mm wide x {d:.0f} mm below the slab is "
+                    f"assumed. Run is the measured footprint perimeter."
+                ),
+            ),
+            assumptions=[
+                "Thickening section assumed, not read; the structural detail governs.",
+                "Run taken as the rectangular footprint perimeter; thickenings under "
+                "interior bearing and party walls are not counted.",
+            ],
+            provenance=Provenance(
+                page=page_of_footprint(inputs), sheet_no=inputs.footprint_sheet,
+                detail="THICKENED EDGE SLAB ON GRADE",
+            ),
+        ))
+        covered["foundation system not identified"] = "ln-thickened-edge"
 
     # ---- strip footings drawn without a section ----------------------------
     has_footing = any(ln.id.startswith("ln-strip-footing") for ln in built)
-    if spec is not None and not has_footing and getattr(spec, "strip_footings", False) and fp.perimeter_m:
+    strips = spec is not None and (getattr(spec, "strip_footings", False) or unread)
+    if strips and not has_footing and fp.perimeter_m:
         w, d = STANDARD_FOOTING_MM
         lines.append(TakeoffLine(
             id="ln-strip-footing",
@@ -404,7 +488,12 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
             basis=Basis(
                 sources=[BasisSource.DEFAULT_RULE, BasisSource.VECTOR_PATH],
                 note=(
-                    f"The drawings show strip footings but no section; {w:.0f} x {d:.0f} mm is the "
+                    (
+                        "The drawings show strip footings but no section"
+                        if not unread
+                        else "No foundation could be read, so strip footings are assumed"
+                    )
+                    + f"; {w:.0f} x {d:.0f} mm is the "
                     f"common Part 9 footing for a two- or three-storey wood frame. Run is the "
                     f"measured footprint perimeter."
                 ),
@@ -413,7 +502,7 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                 "Footing section assumed, not read; the structural design governs.",
                 "Run taken as the rectangular footprint perimeter; footings under interior "
                 "bearing and party walls are not counted.",
-            ],
+            ] + ([UNREAD_FOUNDATION] if unread else []),
             provenance=Provenance(
                 page=page_of_footprint(inputs), sheet_no=inputs.footprint_sheet,
                 detail="STRIP FOOTING",
@@ -425,7 +514,7 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
     # a footing with nothing on it cannot carry the building. No sheet states
     # the wall as a quantity, so it is estimated, ASSUMED, from what is stated.
     has_fwall = any(ln.element_class is ElementClass.FOUNDATION_WALL for ln in built)
-    if spec is not None and not has_fwall and getattr(spec, "strip_footings", False) and fp.perimeter_m:
+    if strips and not has_fwall and fp.perimeter_m:
         depth = getattr(spec, "frost_depth_mm", None)
         thick = getattr(spec, "foundation_wall_mm", None)
         h_m = ((depth or STANDARD_FROST_MM) + ABOVE_GRADE_MM) / 1000.0
@@ -458,9 +547,10 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                     f"thickness {thick_src}; run is the measured footprint perimeter."
                 ),
             ),
-            assumptions=[
+            assumptions=([UNREAD_FOUNDATION] if unread else [
                 "The drawings show strip footings, which carry a concrete wall from "
                 "frost depth to the slab, but state no wall height or quantity.",
+            ]) + [
                 "A frost wall is assumed, not a full basement: a basement wall is about "
                 "twice as tall, so if the building has a basement this understates it.",
                 "Run taken as the rectangular footprint perimeter; interior bearing "
@@ -564,6 +654,14 @@ STANDARD_ASSEMBLIES = {
             ("GYPSUM BOARD CEILING", 13.0, None),
         ],
     ),
+    "P": (
+        "STANDARD WOOD-STUD PARTITION (assumed)",
+        [
+            ("GYPSUM BOARD", 13.0, None),
+            ("WOOD STUD FRAMING 38x89 @ 400", 89.0, None),
+            ("GYPSUM BOARD", 13.0, None),
+        ],
+    ),
     "F": (
         "STANDARD WOOD-FRAMED FLOOR (assumed)",
         [
@@ -616,8 +714,16 @@ def standard_assembly_lines(inputs, built, expand):
         "standard Part 9 build-up is assumed; replace it with the drawn assembly."
     )
 
+    def unread(letter, prefix, exclude=None):
+        """No assembly of this element was read, or the one read gives no layer
+        a volume (ON's F1 'WOOD FRAMED FLOOR, RATED SEPARATION', no depth)."""
+        asm = inputs.assembly_for(letter, exclude=exclude) if exclude else inputs.assembly_for(letter)
+        if asm is None:
+            return True
+        return not any(ln.id.startswith(f"ln-{prefix}-{asm.tag.lower()}-") for ln in built)
+
     wall = next((ln for ln in built if ln.id == "ln-exterior-wall"), None)
-    if wall is not None and inputs.assembly_for("W") is None:
+    if wall is not None and unread("W", "exterior-wall"):
         asm = _standard_assembly("W", inputs)
         made, more = expand(
             asm, wall.quantity, ElementClass.EXTERIOR_WALL, confidence=Confidence.ASSUMED,
@@ -628,7 +734,7 @@ def standard_assembly_lines(inputs, built, expand):
         gaps += more
         used["W"] = asm
 
-    if inputs.assembly_for("R") is None:
+    if unread("R", "roof-assembly"):
         asm = _standard_assembly("R", inputs)
         made, more = expand(
             asm, fp.area_m2, ElementClass.ROOF_ASSEMBLY, confidence=Confidence.ASSUMED,
@@ -641,7 +747,7 @@ def standard_assembly_lines(inputs, built, expand):
 
     upper = max(inputs.heights.n_storeys - 1, 0) if inputs.heights else 0
     slab_tags = {t for t, a in inputs.assemblies.items() if a.is_slab_on_grade}
-    if upper > 0 and inputs.assembly_for("F", exclude=slab_tags) is None:
+    if upper > 0 and unread("F", "floor-assembly", exclude=slab_tags):
         asm = _standard_assembly("F", inputs)
         made, more = expand(
             asm, fp.area_m2 * upper, ElementClass.FLOOR_ASSEMBLY, confidence=Confidence.ASSUMED,

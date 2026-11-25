@@ -267,6 +267,27 @@ def parse_thickness(text: str) -> tuple[float | None, str | None]:
     return mm, None
 
 
+# A material description that opens with its own depth, for schedules with no
+# thickness column on that row: BC's F1 '11 1/4" UNFACED FIBERGLASS BATT
+# INSULATION', '150mm RIGID INSULATION'. Only a leading dimension counts, and
+# not one followed by a spacing ('16" O.C.', '@ 400'), which is a pitch.
+_LEADING_DIM_RE = re.compile(
+    r"^\s*(?P<v>\d+(?:\.\d+)?\s*mm|(?:\d+\s+)?\d+(?:/\d+)?\s*(?:\"|\u201d))(?!\s*(?:O\.?\s*C|C/C|@))",
+    re.I,
+)
+
+
+def thickness_in_name(material: str) -> tuple[float | None, str | None]:
+    """(mm, note) from a depth the material description itself opens with."""
+    m = _LEADING_DIM_RE.match(material or "")
+    if not m:
+        return None, None
+    mm, _ = parse_thickness(m.group("v"))
+    if mm is None or not (3.0 <= mm <= 400.0):
+        return None, None
+    return mm, "thickness read from the material description; the schedule's thickness cell is empty"
+
+
 @dataclass
 class Layer:
     """One layer of an assembly, outside in."""
@@ -885,6 +906,8 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                         current.layers[-1].deferred_to = defer_match(text)
                     continue
                 defer = _DEFER_RE.search(text)
+                if mm is None and paired is None and not defer:
+                    mm, note = thickness_in_name(material)
                 current.layers.append(
                     Layer(
                         index=len(current.layers),

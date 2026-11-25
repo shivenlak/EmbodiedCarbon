@@ -262,6 +262,33 @@ def inline_level(text: str) -> tuple[str, float] | None:
     return None if elev is None else (label.upper(), elev)
 
 
+# Glyph-ID shifts to try on a span the global repair declines (see
+# extract/assemblies.repair_schedule_cell; 0x1D is Ontario's).
+_SPAN_SHIFTS = (0x1D, 0x1F, 0x1E, 0x20)
+_LABEL_TEXT_RE = re.compile(r"^[A-Z0-9 /.\-]+$")
+
+
+def repair_level_span(text: str) -> str:
+    """Recover a section span the global text repair refuses.
+
+    Ontario's sections are glyph-ID encoded like its schedules. The global
+    repair decodes "GROUND FLOOR" and "T/O F/F SECOND" but refuses
+    "T/O F/F THIRD" and every "10.500 m/ 34'-5 3/8\"" value, so the ladder
+    stopped at the second floor and a three-storey building was read as two.
+    A shift is accepted only when it yields a level label in capitals or an
+    elevation that parses, never mere word-likeness.
+    """
+    if not any(ord(c) < 0x20 and c not in "\n\r\t" for c in text):
+        return text
+    for by in _SPAN_SHIFTS:
+        cand = "".join(chr(o + by) if 0 < (o := ord(c)) < 0x80 else c for c in text)
+        if _elevation_m(cand) is not None:
+            return cand
+        if _LEVEL_LABEL_RE.search(cand) and _LABEL_TEXT_RE.match(cand.strip()):
+            return cand
+    return text
+
+
 def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
     """Level datums on one section sheet."""
     # Rotation-corrected, because a datum's elevation is printed on the line
@@ -269,7 +296,7 @@ def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
     # "below" is sideways. Ontario's sections are rotated exactly like its
     # schedules, so every label was found and no elevation ever paired with
     # one: the ladder came back empty while the text was perfectly readable.
-    spans = read_spans(page)
+    spans = read_spans(page, repair_level_span)
 
     out: list[Level] = []
     for y, x, text in spans:

@@ -1118,6 +1118,92 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
 PARTITION_LINE_PREFIX = "ln-interior-partition"
 
 
+# Partition wall area per m2 of floor, where the plans' linework cannot be
+# measured: the median over the 38 CMHC reference models (IFC wall area by
+# P-type tag over the Building Performance Report's GFA) in AB, ATL, NOR, ON
+# and QC. BC's models carry their areas in the wrong unit and SK/MB's model
+# few partitions, so neither is used. Per design it runs 0.6 to 4.1.
+PARTITION_M2_PER_FLOOR_M2 = 1.35
+PARTITION_RATIO_RANGE = (0.6, 4.1)
+PARTITION_MIN_SHARE = 0.15
+
+
+def _partition_estimate_m2(inputs: TakeoffInputs, n_storeys: int) -> float | None:
+    fp = inputs.footprint
+    if fp is None or not n_storeys:
+        return None
+    return round(PARTITION_M2_PER_FLOOR_M2 * fp.area_m2 * n_storeys, 1)
+
+
+def _assumed_partition_lines(
+    inputs: TakeoffInputs, height: float, n_storeys: int, measured_m2: float | None
+) -> tuple[list[TakeoffLine], list[Gap]]:
+    """Partitions from the floor area, ASSUMED, when they cannot be measured."""
+    from ecarbon.takeoff.framing import _standard_assembly
+
+    est = _partition_estimate_m2(inputs, n_storeys)
+    if not est:
+        return [], []
+    drawn = inputs.assembly_for("P")
+    asm = drawn or _standard_assembly("P", inputs)
+    floor = inputs.footprint.area_m2 * n_storeys
+    lo, hi = PARTITION_RATIO_RANGE
+    why = (
+        "no partition run could be measured off the plan linework"
+        if measured_m2 is None
+        else f"the plan linework gave only {measured_m2:.0f} m2, under 15% of this, "
+        f"which is a failed reading rather than the building's partitions"
+    )
+    assumptions = [
+        f"Partition area assumed at {PARTITION_M2_PER_FLOOR_M2} m2 per m2 of floor "
+        f"({floor:.0f} m2: the {inputs.footprint.area_m2:.1f} m2 footprint over "
+        f"{n_storeys} storey{'s' if n_storeys > 1 else ''}), because {why}.",
+        f"{PARTITION_M2_PER_FLOOR_M2} is the median of 38 CMHC reference models; a single "
+        f"design runs {lo} to {hi}, so this line can be off by half or by double. "
+        f"Override it with the measured run where you have one.",
+    ]
+    if drawn is None:
+        assumptions.append(
+            "No partition assembly could be read either, so a standard 38 x 89 mm stud "
+            "partition with gypsum both faces is assumed."
+        )
+    def expand(a, extra):
+        return _assembly_lines(
+            a,
+            est,
+            ElementClass.INTERIOR_PARTITION,
+            confidence=Confidence.ASSUMED,
+            area_note=f"Area assumed from the floor area: {est:.0f} m2 of partition wall.",
+            extra_assumptions=assumptions + extra,
+        )
+
+    built, more = expand(asm, [])
+    if not built and drawn is not None:
+        # The drawn assembly states no layer depth that gives a volume.
+        built, more = expand(_standard_assembly("P", inputs), [
+            f"{drawn.tag} gives no layer a volume can be computed for, so a standard "
+            f"38 x 89 mm stud partition with gypsum both faces is assumed."
+        ])
+    if not built:
+        return [], more
+    for line in built:
+        line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
+    more.append(
+        Gap(
+            code=GapCode.GEOMETRY_AMBIGUOUS,
+            severity=GapSeverity.WARNING,
+            message=(
+                f"Interior partitions could not be measured ({why}), so their area is "
+                f"assumed from the floor area at {PARTITION_M2_PER_FLOOR_M2} m2 per m2, the "
+                f"median of the CMHC reference models (one design runs {lo} to {hi}). "
+                f"The carbon total is reported with and without these lines."
+            ),
+            affects=[line.id for line in built],
+        )
+    )
+    return built, more
+
+
 def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], list[Gap]]:
     """Interior partitions, expanded from the assembly over a measured run.
 
@@ -1141,17 +1227,18 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
     try:
         measured = partitions_for(design)
     except Exception:
-        return [], []
-    if not measured.runs:
-        return [], []
+        measured = None
 
     asm = inputs.assembly_for("P")
-    if asm is None:
-        return [], []
-
-    area = measured.area_m2(height)
-    if area is None:
-        return [], []
+    area = measured.area_m2(height) if measured is not None and measured.runs else None
+    estimate = _partition_estimate_m2(inputs, n_storeys)
+    # The linework measure is tuned on Alberta's lineweights and elsewhere can
+    # find nothing, or a few stray metres (ON_Sixplex: 6 m of run in a 450 m2
+    # building). Below 15% of the floor-area estimate it is a failed reading,
+    # not a small building's partitions (QC's ADUs, at about a quarter, are
+    # genuinely sparse: their models carry 0.6 m2 per m2, and are kept).
+    if asm is None or area is None or (estimate and area < PARTITION_MIN_SHARE * estimate):
+        return _assumed_partition_lines(inputs, height, n_storeys, area)
 
     spread = (
         f"{min(measured.depths_mm):.0f}-{max(measured.depths_mm):.0f} mm"
@@ -1358,13 +1445,20 @@ def build_takeoff(
             if marker in gap.message and gap.message.startswith("Foundation:"):
                 # Say exactly what is now estimated and what is still missing.
                 ids = {ln.id for ln in lines} | {ln.id for ln in framed}
-                done = [f"the slab on {line_id}"]
-                if any(ln.id == "ln-strip-footing" for ln in framed):
+                framed_ids = {ln.id for ln in framed}
+                done = []
+                if "ln-slab-on-grade" in framed_ids:
+                    done.append("the slab on ln-slab-on-grade")
+                if "ln-thickened-edge" in framed_ids:
+                    done.append("a thickened slab edge on ln-thickened-edge")
+                if "ln-strip-footing" in framed_ids:
                     done.append("a strip footing on ln-strip-footing")
-                if "ln-foundation-wall" in ids:
+                if "ln-foundation-wall" in framed_ids:
                     done.append("a frost wall on ln-foundation-wall")
-                left = [] if any(i.startswith("ln-strip-footing") for i in ids) else ["footings"]
-                if "ln-foundation-wall" not in ids:
+                done = done or [f"the slab on {line_id}"]
+                edge = "ln-thickened-edge" in ids
+                left = [] if edge or any(i.startswith("ln-strip-footing") for i in ids) else ["footings"]
+                if "ln-foundation-wall" not in ids and not edge:
                     left.append("foundation walls")
                 gap.message = (
                     f"{gap.message.replace(' Concrete quantities cannot be produced.', '').rstrip('.')}. "
@@ -1375,8 +1469,12 @@ def build_takeoff(
                 gap.severity = GapSeverity.WARNING
                 gap.affects = [line_id]
                 break
-            if marker in gap.message and "not counted" in gap.message:
-                what = gap.message.split(" defers to ")[0].split(";")[0]
+            if marker in gap.message and (
+                "not counted" in gap.message or "no volume can be computed" in gap.message
+            ):
+                what = re.split(
+                    r" defers to | states no thickness| gives its thickness as", gap.message
+                )[0].split(";")[0]
                 gap.message = (
                     f"{what}: the drawings give no quantity for it, so it is estimated "
                     f"from a stated standard on {line_id} (assumed) rather than left "
@@ -1385,6 +1483,35 @@ def build_takeoff(
                 )
                 gap.severity = GapSeverity.INFO
                 gap.affects = [line_id]
+
+    # Two "Foundation:" notes rewritten to the same estimate say it twice;
+    # keep the first. And the missing-foundation-plan note no longer holds
+    # that nothing could be produced once a standard stands in.
+    said: set[str] = set()
+    kept = []
+    for gap in gaps:
+        if gap.message.startswith("Foundation:") and "Estimated instead" in gap.message:
+            tail = gap.message.split("Estimated instead", 1)[1]
+            if tail in said:
+                continue
+            said.add(tail)
+        kept.append(gap)
+    gaps[:] = kept
+    assumed_fdn = [
+        ln.id for ln in framed
+        if ln.id in ("ln-slab-on-grade", "ln-strip-footing", "ln-foundation-wall", "ln-thickened-edge")
+    ]
+    if assumed_fdn:
+        for gap in gaps:
+            if gap.message.startswith("No readable foundation plan"):
+                gap.message = gap.message.replace(
+                    ", so those quantities cannot be produced.",
+                    ", so those quantities cannot be read. A standard foundation is "
+                    f"assumed in their place ({', '.join(assumed_fdn)}); replace it "
+                    "with the foundation design.",
+                )
+                gap.severity = GapSeverity.WARNING
+                gap.affects = assumed_fdn
 
     tell("assemblies", f"{len(inputs.assemblies)} assemblies resolved into their layers")
 

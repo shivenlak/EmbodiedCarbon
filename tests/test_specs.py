@@ -471,3 +471,39 @@ def test_the_slab_falls_back_to_architectural_sheets(monkeypatch):
     spec = specs.foundation_spec_for(None)
     assert spec.slab_thickness_mm == 102.0
     assert "A2-201: slab 102mm" in spec.sources
+
+
+class TestRegionalFoundationWording:
+    """Foundation systems the drawings name in words other than 'strip footing'."""
+
+    def test_a_drawn_frost_wall_is_a_strip_footing_with_its_thickness(self):
+        # Atlantic's S001 detail title.
+        spec = parse_foundation_spec({"S001": 'KEY OR DOWEL WALL TO FOOTING GRADE 8" FROST WALL DETAIL SCALE: 1:20'})
+        assert spec.strip_footings
+        assert spec.foundation_wall_mm == 203.0
+
+    def test_a_frost_wall_callout_on_the_plan_counts(self):
+        spec = parse_foundation_spec({"S100": "4\" [100mm] SLAB ON GRADE c/w W.W.F. FROST WALL, SEE DETAIL 70mm"})
+        assert spec.strip_footings
+
+    def test_the_concrete_strength_note_is_not_a_frost_wall(self):
+        # Every Atlantic general-notes block says this; it draws nothing.
+        spec = parse_foundation_spec({"S001": "a. 3500 psi [24 MPa] FOR FOOTINGS AND FROST WALLS. b. 4000 psi"})
+        assert not spec.strip_footings
+        assert spec.system == "unknown"
+
+    def test_strip_and_pad_footings_are_strip_footings(self):
+        # Ontario's S001.
+        spec = parse_foundation_spec({"S001": "TO RE-SIZE ALL STRIP AND PAD FOOTING WIDTHS AND AREAS"})
+        assert spec.system == "strip_footing"
+
+    def test_footings_founded_below_grade_state_the_frost_depth(self):
+        spec = parse_foundation_spec({"S001": "5. FOUND ALL FOOTINGS AT 1200mm BELOW GRADE WHERE EXPOSED TO FROST."})
+        assert spec.frost_depth_mm == 1200.0
+
+    def test_a_thickened_edge_slab_is_its_own_system(self):
+        # SK/MB's S001: no strip footing, no frost wall.
+        spec = parse_foundation_spec({"S001": "THICKENED EDGE SLAB ON GRADE 1. The thickened edge slab-on-grade"})
+        assert spec.system == "thickened_edge_slab"
+        assert not spec.strip_footings
+        assert "foundation system not identified" not in spec.missing
