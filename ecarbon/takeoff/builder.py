@@ -961,8 +961,10 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
     ]
     sheet = next((o.sheet for o in openings if o.sheet), None)
     page = next((o.page for o in openings if o.page is not None), 0)
+    if sheet is None and openings:
+        sheet = f"p{page + 1}"  # an unnumbered sheet, labelled as _prov labels one
 
-    windows = [o for o in openings if o.kind == "window"]
+    windows =[o for o in openings if o.kind == "window"]
     doors = [o for o in openings if o.kind == "door"]
 
     # A US schedule states its own quantities (or numbers each opening), so
@@ -1048,7 +1050,7 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     "mullioned assembly counts once, and a window shown only on an "
                     "elevation is not counted at all."
                 ],
-                provenance=Provenance(page=page, sheet_no=sheet, detail="WINDOW SCHEDULE"),
+                provenance=Provenance(page=page, sheet_no=sheet, detail="SIZE LABELS ON PLAN" if from_labels else "WINDOW SCHEDULE"),
             )
         )
     for o in unsized:
@@ -1126,7 +1128,7 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
                     "exterior, interior and fire-rated doors, which carry different "
                     "carbon; separating them needs a factor per door type."
                 ],
-                provenance=Provenance(page=page, sheet_no=sheet, detail="DOOR SCHEDULE"),
+                provenance=Provenance(page=page, sheet_no=sheet, detail="SIZE LABELS ON PLAN" if from_labels else "DOOR SCHEDULE"),
             )
         )
     return lines, gaps
@@ -1532,6 +1534,28 @@ def build_takeoff(
                 )
                 gap.severity = GapSeverity.WARNING
                 gap.affects = assumed_fdn
+    # A set with no schedule sheet can still state its openings and walls
+    # elsewhere (plan size labels, a wall legend, an energy table); the
+    # missing-sheet note must not say nothing was produced when it was.
+    instead = {
+        "No readable opening schedule": (
+            [ln.id for ln in lines if ln.id in ("ln-windows", "ln-doors")],
+            "the windows and doors are read from the size labels on the plans instead",
+        ),
+        "No readable assembly schedule": (
+            [ln.id for ln in lines if ln.id.startswith("ln-exterior-wall-")],
+            "the exterior wall is read from the drawings' own wall notes instead; "
+            "other assemblies are assumed where noted",
+        ),
+    }
+    for gap in gaps:
+        for start, (ids, how) in instead.items():
+            if gap.message.startswith(start) and ids:
+                gap.message = gap.message.replace(
+                    ", so those quantities cannot be produced.", f"; {how} ({', '.join(ids[:4])})."
+                )
+                gap.severity = GapSeverity.WARNING
+                gap.affects = ids
 
     tell("assemblies", f"{len(inputs.assemblies)} assemblies resolved into their layers")
 
