@@ -17,6 +17,105 @@ Two people build this in parallel, each with their own Claude agent:
 
 ---
 
+## START HERE (25 Nov, evening): UX session findings and the last 36 hours
+
+**This section replaces the "what next" of everything below.** The earlier sections stay as the record.
+
+### What the UX session asked for (25 Nov)
+
+Practitioners liked the UI. They want every number **traceable, explicit and editable**: today "every number seems to come out of thin air", and if a builder is audited they must show where each figure came from. In priority order:
+
+1. **Traceability (number one).** Every quantity and every kgCO₂e figure shows how it was calculated (quantity × conversion × factor), from which sheet and which source (EPD / database, version). It appears in the app *and* in the CSV.
+2. **No unit ambiguity.** Carbon is always **kgCO₂e** (CO₂e as a subscript in the UI); mass is always **kg (mass)**; no number appears without its unit.
+3. **Interactive plan set.** Click a highlighted element on the sheet (e.g. one interior partition) to include or exclude it; totals update.
+4. **Edit everything.** Material, dimension (thickness, area, length) and quantity on every line, with the calculation re-shown live.
+5. **Your own material swaps.** Pick any material, or type your own factor with its source.
+6. **Builder material library.** Upload the builder's list of available materials (and their EPDs) with the plan set; swaps and edits are suggested from it.
+7. **Canada only, for now.** Factors and method are location dependent: make Canada accurate. The US and Mexico are a later extension.
+
+### Scope change (25 Nov): Canada only
+
+This supersedes the North America section below.
+- The US sets go to `split: out_of_scope` in `corpus/sources.yaml`.
+- The US code stays, but it is not demoed or claimed. The US holdout score (taken once, 25 Nov) is a footnote only.
+
+### Where we are (25 Nov)
+
+**Accuracy**
+- CMHC: median A1–A3 / BPR A1–A5 is **0.539** over 44 text-readable sets; **11** of those are within ±30%.
+- By region: ON 0.72, BC 0.64, ATL 0.46, SKMB 0.37.
+- NOR image-only sets read through vision.
+- Alberta gate unchanged (AB_Fourplex_01 45,167 kg).
+
+**Traceability today**
+- The bill's "how this was derived" shows qty → converted × rate = kgCO₂e.
+- The converted quantity, density and thickness used are **not stored**.
+- Waste factors are loaded but **never applied**.
+- The CSV lacks GWP value, declared unit, conversion, density, geography, data type, attribution and override note.
+
+**Editing today**
+- Quantity only.
+- Swaps and open decisions are browser-only: not saved, not exported.
+- The substitution delta uses the unconverted quantity (bug).
+
+**Other gaps**
+- The sheet view is not clickable; partitions are one line with no ID per wall.
+- The upload is PDF only; there is no slot for supporting documents.
+- About 12 places say plain "kg" meaning carbon, and about 15 numbers have no unit.
+
+### New hand-offs (contracts)
+
+- **C7. Per-wall partitions (A → B)**
+  - `partitions_for(design)` returns each `PartitionRun` with `walls: list[Wall(id, rect, length_m, depth_mm)]`; `rects` stays.
+  - IDs are stable across rebuilds: `p{page}-w{n}`, sorted by position.
+  - The walls' lengths sum to `length_m`.
+- **C8. Calculation record (B)**
+  - `ecarbon/carbon/calc_trace.py` `explain(line, carbon_line, factor) -> CalcTrace(steps)`.
+  - Each step carries a label, value, unit and source.
+  - It reproduces `kg_co2e` exactly. The API, CSV and report read it; `models.py` is untouched.
+- **C9. Line edits (B)**
+  - `POST /projects/{id}/lines/{line_id}` takes `{quantity?, material?, factor_id?, thickness_mm?, excluded_walls?, note}`.
+  - Edits are stored per workspace and replayed after every rebuild.
+  - They are labelled `"stated: "` (C3).
+- **C10. Material library (A parses, B stores)**
+  - `ecarbon/intake/materials.py` `read_material_list(path) -> (list[UserMaterial], list[row_error])`, from CSV/XLSX in a template.
+  - Template columns: name, category, declared_unit, gwp_value, gwp_unit, density_kg_m3, source, epd_id, valid_to.
+  - B turns each row into a project factor (`geography="user"`, `data_type="epd"`, source "Builder library: <file>").
+
+### Schedule
+
+| When | Stream A (Divyesh) | Stream B (Shiven) |
+|---|---|---|
+| Wed 25 night | A7 per-wall partitions (C7) | B9 calc trace: backend, CSV, report |
+| Thu 26 am | A8 Canada accuracy: SK/MB, ATL | B9 UI calc popovers; B10 units |
+| Thu 26 pm | A8: BC, ON, NOR; A9 material list (C10) | B11 edit everything; B12 own materials and library; B13 clickable partitions |
+| Thu 26 eve | A10 hardening → **freeze 10 pm** | B14 Canadian factor sources and waste; accuracy refresh → **freeze** |
+| Fri 27 | — | B15 deck, video, deploy, warm, **submit** |
+
+**Cut list,** in order, if behind:
+1. EPD PDF reading by vision (A9 optional)
+2. exterior-wall and footprint toggles (B13 stretch)
+3. provincial factor gap-fill (B14)
+4. hero "how this adds up" breakdown
+5. thickness editing
+
+### Done means (Thu evening, on Fly)
+
+1. Upload a Canadian set plus a material CSV.
+2. Click the total → a line's calculation → its sheet.
+3. Exclude two partitions.
+4. Swap insulation to a library material.
+5. Export the CSV.
+6. In a spreadsheet, the CSV's `calculation` column reproduces the app's total.
+
+**Every PR:**
+- full pytest with the catalogue (gate included)
+- ruff
+- the guard grep
+- the CMHC matrix: 53/53 totals unchanged unless the PR says why
+
+---
+
 ## Scope change (24 Nov): North America only
 
 The team narrowed the finals claim to **North American plan sets** (Canada and

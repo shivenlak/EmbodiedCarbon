@@ -12,6 +12,35 @@ Tick each box in the PR that lands it.
 
 ---
 
+## START HERE (25 Nov evening): A7–A10, Canada read right
+
+The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; traceable and editable. Your part is the reading that makes the Canadian numbers right, plus two small contracts B needs.
+
+- [ ] **A7. Per-wall partitions (C7). Wed night; it blocks B13, so do it first.**
+  - In `geometry/partitions.py`, every `PartitionRun` gets `walls: list[Wall(id, rect, length_m, depth_mm)]`.
+  - IDs are stable `p{page}-w{n}`, sorted by position.
+  - Test: the walls' lengths sum to `length_m` on all Alberta sets.
+  - Quantities don't change, so the gate doesn't either.
+- [ ] **A8. Canada coverage and accuracy. Thu, the main block.**
+  - Order the work by the CMHC gap matrix (ask B for the latest `matrix_*.json`, or use `scripts/run_pipeline.py`), largest gap first.
+  - **SK/MB (0.37):** the assembly schedule format; the floor assemblies.
+  - **ATL (0.46):** footing and frost-wall sections; `intake/locale.py` reads ATL as CA-ON, so fix the region.
+  - **BC (0.64):** the exterior-wall schedule is refused as unreliable; recover it.
+  - **ON (0.72):** glyph-shifted sheets; floor depth.
+  - **NOR:** a vision pass with recorded fixtures, so CI never calls the API.
+  - **Stairs and party walls:** add them as inferred where drawn, or list them explicitly as not counted.
+  - **Target:** median A1–A3 / BPR A1–A5 at least **0.65**, and at least **20 of 44** sets within ±30%. The gate is unchanged.
+- [ ] **A9. Builder material list (C10). Thu.**
+  - `intake/materials.py` `read_material_list(path)` reads CSV/XLSX.
+  - Headers are tolerant (case, spaces, units in brackets).
+  - It returns a row-level error list instead of failing the whole file.
+  - Optional, cut first: read one EPD PDF's declared unit and A1–A3 GWP by vision, with quote-and-locate, labelled inferred.
+- [ ] **A10. Hardening, Thu evening → freeze 10 pm.**
+  - `scripts/run_pipeline.py` plus the CMHC matrix: nothing below `out/baseline.json`.
+  - Hand B the before and after numbers for the deck.
+
+---
+
 ## A1. Corpus, scoring, failure list (Thu 19 – Fri 20)
 
 - [x] `python scripts/fetch_corpus.py --split dev` fetches into `~/ec-data/global/`.

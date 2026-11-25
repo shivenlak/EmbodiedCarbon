@@ -18,7 +18,7 @@
 sets:
   # ---- USA, imperial ---------------------------------------------------------
   - id: us-escondido-adu-1
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -31,7 +31,7 @@ sets:
     licence: "City of Escondido Pre-Approved ADU program: 'available to the public for download and use'. Redistribution not granted."
     local_only: true
   - id: us-escondido-adu-2
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -44,7 +44,7 @@ sets:
     licence: "As us-escondido-adu-1."
     local_only: true
   - id: us-escondido-adu-3
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -57,7 +57,7 @@ sets:
     licence: "As us-escondido-adu-1."
     local_only: true
   - id: us-escondido-adu-4
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -126,7 +126,7 @@ sets:
 
   # ---- Added 19 Nov by the crawler (public program downloads) ---------------
   - id: us-oc-adu-craftsman-558
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -139,7 +139,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-craftsman-748
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -152,7 +152,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-craftsman-800
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -165,7 +165,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-craftsman-1200
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -178,7 +178,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-craftsman-972
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -191,7 +191,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-craftsman-393
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -204,7 +204,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-ranch-558
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -217,7 +217,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-ranch-748
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -230,7 +230,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-ranch-800
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -243,7 +243,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-ranch-1200
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -256,7 +256,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-ranch-972
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -269,7 +269,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-oc-adu-ranch-393
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -282,7 +282,7 @@ sets:
     licence: "Orange County pre-approved ADU program, public download (hold-harmless statement required to build). Redistribution not granted."
     local_only: true
   - id: us-santacruz-adu-2
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -295,7 +295,7 @@ sets:
     licence: "Santa Cruz County pre-designed ADU plans, public download. Redistribution not granted."
     local_only: true
   - id: us-santacruz-adu-3
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -321,7 +321,7 @@ sets:
     licence: "NSW Government Housing Pattern Book; government terms of use apply."
     local_only: true
   - id: us-citrusheights-catalog
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -349,7 +349,7 @@ sets:
 
   # ---- Added 19 Nov via Chrome (sites block scripts) ---------------------------
   - id: us-riverside-adu-1
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -362,7 +362,7 @@ sets:
     licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
     local_only: true
   - id: us-riverside-adu-2
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -375,7 +375,7 @@ sets:
     licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
     local_only: true
   - id: us-riverside-adu-3
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -388,7 +388,7 @@ sets:
     licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
     local_only: true
   - id: us-riverside-adu-4
-    split: dev
+    split: out_of_scope  # was dev; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -401,7 +401,7 @@ sets:
     licence: "Riverside County permit-ready ADU (free standard plans; hold-harmless form to build). Redistribution not granted."
     local_only: true
   - id: us-eldorado-adu
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -414,7 +414,7 @@ sets:
     licence: "El Dorado County pre-reviewed ADU, public download. Redistribution not granted."
     local_only: true
   - id: us-martinez-adu-a
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -427,7 +427,7 @@ sets:
     licence: "City of Martinez pre-approved ADU plans, free download. Redistribution not granted."
     local_only: true
   - id: us-martinez-adu-b
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -440,7 +440,7 @@ sets:
     licence: "City of Martinez pre-approved ADU plans, free download. Redistribution not granted."
     local_only: true
   - id: us-martinez-adu-c
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
@@ -453,7 +453,7 @@ sets:
     licence: "City of Martinez pre-approved ADU plans, free download. Redistribution not granted."
     local_only: true
   - id: us-martinez-adu-d
-    split: holdout
+    split: out_of_scope  # was holdout; Canada only (25 Nov UX session)
     country: US
     region: US-CA
     units: imperial
