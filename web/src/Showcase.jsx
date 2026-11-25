@@ -33,6 +33,8 @@ import {
   AppFooter,
 } from "./App.jsx";
 import { canHelp, modeFor } from "./HelpRead.jsx";
+import { CO2e, Carbon, CalcButton } from "./calc.jsx";
+import LineEditor from "./LineEditor.jsx";
 import { useUnits } from "./units.js";
 import ACCURACY from "./accuracy.json";
 import "./showcase.css";
@@ -559,7 +561,7 @@ export default function Showcase({
     return Math.max(0, Math.min(1, (v - coolI) / (hotI - coolI || hotI || 1)));
   };
   const heatFmt = (v) =>
-    heatMode === "share" ? `${int(v)} kg` : `${dec(U.perArea(v), U.imperial ? 2 : 1)} kg/${U.areaLabel}`;
+    heatMode === "share" ? `${int(v)} kgCO₂e` : `${dec(U.perArea(v), U.imperial ? 2 : 1)} kgCO₂e/${U.areaLabel}`;
 
   const counts = useMemo(() => {
     const c = { measured: 0, inferred: 0, assumed: 0 };
@@ -743,21 +745,23 @@ export default function Showcase({
         <div className="sc-eyebrow">Embodied carbon · A1–A3, product stage</div>
         <div className="sc-figure">
           {total == null ? "—" : grouped(int(shownTotal))}
-          <span>kgCO₂e</span>
+          <span>
+            <CO2e />
+          </span>
         </div>
         <div className="sc-sub">
           <span>
-            <b>{dec(U.perArea(carbon?.intensity_kg_co2e_per_m2), U.imperial ? 2 : 1)}</b> kg/{U.areaLabel} over{" "}
+            <b>{dec(U.perArea(carbon?.intensity_kg_co2e_per_m2), U.imperial ? 2 : 1)}</b> <CO2e per={U.areaLabel} /> over{" "}
             {p.gfa_m2 ? int(U.v(p.gfa_m2, "m2")) : "—"} {U.areaLabel}
           </span>
           {partitions > 0 && (
             <span>
-              <b>{int(shownLean)}</b> without the inferred partitions
+              <b>{int(shownLean)}</b> <CO2e /> without the inferred partitions
             </span>
           )}
           {p.units > 1 && (
             <span>
-              <b>{int(total / p.units)}</b> per home, over {p.units}
+              <b>{int(total / p.units)}</b> <CO2e /> per home, over {p.units}
             </span>
           )}
         </div>
@@ -773,7 +777,7 @@ export default function Showcase({
                     onMouseEnter={() => setRestsHover(k)}
                     onFocus={() => setRestsHover(k)}
                     onBlur={() => setRestsHover(null)}
-                    aria-label={`${k}: ${int(restsOn.kg[k])} kg`}
+                    aria-label={`${k}: ${int(restsOn.kg[k])} kgCO₂e`}
                   />
                 ) : null,
               )}
@@ -792,12 +796,12 @@ export default function Showcase({
               {restsHover && restsHover !== "open" ? (
                 <span>
                   <b className={`is-${restsHover}`}>{restsHover}</b>{" "}
-                  {restsOn.top[restsHover].map((t) => `${t.name} ${int(t.kg)}`).join(" · ")}
+                  {restsOn.top[restsHover].map((t) => `${t.name} ${int(t.kg)} kgCO₂e`).join(" · ")}
                 </span>
               ) : restsHover === "open" ? (
                 <span>
                   <b>not counted</b> {restsOn.open[2]} placeholder{restsOn.open[2] > 1 ? "s" : ""} the drawings leave open,{" "}
-                  {int(restsOn.open[0])}–{int(restsOn.open[1])} kg, not in the total
+                  {int(restsOn.open[0])}–{int(restsOn.open[1])} <CO2e />, not in the total
                 </span>
               ) : (
                 <>
@@ -808,7 +812,7 @@ export default function Showcase({
                   ))}
                   {restsOn.open[2] > 0 && (
                     <span>
-                      <b>+ not counted</b> {int(restsOn.open[0])}–{int(restsOn.open[1])}
+                      <b>+ not counted</b> {int(restsOn.open[0])}–{int(restsOn.open[1])} <CO2e />
                     </span>
                   )}
                 </>
@@ -850,10 +854,10 @@ export default function Showcase({
         )}
         {scenarioActive && (
           <button className="sc-spec-chip" onClick={() => goTo(4)}>
-            Your spec <b>{int(shownSpec)}</b>
+            Your spec <b>{int(shownSpec)}</b> <CO2e />
             <em className={scenarioTotal > total ? "is-up" : ""}>
               {scenarioTotal <= total ? "−" : "+"}
-              {int(Math.abs(scenarioTotal - total))}
+              {int(Math.abs(scenarioTotal - total))} <CO2e />
             </em>
           </button>
         )}
@@ -1048,8 +1052,10 @@ export default function Showcase({
                       <span className="sc-bar-track">
                         <s style={{ width: `${(kg / topKg) * 100}%`, background: swatch || undefined }} />
                       </span>
-                      <b>{int(kg)}</b>
-                      <em>{dens != null ? `${dec(U.perArea(dens), U.imperial ? 2 : 1)}/${U.areaLabel}` : "not drawn"}</em>
+                      <b>
+                        {int(kg)} <CO2e />
+                      </b>
+                      <em>{dens != null ? `${dec(U.perArea(dens), U.imperial ? 2 : 1)} kgCO₂e/${U.areaLabel}` : "not drawn"}</em>
                     </li>
                   );
                 })}
@@ -1091,11 +1097,15 @@ export default function Showcase({
               <div className="sc-spec">
                 <div>
                   <span>Counted</span>
-                  <b>{int(total)}</b>
+                  <b>
+                    {int(total)} <CO2e />
+                  </b>
                 </div>
                 <div className="sc-spec-you">
                   <span>Your spec</span>
-                  <b>{int(shownSpec)}</b>
+                  <b>
+                    {int(shownSpec)} <CO2e />
+                  </b>
                 </div>
                 {scenarioActive && (
                   <button className="sc-reset" onClick={() => onScenario(EMPTY_SCENARIO)}>
@@ -1118,7 +1128,7 @@ export default function Showcase({
                           aria-pressed={on}
                           onClick={() => pick(c, o)}
                         >
-                          {o.name} <b>+{int(o.kg_co2e)}</b>
+                          {o.name} <b>+{int(o.kg_co2e)} kgCO₂e</b>
                         </button>
                       );
                     })}
@@ -1135,7 +1145,7 @@ export default function Showcase({
                           <b>{nameOf(s.line_id)}</b>
                           {s.to_material}
                         </span>
-                        <em>{int(s.delta_kg_co2e)}</em>
+                        <em>{int(s.delta_kg_co2e)} kgCO₂e</em>
                       </button>
                     </li>
                   );
@@ -1275,13 +1285,15 @@ export default function Showcase({
                         </span>
                         <span className="bd-kg">
                           <b>{int(g.kg)}</b>
-                          <em>kg</em>
+                          <em>
+                            <CO2e />
+                          </em>
                         </span>
                         <span className="bd-bar" aria-hidden="true">
                           <s style={{ width: `${(g.kg / (rows[0]?.kg || 1)) * 100}%` }} />
                         </span>
                         <span className="bd-run">
-                          {dec(share, 1)}% · running total <b>{isIn ? int(run) : "…"}</b>
+                          {dec(share, 1)}% · running total <b>{isIn ? int(run) : "…"}</b> kgCO₂e
                         </span>
                       </span>
                     </button>
@@ -1439,6 +1451,7 @@ function slotHeight(n) {
 function PartLine({ line, carbonLine, onOverride, onTrace }) {
   const U = useUnits();
   const [draft, setDraft] = useState(null);
+  const [editing, setEditing] = useState(false);
   const edited = line.user_override != null;
   const qty = U.v(edited ? line.user_override : line.quantity, line.unit);
   const unit = U.label(line.unit);
@@ -1503,10 +1516,14 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
             <span className="bd-op">×</span>
             <span className="bd-factor">
               {dec(U.perUnit(f.gwp_value, f.declared_unit), U.perUnit(f.gwp_value, f.declared_unit) < 10 ? 2 : 0)}
-              <em>kg/{U.label(f.declared_unit)}</em>
+              <em>
+                <CO2e per={U.label(f.declared_unit)} />
+              </em>
             </span>
             <span className="bd-op">=</span>
-            <b className="bd-result">{int(carbonLine.kg_co2e)}</b>
+            <b className="bd-result">
+              <Carbon value={carbonLine.kg_co2e} lineId={line.id} />
+            </b>
           </>
         ) : (
           <span className="bd-nofactor">
@@ -1519,12 +1536,16 @@ function PartLine({ line, carbonLine, onOverride, onTrace }) {
         {converted && <span className="bd-src">{prose(carbonLine.conversion_note)}</span>}
         {edited && (
           <span className="bd-was">
-            we read {dec(line.quantity, 2)} ·{" "}
+            we read {dec(U.v(line.quantity, line.unit), 2)} {U.label(line.unit)} ·{" "}
             <button className="sc-link" onClick={() => onOverride(line.id, null)}>
               undo
             </button>
           </span>
         )}
+        <button className="sc-link bd-edit" onClick={() => setEditing(true)} title="Change the material, thickness or quantity">
+          Edit
+        </button>
+        {editing && <LineEditor line={line} carbonLine={carbonLine} onClose={() => setEditing(false)} />}
         <button className="sc-tag bd-sheet" onClick={() => onTrace(line.id, line.provenance)} title="Open the sheet this came from">
           {line.provenance?.sheet_no || "sheet"}
         </button>

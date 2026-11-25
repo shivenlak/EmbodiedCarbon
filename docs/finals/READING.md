@@ -30,7 +30,7 @@ The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; tra
   - **NOR:** a vision pass with recorded fixtures, so CI never calls the API.
   - **Stairs and party walls:** add them as inferred where drawn, or list them explicitly as not counted.
   - **Target:** median A1–A3 / BPR A1–A5 at least **0.65**, and at least **20 of 44** sets within ±30%. The gate is unchanged.
-- [ ] **A9. Builder material list (C10). Thu.**
+- [ ] **A9. Builder material list (C10). Thu.** *Update 25 Nov: B landed the CSV/XLSX parser (`carbon/user_factors.py`), so skip that part; only the optional EPD-PDF reading below remains, and only if A8 is done.*
   - `intake/materials.py` `read_material_list(path)` reads CSV/XLSX.
   - Headers are tolerant (case, spaces, units in brackets).
   - It returns a row-level error list instead of failing the whole file.

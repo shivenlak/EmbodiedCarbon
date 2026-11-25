@@ -1672,3 +1672,9 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 .help-strip img { display: block; height: 52px; width: auto; min-width: 40px; background: #fff; border-radius: 2px; }
 @media (max-width: 640px) { .help-strip { padding-left: var(--s3); padding-right: var(--s3); } }
 .dropzone .upload-files { font-family: var(--mono); font-size: 11px; color: var(--ink-2); word-break: break-word; }
+
+/* The builder's materials list beside the plan set (UX session, 25 Nov). */
+.upload-library { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; flex-wrap: wrap; }
+.upload-library-pick { position: relative; flex: 1 1 260px; display: grid; gap: 2px; padding: 10px 14px; border: 1px dashed var(--rule-strong, rgb(255 255 255 / 0.2)); border-radius: 12px; cursor: pointer; }
+.upload-library-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-library-pick b { font-weight: 500; font-size: 13.5px; }

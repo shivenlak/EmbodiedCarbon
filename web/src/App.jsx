@@ -21,6 +21,7 @@ import {
   useState,
 } from "react";
 import { canHelp, modeFor } from "./HelpRead.jsx";
+import { CalcContext, CalcButton, Carbon, CO2e } from "./calc.jsx";
 import { UnitsContext, defaultSystem, saveSystem, savedSystem, useUnits } from "./units.js";
 
 // Same origin in a build, because the service serves this bundle itself.
@@ -345,7 +346,7 @@ function TitleBlock({ takeoff, carbon, coverage }) {
         </span>
       </>,
     ],
-    ["Factor sources", carbon?.factor_sources?.join(", ") || "Kootenay · BEAM · EC3"],
+    ["Factor sources", factorSources(carbon).join(", ") || "none applied yet"],
   ];
 
   return (
@@ -360,7 +361,7 @@ function TitleBlock({ takeoff, carbon, coverage }) {
   );
 }
 
-const UNIT_LABEL = { m3: "m³", m2: "m²", m: "m", each: "each", kg: "kg" };
+const UNIT_LABEL = { m3: "m³", m2: "m²", m: "m", each: "each", kg: "kg (mass)" };
 
 // The pipeline writes "m2" in prose; the interface shows m² everywhere else.
 const prose = (t) => String(t ?? "").replace(/\bm([23])\b/g, (_, d) => (d === "2" ? "m²" : "m³"));
@@ -801,7 +802,7 @@ function BillOfQuantities({
                 <td className="r">
                   {result && isCounted(result) ? (
                     <>
-                      <span className="carbon">{int(result.kg_co2e)}</span>
+                      <Carbon className="carbon" value={result.kg_co2e} lineId={line.id} />
                       {result.factor && (
                         // The factor beside the figure it made: rate, declared
                         // unit, source, geography and module scope, so a carbon
@@ -821,8 +822,8 @@ function BillOfQuantities({
                         >
                           {inFactorUnit(result) != null &&
                             `${dec(U.v(inFactorUnit(result), result.factor.declared_unit), 1)} ${U.label(result.factor.declared_unit)} `}
-                          × {rate(U.perUnit(result.factor.gwp_value, result.factor.declared_unit))} kg/
-                          {U.label(result.factor.declared_unit)}
+                          × {rate(U.perUnit(result.factor.gwp_value, result.factor.declared_unit))}{" "}
+                          <CO2e per={U.label(result.factor.declared_unit)} />
                           <em>
                             {shortSource(result.factor.source)} ·{" "}
                             {result.factor.geography} ·{" "}
@@ -894,7 +895,7 @@ function OpenDecisions({ choices, scenario, onScenario }) {
                 </span>
               </div>
               <div className="decision-range">
-                {int(c.low_kg_co2e)}–{int(c.high_kg_co2e)}
+                {int(c.low_kg_co2e)}–{int(c.high_kg_co2e)} <CO2e />
               </div>
             </div>
             <div className="decision-says">
@@ -913,7 +914,9 @@ function OpenDecisions({ choices, scenario, onScenario }) {
                     <i className="pick-dot" />
                     {o.name}
                   </span>
-                  <b>+{int(o.kg_co2e)}</b>
+                  <b>
+                    +{int(o.kg_co2e)} <CO2e />
+                  </b>
                 </button>
               ))}
             </div>
@@ -979,7 +982,7 @@ function Substitutions({ swaps, takeoff, scenario, onScenario }) {
               )}
             </div>
             <div className="swap-delta">
-              {int(s.delta_kg_co2e)}
+              {int(s.delta_kg_co2e)} <CO2e />
               <span className="swap-pct">{dec(s.pct_of_total, 1)}% of total</span>
             </div>
             <span className="swap-check">{on ? "Applied" : "Apply"}</span>
@@ -1025,33 +1028,36 @@ function ScenarioBar({ carbon, takeoff, swaps, decisions, scenario, onScenario }
       <div className="scn-grid">
         <div className="scn-cell">
           <span className="scn-label">Counted from the drawings</span>
-          <b className="scn-fig">{int(base)}</b>
-          <em>kgCO₂e · A1–A3</em>
+          <b className="scn-fig">
+            {int(base)} <CO2e />
+          </b>
+          <em>A1–A3</em>
         </div>
         <div className="scn-cell">
           <span className="scn-label">Swaps applied · {applied.length}</span>
           <b className={`scn-fig${swapKg < 0 ? " is-down" : ""}`}>
-            {swapKg ? int(swapKg) : "0"}
+            {swapKg ? int(swapKg) : "0"} <CO2e />
           </b>
           <em>{base ? `${dec((swapKg / base) * 100, 1)}%` : ""}</em>
         </div>
         <div className="scn-cell">
           <span className="scn-label">Decisions made · {pickedNames.length}</span>
           <b className={`scn-fig${pickKg > 0 ? " is-up" : ""}`}>
-            {pickKg ? `+${int(pickKg)}` : "0"}
+            {pickKg ? `+${int(pickKg)}` : "0"} <CO2e />
           </b>
           <em>
             {stillOpen > 0
-              ? `${stillOpen} still open: ${int(openLow)}–${int(openHigh)} not counted`
+              ? `${stillOpen} still open: ${int(openLow)}–${int(openHigh)} kgCO₂e not counted`
               : "every open decision made"}
           </em>
         </div>
         <div className="scn-cell scn-total">
           <span className="scn-label">Your specification</span>
-          <b className="scn-fig">{int(shown)}</b>
+          <b className="scn-fig">
+            {int(shown)} <CO2e />
+          </b>
           <em>
-            kgCO₂e
-            {gfa ? ` · ${dec(U.perArea(total / gfa), U.imperial ? 2 : 1)} kg/${U.areaLabel}` : ""}
+            {gfa ? ` · ${dec(U.perArea(total / gfa), U.imperial ? 2 : 1)} kgCO₂e/${U.areaLabel}` : ""}
           </em>
         </div>
       </div>
@@ -1697,6 +1703,9 @@ function Upload({ onDone, onClose }) {
   // details): how builders actually deliver drawings.
   const [files, setFiles] = useState([]);
   const file = files[0] || null;
+  // The builder's own materials list, read into the project once it exists,
+  // so swaps and edits are offered from what they can actually buy.
+  const [library, setLibrary] = useState(null);
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stages, setStages] = useState(null);
@@ -1762,6 +1771,15 @@ function Upload({ onDone, onClose }) {
         if (job.done) {
           // A beat on the finished list, so the last tick is seen.
           await new Promise((r2) => setTimeout(r2, STILL ? 0 : 700));
+          if (library) {
+            const fd = new FormData();
+            fd.append("file", library);
+            await fetch(`${API}/projects/${job.result.id}/materials/upload`, {
+              method: "POST",
+              headers: headers(),
+              body: fd,
+            }).catch(() => null);
+          }
           onDone(job.result.id);
           return;
         }
@@ -1839,6 +1857,21 @@ function Upload({ onDone, onClose }) {
               </>
             )}
           </label>
+
+          <div className="upload-library">
+            <label className="upload-library-pick">
+              <input
+                type="file"
+                accept=".csv,.xlsx"
+                onChange={(e) => setLibrary(e.target.files?.[0] || null)}
+              />
+              <span className="eyebrow">Your materials (optional)</span>
+              <b>{library ? library.name : "Add the materials you can buy, CSV or Excel"}</b>
+            </label>
+            <a className="sc-link" href={authedUrl("/materials/template.csv")} download>
+              Template
+            </a>
+          </div>
 
           {/* Asked for rather than inferred. Floor area in particular decides
               the intensity per square metre, and guessing it from a plan whose
@@ -1967,11 +2000,20 @@ const pageFromHash = () => {
 // Four short pages rather than one long one: the model is what a reader came
 // to see, and the bill, the gaps and the options each get a page of their own
 // instead of stacking into a report. The full report is one export away.
-function AppFooter() {
+// The sources behind this project's numbers, read off the factors actually
+// used, rather than a fixed list that could name a source nothing came from.
+function factorSources(carbon) {
+  const seen = new Set();
+  for (const l of carbon?.lines || []) if (l.factor?.source) seen.add(shortSource(l.factor.source));
+  return [...seen];
+}
+
+function AppFooter({ carbon }) {
+  const sources = factorSources(carbon);
   return (
     <footer className="app-footer">
       <span>A1–A3 product stage only</span>
-      <span>Factors: Kootenay · BEAM · EC3</span>
+      <span>Factors: {sources.length ? sources.join(" · ") : "none applied yet"}</span>
       <span>
         Design data adapted from the CMHC Housing Design Catalogue; this is not an
         endorsement by CMHC
@@ -1988,6 +2030,9 @@ export default function App() {
   const [projectId, setProjectId] = useState(null);
   const [takeoff, setTakeoff] = useState(null);
   const [carbon, setCarbon] = useState(null);
+  // Every line's calculation, step by step (/calc), refetched whenever the
+  // carbon changes, so a number and its explanation can never disagree.
+  const [calc, setCalc] = useState(null);
   const [swaps, setSwaps] = useState([]);
   const [decisions, setDecisions] = useState([]);
   const [trace, setTrace] = useState(null);
@@ -2141,6 +2186,19 @@ export default function App() {
       setMassing(null);
     }
   }, [projectId]);
+  useEffect(() => {
+    if (!projectId || !carbon) {
+      setCalc(null);
+      return undefined;
+    }
+    let live = true;
+    getJSON(`/projects/${projectId}/calc`)
+      .then((c) => live && setCalc(c))
+      .catch(() => live && setCalc(null));
+    return () => {
+      live = false;
+    };
+  }, [projectId, carbon]);
   // Price with another region's factors: carbon changes, quantities do not.
   const chooseRegion = useCallback(
     async (geography) => {
@@ -2163,6 +2221,32 @@ export default function App() {
     [projectId],
   );
 
+  // After any edit (material, thickness, quantity, your own material): the
+  // carbon, the takeoff and the swap list change together.
+  const afterEdit = useCallback(
+    async (next) => {
+      if (!projectId) return;
+      setCarbon(next || (await getJSON(`/projects/${projectId}/carbon`)));
+      setTakeoff(await getJSON(`/projects/${projectId}/takeoff`));
+      try {
+        setSwaps(await getJSON(`/projects/${projectId}/substitutions`));
+      } catch {
+        /* the swap list is optional */
+      }
+    },
+    [projectId],
+  );
+  const calcCtx = useMemo(
+    () => ({
+      calc,
+      onTrace: (lineId) => showTraceRef.current?.(lineId),
+      projectId,
+      api: { get: getJSON, post: postJSON, url: authedUrl },
+      afterEdit,
+    }),
+    [calc, projectId, afterEdit],
+  );
+  const showTraceRef = useRef(null);
   const showTrace = useCallback(
     async (lineId, provenance) => {
       if (!projectId || !lineId) return;
@@ -2186,6 +2270,7 @@ export default function App() {
     },
     [projectId],
   );
+  showTraceRef.current = showTrace;
 
   // `?trace=<line id>` opens that line's trace on load. It exists so a demo
   // or a bug report can link straight to the moment that matters instead of
@@ -2329,6 +2414,7 @@ export default function App() {
 
   return (
     <UnitsContext.Provider value={units}>
+     <CalcContext.Provider value={calcCtx}>
       <Suspense fallback={<div className="sc-loading">Loading the model…</div>}>
         <Showcase
           projects={projects}
@@ -2357,6 +2443,7 @@ export default function App() {
         />
       </Suspense>
       {dialogs}
+     </CalcContext.Provider>
     </UnitsContext.Provider>
   );
 }

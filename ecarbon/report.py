@@ -44,26 +44,84 @@ CSV_COLUMNS = [
     "basis_note",
     "assumptions",
     "user_override",
-    "kg_co2e",
+    "override_note",
+    "effective_quantity",
+    "converted_quantity",
+    "converted_unit",
+    "density_kg_m3",
+    "thickness_m",
+    "waste_factor",
+    "gwp_value",
+    "gwp_unit",
+    "factor_declared_unit",
+    "kgCO2e",
+    "calculation",
     "factor_id",
     "factor_name",
     "factor_source",
+    "factor_source_id",
+    "factor_geography",
+    "factor_data_type",
+    "factor_valid_to",
+    "factor_uncertainty_pct",
+    "factor_attribution",
+    "factor_chosen_by",
     "factor_modules",
     "counted",
     "missing_reason",
 ]
 
 
-def takeoff_csv(takeoff: TakeoffResult, carbon: CarbonResult | None = None) -> str:
-    """The bill of quantities as CSV, with provenance and carbon per line."""
+def _version() -> str:
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2
+        ).stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def takeoff_csv(
+    takeoff: TakeoffResult,
+    carbon: CarbonResult | None = None,
+    geography: str | None = None,
+    header: bool = False,
+    chosen: dict | None = None,
+) -> str:
+    """The bill of quantities as CSV, with provenance and the calculation per line.
+
+    An auditor recomputes any row from its own columns: effective quantity,
+    conversion (density or thickness), waste, factor, kgCO2e, and the one-line
+    `calculation`. Carbon is always kgCO2e; mass is always "kg (mass)".
+    """
+    from ecarbon.carbon.calc_trace import WASTE_FACTOR, explain
+
     by_line = {c.line_id: c for c in (carbon.lines if carbon else [])}
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
+    if header and carbon is not None:
+        partitions = sum(
+            c.kg_co2e or 0 for c in carbon.lines if c.line_id.startswith(PARTITION_PREFIX)
+        )
+        for k, v in (
+            ("# project", _name(takeoff.project.name)),
+            ("# scope", f"embodied carbon, modules {'+'.join(carbon.modules)} (product stage)"),
+            ("# factor region", geography or "Canada (default)"),
+            ("# total kgCO2e", f"{carbon.total_kg_co2e:.2f}"),
+            ("# total kgCO2e without interior partitions", f"{carbon.total_kg_co2e - partitions:.2f}"),
+            ("# units", "carbon in kgCO2e; mass in kg (mass); quantities in the unit column"),
+            ("# generated", f"{date.today().isoformat()} by ecarbon {_version()}"),
+        ):
+            writer.writerow([k, v])
+        writer.writerow([])
     writer.writerow(CSV_COLUMNS)
 
     for line in takeoff.lines:
         c = by_line.get(line.id)
         factor = c.factor if c else None
+        tr = explain(line, c, (chosen or {}).get(line.id))
         writer.writerow(
             [
                 line.id,
@@ -81,10 +139,28 @@ def takeoff_csv(takeoff: TakeoffResult, carbon: CarbonResult | None = None) -> s
                 line.basis.note or "",
                 " | ".join(line.assumptions),
                 "" if line.user_override is None else f"{line.user_override:.4f}",
+                line.override_note or "",
+                f"{line.effective_quantity:.4f}",
+                "" if tr.converted_quantity is None else f"{tr.converted_quantity:.4f}",
+                tr.converted_unit,
+                "" if tr.density_kg_m3 is None else f"{tr.density_kg_m3:g}",
+                "" if tr.thickness_m is None else f"{tr.thickness_m:.4g}",
+                f"{WASTE_FACTOR:g}" if factor else "",
+                f"{factor.gwp_value:g}" if factor else "",
+                f"kgCO2e per {factor.declared_unit}" if factor else "",
+                factor.declared_unit if factor else "",
                 "" if not c or c.kg_co2e is None else f"{c.kg_co2e:.2f}",
+                tr.formula,
                 factor.factor_id if factor else "",
                 factor.name if factor else "",
                 factor.source if factor else "",
+                (factor.source_id or "") if factor else "",
+                (factor.geography or "") if factor else "",
+                getattr(factor.data_type, "value", factor.data_type) if factor else "",
+                str(factor.valid_to or "") if factor else "",
+                "" if not factor or factor.uncertainty_pct is None else f"{factor.uncertainty_pct:g}",
+                (factor.attribution or "") if factor else "",
+                ("you" if (chosen or {}).get(line.id) else "found from the drawings") if factor else "",
                 "+".join(factor.modules) if factor else "",
                 "yes" if c and c.kg_co2e is not None else "no",
                 (c.missing_reason if c and c.missing_reason else ""),

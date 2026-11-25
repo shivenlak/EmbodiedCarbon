@@ -36,7 +36,8 @@ RUN pip install --no-cache-dir \
       "pydantic>=2.7" \
       "fastapi>=0.115" \
       "uvicorn[standard]>=0.30" \
-      "python-multipart>=0.0.9"
+      "python-multipart>=0.0.9" \
+      "openpyxl>=3.1"
 
 COPY ecarbon/ ./ecarbon/
 COPY --from=web /web/dist ./web/dist

@@ -26,7 +26,7 @@ Tick each box in the PR that lands it.
 
 See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the schedule.
 
-- [ ] **B9. Calculation trace (C8). The top priority; Wed night → Thu am.**
+- [x] **B9. Calculation trace (C8). The top priority; Wed night → Thu am.** Landed 25 Nov: `carbon/calc_trace.py`, `GET /calc`, CSV columns and header, popover on every line's kgCO₂e. Report audit table still to do.
   - **`carbon/calc_trace.py`.** Steps per line:
     1. the quantity read (basis, sheet)
     2. the effective quantity (override and note)
@@ -45,11 +45,11 @@ See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the sc
   - Replace about 12 ambiguous "kg" and about 15 unit-less numbers.
   - The same wording in the CSV and report.
   - The footer names the factor set actually used.
-- [ ] **B11. Edit everything (C9). Thu.**
+- [x] **B11. Edit everything (C9). Thu.** Landed 25 Nov: material (any factor), thickness and quantity per line; line editor drawer with live calculation. Decisions not yet saved server-side.
   - Material, factor, thickness and quantity edits per line, replayed after rebuilds.
   - Swaps and decisions are saved server-side (`POST /swaps`, `POST /decisions`) and exported.
   - A line editor drawer, with the calculation re-rendered live; undo and "reset all".
-- [ ] **B12. Your own materials. Thu.**
+- [x] **B12. Your own materials. Thu.** Landed 25 Nov: add-a-material form, library CSV/XLSX upload (editor and upload dialog), template, library swaps ranked first.
   - An "Add a material" form: name, declared unit, GWP, density, source / EPD, valid-to.
   - A library CSV/XLSX upload, both in the upload dialog and in "Your spec", with a template download.
   - Suggestions are ranked from the library first.
