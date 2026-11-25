@@ -1405,9 +1405,35 @@ class Massing(BaseModel):
     # not, so a viewer drawing one must say it is illustrative. None when the
     # sections carry no roof datum, or one that does not read as a pitch.
     roof_rise_m: float | None = None
+    # What stands under the slab, as the bill has it: a grade beam, a
+    # foundation wall on its footing, or a thickened slab edge. Depth below
+    # the slab and a label; None draws nothing rather than a made-up footing.
+    foundation_depth_m: float | None = None
+    foundation_label: str | None = None
     walls: list[MassingWall] = Field(default_factory=list)
     carbon_by_class: dict[str, float] = Field(default_factory=dict)
     note: str
+
+
+def _foundation(lines) -> tuple[float | None, str | None]:
+    """(depth below the slab, label) of the perimeter foundation in the bill."""
+    import re as _re
+
+    ids = {ln.id: ln for ln in lines}
+    if any(i.startswith("ln-grade-beam") for i in ids):
+        return 1.2, "Grade beam on the perimeter, below grade"
+    wall = ids.get("ln-foundation-wall")
+    if wall is not None:
+        m = _re.search(r"x ([\d.]+) m over", wall.description or "")
+        h = float(m.group(1)) if m else 1.4
+        foot = 0.2 if any(i.startswith("ln-strip-footing") for i in ids) else 0.0
+        tag = " (assumed)" if wall.confidence.value == "assumed" else ""
+        return round(h + foot, 2), f"Foundation wall on a strip footing{tag}, {h + foot:.2f} m deep"
+    if "ln-thickened-edge" in ids:
+        return 0.3, "Thickened slab edge (assumed)"
+    if any(i.startswith("ln-strip-footing") for i in ids):
+        return 0.2, "Strip footing"
+    return None, None
 
 
 def _roof_rise(levels, heights: list[float]) -> float | None:
@@ -1517,6 +1543,8 @@ def get_massing(project_id: str) -> Massing | None:
         depth_m=round(footprint.depth_m, 2),
         storey_heights_m=[round(h, 3) for h in heights],
         roof_rise_m=_roof_rise(inputs.heights, heights),
+        foundation_depth_m=_foundation(p.takeoff.lines)[0],
+        foundation_label=_foundation(p.takeoff.lines)[1],
         walls=walls,
         carbon_by_class=by_class,
         note=(

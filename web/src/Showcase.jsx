@@ -570,7 +570,9 @@ export default function Showcase({
   const modelLines = MODEL_ORDER.map((cls) =>
     cls === "interior_partition"
       ? lines.find((l) => l.id.startsWith(PARTITION_PREFIX))
-      : lines.find((l) => l.id === LINE_FOR[cls]),
+      : cls === "footing"
+        ? lines.find((l) => ["ln-grade-beam", "ln-foundation-wall", "ln-thickened-edge", "ln-strip-footing"].includes(l.id))
+        : lines.find((l) => l.id === LINE_FOR[cls]),
   ).filter(Boolean);
 
   const sheets = takeoff?.sheets || [];
@@ -1610,7 +1612,14 @@ function AccuracyPanel() {
         <li>Estimated, not read: floor joists and roof trusses (a stated standard over measured spans, marked assumed)</li>
       </ul>
       {a.blind_holdout ? (
-        <p className="sc-acc-note">Blind test: {JSON.stringify(a.blind_holdout)}</p>
+        <p className="sc-acc-note">
+          Blind test, {a.blind_holdout.sets} US plan sets the tool was never tuned on, scored{" "}
+          {a.blind_holdout.scored}: a full bill on {a.blind_holdout.full_bill}, with the footprint
+          {" "}within {a.blind_holdout.footprint_err_median_pct}% (median); storeys right on{" "}
+          {a.blind_holdout.storeys_right}, window and door counts exact on {a.blind_holdout.openings_exact}.
+          {" "}{a.blind_holdout.nothing_read} are scanned images that read nothing without the AI
+          fallback; the rest stop at a floor plan the tool could not find.
+        </p>
       ) : (
         <p className="sc-acc-note">
           Blind test on plan sets the tool was never tuned on: scored after the feature freeze.

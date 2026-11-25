@@ -763,6 +763,39 @@ def _standard_assembly(letter: str, inputs):
     )
 
 
+def _framing_only(lines) -> bool:
+    """Every line is the stud framing: a US wall legend gives 2x6 studs and
+    names nothing else, so the faces and the cavity fill went uncounted."""
+    return bool(lines) and all(
+        ln.material == LUMBER or "framing" in (ln.material or "").lower() for ln in lines
+    )
+
+
+def missing_layer_lines(letter, drawn_lines, inputs, expand, area_m2, element_class,
+                        confidence, area_note, extra_assumptions=()):
+    """The standard build-up's other layers, ASSUMED, where the drawn assembly
+    gives only its framing; the drawn framing itself is kept, not doubled."""
+    if not _framing_only(drawn_lines):
+        return [], []
+    asm = _standard_assembly(letter, inputs)
+    made, more = expand(
+        asm, area_m2, element_class, confidence=Confidence.ASSUMED,
+        area_note=area_note,
+        extra_assumptions=[
+            *extra_assumptions,
+            f"The drawn assembly states only its framing, so the rest of a standard "
+            f"{standard_code(inputs)} build-up ({asm.name.split(' (')[0].lower()}) is "
+            f"assumed for the other layers; replace it with the drawn layers.",
+        ],
+    )
+    framing_rows = {
+        i for i, (mat, _t, _p) in enumerate(STANDARD_ASSEMBLIES[letter][1])
+        if "FRAMING" in mat or "JOIST" in mat or "TRUSS" in mat
+    }
+    made = [ln for ln in made if not any(ln.id.endswith(f"-l{i}") for i in framing_rows)]
+    return made, [g for g in more if "defers to the structural" not in g.message]
+
+
 def standard_assembly_lines(inputs, built, expand):
     """Layer lines from standard assemblies for elements whose own assembly
     could not be read. `expand` is builder._assembly_lines. Returns (lines,
@@ -799,6 +832,15 @@ def standard_assembly_lines(inputs, built, expand):
         lines += made
         gaps += more
         used["W"] = asm
+    elif wall is not None and (drawn := inputs.assembly_for("W")) is not None:
+        made, more = missing_layer_lines(
+            "W",
+            [ln for ln in built if ln.id.startswith(f"ln-exterior-wall-{drawn.tag.lower()}-")],
+            inputs, expand, wall.quantity, ElementClass.EXTERIOR_WALL, Confidence.ASSUMED,
+            f"Area is the {wall.quantity:.1f} m2 of exterior wall measured.",
+        )
+        lines += made
+        gaps += more
 
     if unread("R", "roof-assembly"):
         asm = _standard_assembly("R", inputs)

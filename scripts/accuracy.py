@@ -376,11 +376,32 @@ def summarise(rows: list[dict]) -> dict:
         }
         for reg, rs in sorted(by_region.items())
     }
-    for name in ("blind_holdout", "landmark_compare"):
+    # Landmark results never enter this public file (their drawings are confidential).
+    for name in ("blind_holdout",):
         f = ROOT / "out" / f"{name}.json"
         if f.is_file():
-            out[name] = json.loads(f.read_text()).get("summary")
+            data = json.loads(f.read_text())
+            out[name] = data.get("summary") if isinstance(data, dict) else _blind_summary(data)
     return out
+
+
+def _blind_summary(rows: list[dict]) -> dict:
+    """score_blind.py writes one row per set (contract C6); the panel shows
+    counts and medians, never a set's name."""
+    fps = [abs(r["footprint_err_pct"]) for r in rows if r.get("footprint_err_pct") is not None]
+    return {
+        "sets": len(rows),
+        "countries": sorted({r.get("country") for r in rows if r.get("country")}),
+        "footprint_read": len(fps),
+        "footprint_err_median_pct": round(statistics.median(fps), 1) if fps else None,
+        "footprint_within_10pct": sum(e <= 10 for e in fps),
+        "storeys_right": sum(bool(r.get("storeys_ok")) for r in rows),
+        "openings_exact": sum(r.get("openings_err") == 0 for r in rows),
+        "full_bill": sum((r.get("coverage_pct") or 0) >= 50 for r in rows),
+        "nothing_read": sum(not r.get("coverage_pct") for r in rows),
+        "vision": any(r.get("vision_used") for r in rows),
+        "scored": "once, after the 25 Nov freeze, rules only",
+    }
 
 
 def main(argv: list[str]) -> int:
