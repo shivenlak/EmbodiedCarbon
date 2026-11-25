@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pymupdf
 
+from ecarbon.intake.spans import TEXT_DICT
 from ecarbon.intake.textrepair import FontRepair, looks_broken
 from ecarbon.models import BasisSource, Discipline, SheetType
 
@@ -117,7 +118,7 @@ def _spans(page: pymupdf.Page, repair: FontRepair | None = None) -> list[Span]:
     sample: we have to see all of a font's text before we can decode any of it.
     """
     raw: list[Span] = []
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
         for line in block.get("lines", []):
             for s in line.get("spans", []):
                 t = s["text"].strip()

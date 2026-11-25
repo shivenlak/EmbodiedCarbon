@@ -25,6 +25,9 @@ from ecarbon.intake.textrepair import repair
 # Direction vectors PyMuPDF reports for a line of text, and the transform that
 # puts each back upright. (1, 0) is already upright and needs nothing.
 _UPRIGHT = (1.0, 0.0)
+# get_text("dict") without the image blocks: every reader here wants only
+# the text, and decoding each embedded image was most of a page's read time.
+TEXT_DICT = pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES
 
 
 def read_spans(
@@ -39,7 +42,7 @@ def read_spans(
     rows: list[tuple[float, float, str]] = []
     turns: dict[tuple[float, float], int] = {}
 
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
         for line in block.get("lines", []):
             direction = line.get("dir", _UPRIGHT)
             key = (round(direction[0], 1), round(direction[1], 1))

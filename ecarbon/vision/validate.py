@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import pymupdf
 
 from ecarbon.geometry.scale import parse_dimension, parse_scale_text
+from ecarbon.intake.spans import TEXT_DICT
 from ecarbon.intake.textrepair import repair
 from ecarbon.models import Confidence
 from ecarbon.vision.tasks import Task
@@ -62,7 +63,7 @@ def page_spans(page: pymupdf.Page) -> list[tuple[pymupdf.Rect, str]]:
     # read_spans drops the boxes, which locating needs; same repair, kept here.
     return [
         (pymupdf.Rect(s["bbox"]), repair(s["text"].strip())[0])
-        for block in page.get_text("dict")["blocks"]
+        for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]
         for line in block.get("lines", [])
         for s in line.get("spans", [])
         if s["text"].strip()

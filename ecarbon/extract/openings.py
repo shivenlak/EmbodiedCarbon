@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 import pymupdf
 
 from ecarbon.extract.assemblies import _parse_inches, _spans
+from ecarbon.intake.spans import TEXT_DICT
 
 # DA01, DB02, WA01, WC01 -- discipline letter, type letter, instance number.
 OPENING_TAG_RE = re.compile(r"^([DW])([A-Z])(\d{2})$")
@@ -493,7 +494,7 @@ OPENING_H_MM = (300.0, 2750.0)  # 1'-0" to 9'-0"
 def size_labels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Opening]:
     """Openings sized by a width-over-height label pair on a plan, by size."""
     labels = []
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
         for line in block.get("lines", []):
             text = " ".join(sp["text"] for sp in line["spans"]).strip()
             if _SIZE_LABEL_RE.match(text):

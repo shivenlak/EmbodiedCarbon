@@ -37,6 +37,7 @@ from enum import StrEnum
 
 import pymupdf
 
+from ecarbon.intake.spans import TEXT_DICT
 from ecarbon.intake.textrepair import repair
 
 PT_TO_MM = 25.4 / 72.0
@@ -211,7 +212,7 @@ def find_dimension_labels(page: pymupdf.Page) -> list[DimLabel]:
     """Every parseable dimension label on the page, at its centre point."""
     out: list[DimLabel] = []
     try:
-        blocks = page.get_text("dict")["blocks"]
+        blocks = page.get_text("dict", flags=TEXT_DICT)["blocks"]
     except Exception:
         return out
     for block in blocks:
@@ -433,7 +434,7 @@ class ScaleEstimate:
 def scale_from_text(page: pymupdf.Page) -> float | None:
     """Second source: a stated scale anywhere on the sheet."""
     try:
-        blocks = page.get_text("dict")["blocks"]
+        blocks = page.get_text("dict", flags=TEXT_DICT)["blocks"]
     except Exception:
         return None
     found: list[float] = []

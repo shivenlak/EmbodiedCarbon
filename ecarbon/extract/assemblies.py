@@ -81,7 +81,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.intake.spans import join_rows, read_spans
+from ecarbon.intake.spans import TEXT_DICT, join_rows, read_spans
 from ecarbon.intake.textrepair import repair
 
 # "N - FOUNDATION WALL ASSEMBLIES", "W - EXTERIOR WALL ASSEMBLIES"
@@ -1096,7 +1096,7 @@ def energy_table_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None
     EXTERIOR WALL(S), not a garage or tall-wall variant, under the detail's own
     tag (W1 when it has none). Other tables are not used yet."""
     spans = []
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
         for line in block.get("lines", []):
             for sp in line["spans"]:
                 t = re.sub(r"\s+", " ", sp["text"]).strip()
@@ -1300,7 +1300,7 @@ def assembly_tags_used(design) -> dict[str, int]:
         for s in sheets:
             if s.sheet_type not in wanted or not s.readable:
                 continue
-            for block in doc[s.page].get_text("dict")["blocks"]:
+            for block in doc[s.page].get_text("dict", flags=TEXT_DICT)["blocks"]:
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
                         # Same scoped repair as the schedule reader. Ontario's

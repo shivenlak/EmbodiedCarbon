@@ -264,3 +264,7 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
   - Landmark (rules only): coverage 91 -> 100% on all three. Counts checked by eye against the plans (the townhome row reads one garage door per unit); no Landmark quantity is recorded here.
   - CMHC: no set takes this path (every one has a schedule), so nothing moves. No dev set takes it either.
   - Not done: Landmark's floor and roof energy tables (they are rim joists, cantilevers and chases; their wrapped rows do not parse into thicknesses, and `framing.py` already estimates the main floor and roof framing).
+- **24 Nov, upload speed (2.5x) and robustness:**
+  - The scaled inventory (`inventory(with_scale=True)`) re-classified every page instead of reusing the cached plain inventory; it now adds the calibration on top of it. Every `get_text("dict")` in A's readers skips image blocks (`intake.spans.TEXT_DICT`); none read them, and decoding them was most of a page's read time.
+  - Full takeoffs are byte-identical on 10 sets (AB, ON, SK/MB, QC, BC, NOR, ATL, Riverside, Escondido, Landmark RPL): 201 s -> 81 s in total under the same load; a typical CMHC set 11-38 s -> 5-8 s.
+  - Odd uploads checked: blank pages, a text-only document, one image, rotated and 200-inch pages give no lines and an honest "no readable floor plan" gap. An empty, truncated, encrypted or non-PDF file is refused by the upload endpoint (415 / 422 with the reason), nothing stored.

@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.intake.spans import read_spans
+from ecarbon.intake.spans import TEXT_DICT, read_spans
 
 # "3.000 m", "7.873m", "0.000 m / 0""
 # SK/MB also prints a whole-metre datum without decimals: "0 m | 0' 0\"".
@@ -361,7 +361,7 @@ def wall_heights_on_page(page: pymupdf.Page) -> tuple[dict[int, float], float | 
     from ecarbon.geometry.scale import parse_imperial
 
     spans = []
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
         for line in block.get("lines", []):
             for sp in line["spans"]:
                 t = re.sub(r"\s+", " ", sp["text"]).strip()
