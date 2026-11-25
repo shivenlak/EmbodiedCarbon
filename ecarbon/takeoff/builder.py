@@ -414,6 +414,11 @@ def gather(
     return inputs, sheets, gaps
 
 
+def _footprint_where(inputs: TakeoffInputs) -> str:
+    """The footprint's sheet number, or its page on an unnumbered sheet ("p11")."""
+    return inputs.footprint_sheet or f"p{(inputs.footprint_page or 0) + 1}"
+
+
 def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> list:
     """Sheets of `types` for vision to read.
 
@@ -533,7 +538,7 @@ def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
             )
             assumptions.append(
                 f"Footprint read by {inputs.vision_by} from the overall dimensions on "
-                f"{inputs.footprint_sheet}; "
+                f"{_footprint_where(inputs)}; "
                 + _vision_check_phrase(inputs.vision)
             )
             if line.provenance.page == inputs.footprint_page:
@@ -1353,7 +1358,7 @@ def build_takeoff(
     fp = inputs.footprint
     tell(
         "geometry",
-        f"footprint {fp.area_m2:,.0f} m2 off sheet {inputs.footprint_sheet}"
+        f"footprint {fp.area_m2:,.0f} m2 off sheet {_footprint_where(inputs)}"
         if fp
         else "no footprint could be measured",
     )

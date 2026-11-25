@@ -75,10 +75,10 @@ If you need a change in a file the other stream owns, write it under "Requests" 
 |---|---|---|---|
 | C1 | `ecarbon/intake/locale.py`: `detect_locale(design) -> Locale` | A | ☑ stub ☑ real |
 | C2 | `ecarbon/takeoff/overrides.py` `Overrides`, threaded through `gather()` / `build_takeoff()` | B | ☑ landed (B2) |
-| C3 | Line labels: `"vision: "` and `"stated: "` note prefixes | A writes vision lines; B writes stated lines and renders both | ☐ |
-| C4 | Upload stage `"vision"` | A emits, B displays | ☐ |
+| C3 | Line labels: `"vision: "` and `"stated: "` note prefixes | A writes vision lines; B writes stated lines and renders both | ☑ A (`vision/validate.py`) ☐ B |
+| C4 | Upload stage `"vision"` | A emits, B displays | ☑ A emits (`build_takeoff`) ☐ B displays |
 | C5 | `locale` exposed by the API | B | ☐ |
-| C6 | `out/blind.json` row schema | A writes dev rows, B the holdout | ☐ |
+| C6 | `out/blind.json` row schema | A writes dev rows, B the holdout | ☑ `score_set` + dev rows ☐ holdout |
 
 **C1 Locale.**
 ```python
@@ -245,4 +245,10 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
 - **DONE by A, 24 Nov, in B's `takeoff/framing.py` and the screw-pile line in `builder._foundation_lines` (please review, both small):**
   - `framing.py` foundation wall: a stated `foundation_wall_height_mm` (new `FoundationSpec` field, read from `8'-6" FOUNDATION WALL HEIGHT`-style notes) replaces frost depth + 200 mm, and the "a frost wall is assumed, not a basement" caveat is dropped when it is stated. Landmark's basements were priced as frost walls, about half their height.
   - Screw piles beside strip footings with no grade beam carry a deck or porch, so `ln-screw-piles` ("Foundation is on screw piles") is no longer emitted for `system == "strip_footing"`; the "0 mm dia" text is gone when no diameter is stated.
+- **A → B, 24 Nov: status of your asks to A.**
+  - *"off sheet None"*: fixed; the upload progress line and the vision footprint assumption now name the page (`p11`) on an unnumbered sheet. The `Provenance.sheet_no=inputs.footprint_sheet` uses in your `framing.py` still pass `None` there, which is the honest value; your call whether the UI labels it.
+  - *SK/MB slash schedules*: done; SKMB_ADU_01 reads W1, F1, P1, P2, R1 with layer thicknesses.
+  - *C3 / C4 / C6*: A's halves are in (ticked above).
+  - *Joists and trusses off S101/S102* (`TJI 302 DEEP @ 305`, `SCISSOR TRUSSES @ 610`): not started on our side. Take it if you have room; otherwise A picks it up after the freeze-day fixes.
+  - *Concrete shortfall*: stated foundation wall heights now replace frost depth + 200 (see "DONE by A" above); piers, pads and the IFC comparison are not re-run.
 
