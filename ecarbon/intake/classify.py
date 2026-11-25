@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pymupdf
 
+from ecarbon.intake.spans import TEXT_DICT
 from ecarbon.intake.textrepair import FontRepair, looks_broken
 from ecarbon.models import BasisSource, Discipline, SheetType
 
@@ -31,8 +32,13 @@ from ecarbon.models import BasisSource, Discipline, SheetType
 # US sets hyphenate or dot the number instead: A-901, S-1, G-001, A2.1, and
 # prefix it with a plan or series number: A3-101, T24-301. A bare single digit
 # (A1) stays out: it is the shape of a grid or detail bubble, and so do stair
-# arrows (UP14R, DN14R: up or down, fourteen risers).
-SHEET_NO_RE = re.compile(r"^(?!UP|DN)([A-Z]{1,2})(\d{2,4}|\d{0,2}-\d{1,4}|\d{1,2}\.\d{1,2})([a-zA-Z])?$")
+# arrows (UP14R, DN14R: up or down, fourteen risers). UK ISO 19650 / BS 1192
+# numbers lead with project, originator, volume and level before `DR`, then
+# the role and number (PRJ-ORG-ZZ-00-DR-A-1001); the role is the discipline.
+SHEET_NO_RE = re.compile(
+    r"^(?:[A-Z0-9]{2,6}(?:-[A-Z0-9]{1,6}){2,4}-DR-)?"
+    r"(?!UP|DN)([A-Z]{1,2})(\d{2,4}|\d{0,2}-\d{1,4}|\d{1,2}\.\d{1,2})([a-zA-Z])?$"
+)
 
 # Boilerplate that appears in every title block and is never the sheet title.
 TITLE_BLOCK_NOISE = (
@@ -114,7 +120,7 @@ def _spans(page: pymupdf.Page, repair: FontRepair | None = None) -> list[Span]:
     sample: we have to see all of a font's text before we can decode any of it.
     """
     raw: list[Span] = []
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
         for line in block.get("lines", []):
             for s in line.get("spans", []):
                 t = s["text"].strip()
@@ -365,7 +371,11 @@ def from_title_block(
             ),
             key=lambda s: (s.vertical != closest.vertical, dist(s)),
         )
-        hit = next((s for s in wide if sheet_type_of(s.text) is not SheetType.UNKNOWN), None)
+        typed = [s for s in wide if sheet_type_of(s.text) is not SheetType.UNKNOWN]
+        # The title-block column first: a drawing heading ("LEGEND") can sit
+        # nearer the number than the title above it (Santa Cruz A2-101).
+        in_column = [s for s in typed if s.x >= num.x - 3 * num.size]
+        hit = (in_column or typed or [None])[0]
         if hit:
             group = [
                 s

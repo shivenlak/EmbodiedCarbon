@@ -74,7 +74,7 @@ us-riverside-adu-3:
   footprint_m: [5.182, 13.437]  # 17'-0" x 44'-1"; 749 SQ. FT.
   storeys: 1
   storey_heights_m: [2.438]
-  windows: 3                    # window D is optional, in place of doors 3 and 4
+  windows: 8                    # QNTY A5 + B2 + C1 on A0.1; D (x2) is optional, in place of doors 3 and 4. Was 3, the count of types
   doors: 11
   slab_mm: 102
   notes: "A1.1; schedules on A0.1"

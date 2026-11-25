@@ -60,12 +60,19 @@ _SLAB_ALT_RES = (
     ),
     # 'QC: SLAB ON GRADE 100mm'
     re.compile(r"SLAB\s+ON\s+GRADE\s*[:\-,]?\s*(\d{2,3})\s*mm\b", re.I),
+    # AU/UK: '150 THK SLAB', '100 THK. CONC. SLAB' (millimetres unstated)
+    re.compile(r"(?<![\d.])(\d{2,3})\s*THK\.?\s*(?:CONC(?:RETE)?\.?\s*)?SLAB(?!\s*:)", re.I),
+    # 'CONCRETE SLAB ON GRADE, 100mm THICK'
+    re.compile(r"SLAB(?:\s+ON\s+GRADE)?\s*[,\-]?\s*(\d{2,3})\s*mm\s*THI?C?K", re.I),
 )
 # US sets state inches only: 'G14 4" CONCRETE SLAB ON GRADE', '4" CONC SLAB W/
 # #4 @ 18" O.C.'. CONC is required, so a cover note ('2" CLR CVR @ 4" SLAB')
 # never reads as the slab.
+# An Alberta spec sheet: '4'' (nominal) thick 25 MPA concrete slab' (two
+# apostrophes for the inch mark, the strength between).
 _SLAB_IN_RE = re.compile(
-    r"(?<![\d/@])(\d{1,2})\s*[\"”]\s*(?:THICK\s*|THK\.?\s*)?CONC(?:RETE)?\.?\s*SLAB(?!\s*:)",
+    r"(?<![\d/@])(\d{1,2})\s*(?:[\"”]|'')\s*(?:\(NOMINAL\)\s*)?(?:THICK\s*|THK\.?\s*)?"
+    r"(?:\d{2}\s*MPA\s*)?CONC(?:RETE)?\.?\s*SLAB(?!\s*:)",
     re.I,
 )
 # A slab outside this range is a misread, not a slab-on-grade.
@@ -111,6 +118,23 @@ _FOOTING_WD_DP_RE = re.compile(
     re.I,
 )
 
+# Imperial strip footings, the pair in inches and the word beside it:
+#   '24"Wx10"H CONC. STRIP FOOTING', '16" x 8" CONT. FTG' (US),
+#   'Footings · Minimum 20" x 10'' (W x H nominal)' (an Alberta spec sheet).
+_IN = r"\s*(?:[\"”]|'')"
+_FOOTING_IN_RES = (
+    re.compile(
+        rf"(?<![\d/])(\d{{1,2}}){_IN}\s*W?\s*[xX×]\s*(\d{{1,2}}){_IN}\s*H?\.?\s*"
+        r"(?:(?!PAD|SPOT|COL)[A-Z.]+\s+){0,3}?(?:FOOTING|FTG)",
+        re.I,
+    ),
+    re.compile(
+        rf"(?:FOOTINGS?|FTG)\W{{0,4}}(?:MIN(?:IMUM|\.)?\s*)?(\d{{1,2}}){_IN}\s*W?\s*[xX×]\s*(\d{{1,2}}){_IN}",
+        re.I,
+    ),
+)
+MM_PER_INCH = 25.4
+
 # A strip footing is wider than it is deep and sits within these bounds. A pair
 # outside them is some other dimension that happened to follow the word.
 MIN_FOOTING_WIDTH_MM, MAX_FOOTING_WIDTH_MM = 300.0, 2000.0
@@ -131,9 +155,10 @@ def footing_sections(text: str) -> list[tuple[float, float]]:
     Understating with the alternatives named is the recoverable direction.
     """
     out: list[tuple[float, float]] = []
-    for pattern in (_FOOTING_RE, _FOOTING_WD_DP_RE):
+    for pattern in (_FOOTING_RE, _FOOTING_WD_DP_RE, *_FOOTING_IN_RES):
+        scale = MM_PER_INCH if pattern in _FOOTING_IN_RES else 1.0
         for m in pattern.finditer(text):
-            w, d = float(m.group(1)), float(m.group(2))
+            w, d = round(float(m.group(1)) * scale), round(float(m.group(2)) * scale)
             if not (MIN_FOOTING_WIDTH_MM <= w <= MAX_FOOTING_WIDTH_MM):
                 continue
             if not (MIN_FOOTING_DEPTH_MM <= d <= MAX_FOOTING_DEPTH_MM):
@@ -173,6 +198,18 @@ _FROST_DEPTH_RE = re.compile(
 # Foundation wall thickness from a schedule: BC's S001
 # 'FOUNDATION WALL SCHEDULE [110 - 150 kg/m3] 8" [200mm]'.
 _FOUNDATION_WALL_RE = re.compile(r"FOUNDATION\s+WALL\s+SCHEDULE.{0,80}?(\d{3})\s*mm", re.I)
+# Or in inches beside it: '10" WIDE CONC. FOUNDATION WALL', '10" CONCRETE FOUNDATION WALL'.
+_FOUNDATION_WALL_IN_RE = re.compile(
+    r"(?<![\d/])(\d{1,2})\s*(?:[\"”]|'')\s*(?:WIDE\s+|THICK\s+)?CONC(?:RETE)?\.?\s+FOUNDATION\s+WALL",
+    re.I,
+)
+# A basement states its wall height: '8'-6" FOUNDATION WALL HEIGHT',
+# 'HEIGHT OF FOUNDATION WALL 8'-6"'.
+_FT_IN = r"(\d{1,2}\s*'\s*-?\s*\d{1,2}(?:\s+\d/\d{1,2})?\s*[\"”])"
+_FOUNDATION_WALL_HEIGHT_RE = re.compile(
+    rf"{_FT_IN}\s*FOUNDATION\s+WALL\s+HEIGHT|HEIGHT\s+OF\s+FOUNDATION\s+WALL\s*{_FT_IN}",
+    re.I,
+)
 # Reinforcement: "10M @ 300 O/C", "4-15M VERTICAL"
 _REBAR_SPACING_RE = re.compile(r"(\d{1,2})M\s*@\s*(\d{2,4})\s*(?:mm)?\s*O/?C", re.I)
 _REBAR_COUNT_RE = re.compile(r"(\d{1,2})\s*-\s*(\d{1,2})M", re.I)
@@ -234,6 +271,8 @@ class FoundationSpec:
     generic_slab_mm: float | None = None
     frost_depth_mm: float | None = None
     foundation_wall_mm: float | None = None
+    # A basement's stated wall height, footing to top of wall.
+    foundation_wall_height_mm: float | None = None
     # Other footing sections the drawings state, when more than one exists.
     other_footing_sections: list[tuple[float, float]] = field(default_factory=list)
     pile_diameter_mm: float | None = None
@@ -432,11 +471,23 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
             if 600 <= v <= 2400:
                 spec.frost_depth_mm = v
                 found.append(f"frost protection {v:.0f}mm")
-        if spec.foundation_wall_mm is None and (m := _FOUNDATION_WALL_RE.search(flat)):
-            v = float(m.group(1))
-            if 150 <= v <= 400:
+        if spec.foundation_wall_mm is None:
+            m = _FOUNDATION_WALL_RE.search(flat)
+            v = float(m.group(1)) if m else None
+            if v is None and (m := _FOUNDATION_WALL_IN_RE.search(flat)):
+                v = float(round(float(m.group(1)) * MM_PER_INCH))
+            if v is not None and 150 <= v <= 400:
                 spec.foundation_wall_mm = v
                 found.append(f"foundation wall {v:.0f}mm")
+        if spec.foundation_wall_height_mm is None and (
+            m := _FOUNDATION_WALL_HEIGHT_RE.search(flat)
+        ):
+            from ecarbon.geometry.scale import parse_imperial
+
+            v = parse_imperial((m.group(1) or m.group(2)).replace(" ", ""))
+            if v and 1500 <= v <= 3600:
+                spec.foundation_wall_height_mm = round(v)
+                found.append(f"foundation wall height {v:.0f}mm")
 
         if spec.frost_insulation_mm is None:
             m = _FROST_RE.search(flat)
@@ -472,6 +523,8 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
             if sections:
                 spec.footing_width_mm, spec.footing_depth_mm = sections[0]
                 spec.other_footing_sections = sections[1:]
+                if any(p.search(flat) for p in _FOOTING_IN_RES):
+                    spec.strip_footings = True  # the pattern names the footing itself
                 found.append(
                     f"strip footing {spec.footing_width_mm:.0f}x{spec.footing_depth_mm:.0f}"
                 )
@@ -523,7 +576,12 @@ def structural_texts(design, max_sheets: int = 40, structural: bool = True) -> d
 
 def foundation_spec_for(design) -> FoundationSpec:
     """Read the foundation specification for one design, end to end."""
-    spec = parse_foundation_spec(structural_texts(design))
+    texts = structural_texts(design)
+    if not texts:
+        # No structural sheet at all (Landmark numbers none; Riverside numbers
+        # nothing): the foundation plan and spec sheets are the other sheets.
+        return parse_foundation_spec(structural_texts(design, structural=False))
+    spec = parse_foundation_spec(texts)
     if spec.slab_thickness_mm is not None or spec.generic_slab_mm is not None:
         return spec
     # Small US sets often state the slab only on the architectural sheets

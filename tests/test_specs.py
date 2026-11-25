@@ -507,3 +507,57 @@ class TestRegionalFoundationWording:
         assert spec.system == "thickened_edge_slab"
         assert not spec.strip_footings
         assert "foundation system not identified" not in spec.missing
+
+
+class TestImperialFoundation:
+    """Footings, foundation walls and slabs stated in inches (US, Alberta builders)."""
+
+    def test_a_basement_wall_on_its_strip_footing(self):
+        spec = parse_foundation_spec({"p9": (
+            '10" WIDE CONC. FOUNDATION WALL ON 24"Wx10"H CONC. STRIP FOOTING '
+            '8\'-6" FOUNDATION WALL HEIGHT'
+        )})
+        assert (spec.footing_width_mm, spec.footing_depth_mm) == (610, 254)
+        assert spec.foundation_wall_mm == 254.0
+        assert spec.foundation_wall_height_mm == 2591
+        assert spec.system == "strip_footing"
+
+    def test_a_spec_sheet_footing_and_slab(self):
+        spec = parse_foundation_spec({"p21": (
+            "Footings · Minimum 20\" x 10'' (W x H nominal), 30 MPA. "
+            "Basement floor · 4'' (nominal) thick 25 MPA concrete slab"
+        )})
+        assert (spec.footing_width_mm, spec.footing_depth_mm) == (508, 254)
+        assert spec.slab_thickness_mm == 102.0
+
+    def test_a_us_continuous_footing(self):
+        spec = parse_foundation_spec({"S-1": '16" x 8" CONT. FTG W/ (2) #4 CONT.'})
+        assert (spec.footing_width_mm, spec.footing_depth_mm) == (406, 203)
+        assert spec.strip_footings
+
+    def test_a_pad_footing_is_not_a_strip(self):
+        spec = parse_foundation_spec({"S-1": '24" x 24" PAD FTG'})
+        assert spec.footing_width_mm is None
+        assert not spec.strip_footings
+
+    def test_detail_dimensions_are_not_footings(self):
+        spec = parse_foundation_spec({"S-311": '12" 12" FTG DEPTH PER PLAN (3) #4 TIES @ TOP OF FTG 3" CLR'})
+        assert spec.footing_width_mm is None
+
+
+class TestSlabWithoutUnits:
+    def test_au_thk_slab(self):
+        assert parse_foundation_spec({"S01": "150 THK SLAB ON GRADE"}).slab_thickness_mm == 150.0
+
+    def test_thickness_after_the_slab(self):
+        spec = parse_foundation_spec({"S01": "CONCRETE SLAB ON GRADE, 100mm THICK"})
+        assert spec.slab_thickness_mm == 100.0
+
+
+def test_no_structural_sheet_reads_the_whole_foundation_elsewhere(monkeypatch):
+    from ecarbon.extract import specs
+
+    texts = {True: {}, False: {"p9": '10" CONC. FOUNDATION WALL ON 24"Wx10"H CONC. STRIP FOOTING'}}
+    monkeypatch.setattr(specs, "structural_texts", lambda design, structural=True: texts[structural])
+    spec = specs.foundation_spec_for(None)
+    assert spec.footing_width_mm == 610 and spec.foundation_wall_mm == 254.0

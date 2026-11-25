@@ -15,6 +15,7 @@ orientation.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 import pymupdf
@@ -24,6 +25,9 @@ from ecarbon.intake.textrepair import repair
 # Direction vectors PyMuPDF reports for a line of text, and the transform that
 # puts each back upright. (1, 0) is already upright and needs nothing.
 _UPRIGHT = (1.0, 0.0)
+# get_text("dict") without the image blocks: every reader here wants only
+# the text, and decoding each embedded image was most of a page's read time.
+TEXT_DICT = pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES
 
 
 def read_spans(
@@ -38,7 +42,7 @@ def read_spans(
     rows: list[tuple[float, float, str]] = []
     turns: dict[tuple[float, float], int] = {}
 
-    for block in page.get_text("dict")["blocks"]:
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
         for line in block.get("lines", []):
             direction = line.get("dir", _UPRIGHT)
             key = (round(direction[0], 1), round(direction[1], 1))
@@ -65,3 +69,17 @@ def read_spans(
     elif dominant == (-1.0, 0.0):
         rows = [(-y, -x, t) for y, x, t in rows]
     return sorted(rows)
+
+
+def join_rows(spans: list[tuple[float, float, str]], tol: float = 3.0) -> list[str]:
+    """`read_spans` output joined into one string per row, left to right, so a
+    label and its text in separate spans ("EXTERIOR" + "- 5 1/2\" WOOD STUD")
+    read as one line."""
+    rows: list[list[tuple[float, str]]] = []
+    last_y = None
+    for y, x, text in spans:
+        if last_y is None or abs(y - last_y) > tol:
+            rows.append([])
+        rows[-1].append((x, text))
+        last_y = y
+    return [re.sub(r"\s+", " ", " ".join(t for _, t in sorted(r))).strip() for r in rows]

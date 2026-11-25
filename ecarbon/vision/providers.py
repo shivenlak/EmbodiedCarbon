@@ -1,4 +1,6 @@
-"""The model behind vision, chosen by ECARBON_VISION=claude|gemini.
+"""The model behind vision, chosen by ECARBON_VISION=claude|gemini|cache.
+
+`cache` replays saved Claude answers and never calls the API.
 
 Unset means off, and nothing here is imported or called. The SDKs are the
 optional `vision` extra and are imported only when a provider is built.
@@ -95,8 +97,23 @@ class GeminiProvider:
         return parsed.model_dump() if parsed is not None else None
 
 
+class CachedOnlyProvider:
+    """Claude's saved answers, with no key and no call: a page never read
+    before stays unread. For a deployment that ships the vision cache."""
+
+    name = "claude"
+
+    def __init__(self, model: str | None = None):
+        self.model = model or os.environ.get("ECARBON_VISION_MODEL", "claude-opus-5-5")
+
+    def read(self, png: bytes, task: Task) -> dict | None:
+        return None
+
+
 def provider_from_env() -> Provider | None:
     which = os.environ.get("ECARBON_VISION", "").strip().lower()
+    if which == "cache":
+        return CachedOnlyProvider()
     if which == "claude":
         return ClaudeProvider()
     if which == "gemini":

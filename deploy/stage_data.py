@@ -40,10 +40,18 @@ from pathlib import Path
 #                    measured across the block. Uploaded without a stated
 #                    area they read correctly, so Rowhouse_02 is the demo's
 #                    live upload instead.
+#   NOR_Fourplex_Municipal is the exception: its lettering is outlines, so the
+#   rules read nothing, and it is here to show the vision fallback. Its bill is
+#   mostly assumed and says so. Prebuild it with the saved answers:
+#     ECARBON_VISION=cache ECARBON_VISION_CACHE=deploy/data/_vision \
+#     ECARBON_VISION_SEED=~/.cache/ecarbon/vision EC_DATA=deploy/data \
+#     python deploy/prebuild.py
+#   which copies into the image only the answers these sets use.
 DEFAULT_SELECTION = (
     "AB_Fourplex_01",
     "AB_Fourplex_02",
     "AB_Sixplex",
+    "NOR_Fourplex_Municipal",
 )
 
 HERE = Path(__file__).resolve().parent
@@ -90,7 +98,9 @@ def stage(keys: tuple[str, ...]) -> int:
 
     print(f"\n  {total / 1e6:.1f} MB staged in {STAGE}")
     print("  (gitignored; it is copied into the image at build time)")
-    print("\n  Next: EC_DATA=deploy/data python deploy/prebuild.py")
+    print("\n  Next: ECARBON_VISION=cache ECARBON_VISION_CACHE=deploy/data/_vision \\")
+    print("        ECARBON_VISION_SEED=~/.cache/ecarbon/vision EC_DATA=deploy/data \\")
+    print("        python deploy/prebuild.py")
     print("  That saves a takeoff per design so the first request is instant")
     print("  rather than paying 23-177 s to parse the set.")
     return 0

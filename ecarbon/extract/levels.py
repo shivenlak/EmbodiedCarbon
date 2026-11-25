@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.intake.spans import read_spans
+from ecarbon.intake.spans import TEXT_DICT, read_spans
 
 # "3.000 m", "7.873m", "0.000 m / 0""
 # SK/MB also prints a whole-metre datum without decimals: "0 m | 0' 0\"".
@@ -52,16 +52,16 @@ _ELEV_INCHES_RE = re.compile(r"^(?:([-+±])\s*(\d{1,2}(?:\s+\d{1,2}/\d{1,2})?)|(
 # A datum label. Deliberately broad; `is_floor_level` decides what counts.
 _LEVEL_LABEL_RE = re.compile(
     # T/O CONCRETE / T/O SLAB: SK/MB's ground datum is the top of the slab.
+    # US sets dot it: T.O.S. / T.O. SLAB (Santa Cruz's 0'-0" under PLATE 8'-1");
     # FINISHED FLOOR: the US sections' "0'-0" FINISHED FLOOR" datum.
-    # T.O.S.: Santa Cruz's "T.O.S. 0'-0"", the top of slab (see is_floor).
-    r"(?i)\b(T\.O\.S\.?(?!\w)|T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|FINISHED\s+FLOOR|SECOND|THIRD|FOURTH"
+    r"(?i)\b(T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|T\.\s*O\.\s*(?:S|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|FINISHED\s+FLOOR|SECOND|THIRD|FOURTH"
     r"|BASEMENT|ROOF|TRUSS|PLATE|CEILING|GRADE|LEVEL\s*\d)\b"
 )
 # Labels that mark a reference line rather than a constructed floor level.
 _NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM|CEILING)\b")
 # "T.O.S." is top of slab on an architectural section and top of steel on a
 # structural one; it counts as a floor only as the 0 datum itself.
-_TOS_RE = re.compile(r"(?i)\bT\.O\.S\b")
+_TOS_RE = re.compile(r"(?i)\bT\.\s*O\.\s*S\b")
 # Labels that are the top of the structure rather than a floor.
 _ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
 # The top of the wall: a one-storey house's wall height, with no floor above.
@@ -120,6 +120,9 @@ class StoreyHeights:
     floor_assembly_mm: float | None = None
     sources: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # The top storey's wall height where the drawing states it (a "SECOND
+    # FLOOR WALL HEIGHT" note), used instead of copying the storey below.
+    top_storey_m: float | None = None
 
     @property
     def floors(self) -> list[Level]:
@@ -165,7 +168,7 @@ class StoreyHeights:
         if not heights:
             return []
         # One more storey than there are gaps between floor datums.
-        top = heights[-1]
+        top = self.top_storey_m if self.top_storey_m is not None else heights[-1]
         heights.append(top)
         return heights
 
@@ -188,7 +191,9 @@ class StoreyHeights:
         if len(self.floors) == 1:
             # A one-storey height runs floor to top plate: no floor to deduct.
             return hs[0]
-        deduction = (self.floor_assembly_mm / 1000.0) * len(hs)
+        # A stated top-storey wall height already stops under the roof: no floor in it.
+        floors_in = len(hs) - (1 if self.top_storey_m is not None else 0)
+        deduction = (self.floor_assembly_mm / 1000.0) * floors_in
         return round(max(sum(hs) - deduction, 0.0), 3)
 
     def wall_area_m2(self, perimeter_m: float, basis: str = "gross") -> float | None:
@@ -228,6 +233,40 @@ def _elevation_m(text: str) -> float | None:
         return None
     return round((-mm if m.group(1) == "-" else mm) / 1000.0, 3)
 
+
+# A datum printed with its label in one span, as US sections and UK/AU/DE
+# drawings do: `8'-0" PLATE HEIGHT`, `0'-0" FINISHED FLOOR`, `T.O. PLATE
+# 9'-1 1/8"`, `FIN. FLR. EL. 100'-0"`, `FFL +3.000`, `RL 12.450`, `OKFF ±0,00`.
+# Only labels that name a floor or the top plate: an inline `TOP OF TRELLIS`
+# or `TOP OF COLUMN` would otherwise count as a floor.
+_INLINE_LABEL = (
+    r"(?:FIN(?:ISHED|\.)?\s*(?:FLOOR|FLR)\.?|F\.?F\.?L\.?|SSL|OKFF|SUB-?FLOOR"
+    r"|(?:T\.?\s*O\.?|TOP\s+OF)\s*(?:SUB-?)?(?:FLOOR|PLATE|SLAB)|PLATE(?:\s+HEIGHT|\s+HT\.?)?)"
+)
+_FT_IN = r"(\d{1,3}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\")"
+_INLINE_LEAD_RE = re.compile(rf"^([-+±]?)\s*{_FT_IN}\s+({_INLINE_LABEL})$", re.I)
+_INLINE_TRAIL_RE = re.compile(rf"^({_INLINE_LABEL})\s*(?:EL\.?\s*)?([-+±]?)\s*{_FT_IN}$", re.I)
+# Metric needs an explicit datum code, so CMHC's "3.000 m" ladders are untouched.
+# A bare AU `RL 12.450` could be a ridge or an eave, so it needs its FFL.
+_INLINE_METRIC_RE = re.compile(r"^(FFL|SSL|OKFF)\s*(?:RL\s*)?([-+±]?\s*\d{1,3}[.,]\d{2,3})$", re.I)
+
+
+def inline_level(text: str) -> tuple[str, float] | None:
+    """(label, elevation m) from a span that carries both, or None."""
+    t = re.sub(r"\s+", " ", text.strip())
+    m = _INLINE_METRIC_RE.match(t)
+    if m:
+        value = m.group(2).replace(" ", "").replace(",", ".").replace("±", "")
+        return m.group(1).upper(), float(value)
+    m = _INLINE_LEAD_RE.match(t)
+    sign, ftin, label = (m.group(1), m.group(2), m.group(3)) if m else (None, None, None)
+    if not m:
+        m = _INLINE_TRAIL_RE.match(t)
+        if not m:
+            return None
+        label, sign, ftin = m.group(1), m.group(2), m.group(3)
+    elev = _elevation_m(f"{sign}{ftin}")
+    return None if elev is None else (label.upper(), elev)
 
 # An elevation that opens its own label's span: "8'-0\" PLATE HEIGHT".
 _LEADING_ELEV_RE = re.compile(
@@ -278,6 +317,10 @@ def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
 
     out: list[Level] = []
     for y, x, text in spans:
+        inline = inline_level(text)
+        if inline is not None:
+            out.append(Level(label=inline[0], elevation_m=inline[1], sheet=sheet))
+            continue
         # US sections set the value first, in the same span as its label:
         # Riverside's "8'-0\" PLATE HEIGHT", "0'-0\" FINISHED FLOOR".
         lead = _LEADING_ELEV_RE.match(text)
@@ -326,6 +369,58 @@ def outvote_strays(levels: list[Level]) -> list[Level]:
     return [lv for lv in levels if votes[(key(lv), lv.elevation_m)] == top[key(lv)]]
 
 
+# Alberta builders' elevations label each storey's wall height beside its
+# dimension instead of a datum ladder: MAIN FLOOR WALL HEIGHT, SECOND FLOOR
+# WALL HEIGHT and FLOOR THICKNESS, each beside a feet-inches figure.
+_WALL_HEIGHT_RE = re.compile(r"^(MAIN|GROUND|FIRST|SECOND|THIRD)\s+FLOOR\s+WALL\s+HEIGHT$", re.I)
+_FLOOR_THICKNESS_RE = re.compile(r"^FLOOR\s+THICKNESS$", re.I)
+_FT_IN_ONLY_RE = re.compile(r"^\d{1,2}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\"$")
+_STOREY_ORDER = {"MAIN": 1, "GROUND": 1, "FIRST": 1, "SECOND": 2, "THIRD": 3}
+# The figure sits in the dimension column beside its label (about 15 pt on
+# the Landmark sets), measured from the figure's centre to the label's box.
+WALL_HEIGHT_REACH_PT = 40.0
+
+
+def wall_heights_on_page(page: pymupdf.Page) -> tuple[dict[int, float], float | None]:
+    """({storey: wall height m}, floor thickness m) from wall-height notes."""
+    from ecarbon.geometry.scale import parse_imperial
+
+    spans = []
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
+        for line in block.get("lines", []):
+            for sp in line["spans"]:
+                t = re.sub(r"\s+", " ", sp["text"]).strip()
+                if t:
+                    spans.append((t, sp["bbox"]))
+    figures = [(t, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for t, b in spans if _FT_IN_ONLY_RE.match(t)]
+
+    def nearest(box) -> float | None:
+        def dist(f) -> float:
+            dx = max(box[0] - f[1], 0.0, f[1] - box[2])
+            dy = max(box[1] - f[2], 0.0, f[2] - box[3])
+            return (dx * dx + dy * dy) ** 0.5
+
+        best = min(figures, key=dist, default=None)
+        if best is None or dist(best) > WALL_HEIGHT_REACH_PT:
+            return None
+        mm = parse_imperial(best[0])
+        return None if mm is None else round(mm / 1000.0, 3)
+
+    heights: dict[int, float] = {}
+    thickness = None
+    for t, box in spans:
+        m = _WALL_HEIGHT_RE.match(t)
+        if m:
+            h = nearest(box)
+            if h is not None and MIN_STOREY_M <= h <= MAX_STOREY_M:
+                heights.setdefault(_STOREY_ORDER[m.group(1).upper()], h)
+        elif _FLOOR_THICKNESS_RE.match(t) and thickness is None:
+            th = nearest(box)
+            if th is not None and 0.15 <= th <= 0.6:
+                thickness = th
+    return heights, thickness
+
+
 def storey_heights_for(design, floor_assembly_mm: float | None = None) -> StoreyHeights:
     """Read the level ladder from a design's section sheets."""
     from ecarbon.intake import inventory
@@ -349,6 +444,9 @@ def storey_heights_for(design, floor_assembly_mm: float | None = None) -> Storey
 
     result.levels = outvote_strays(result.levels)
 
+    if not result.storey_heights_m():
+        _from_wall_heights(design, sheets, result)
+
     hs = result.storey_heights_m()
     if len(hs) >= 2:
         result.notes.append(
@@ -356,3 +454,44 @@ def storey_heights_for(design, floor_assembly_mm: float | None = None) -> Storey
             "no plate datum above it"
         )
     return result
+
+
+def _from_wall_heights(design, sheets, result: StoreyHeights) -> None:
+    """Where no datum ladder reads: storey wall heights stated on the elevations
+    or sections. Floors are stacked as wall height plus the stated floor
+    thickness; with no thickness stated, nothing is built (it would be a guess).
+    Any readable sheet: the label is specific, and Landmark's elevations carry
+    no title the classifier can type."""
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for s in sheets:
+            if not s.readable:
+                continue
+            heights, thickness = wall_heights_on_page(doc[s.page])
+            storeys = sorted(heights)
+            if not storeys or storeys != list(range(1, len(storeys) + 1)):
+                continue
+            if len(storeys) > 1 and thickness is None:
+                continue
+            elev, levels = 0.0, []
+            for n in storeys:
+                levels.append(Level(label=f"STOREY {n} FLOOR (from wall height)", elevation_m=round(elev, 3), sheet=s.sheet_no))
+                elev += heights[n] + (thickness or 0.0)
+            # The top storey's wall stops at its plate, under no floor.
+            levels.append(Level(label="TOP PLATE (from wall height)", elevation_m=round(elev - (thickness or 0.0), 3), sheet=s.sheet_no))
+            result.levels = levels
+            if len(storeys) > 1:
+                result.top_storey_m = heights[storeys[-1]]
+                result.floor_assembly_mm = round(thickness * 1000.0, 1)
+            result.sources.append(
+                f"{s.sheet_no or f'p{s.page + 1}'}: wall heights "
+                + ", ".join(f"storey {n} {heights[n]} m" for n in storeys)
+                + (f", floor thickness {thickness} m" if thickness else "")
+            )
+            result.notes.append(
+                "storey heights from the wall heights stated on the drawings rather than a "
+                "datum ladder; each lower storey adds the stated floor thickness"
+            )
+            return
+    finally:
+        doc.close()

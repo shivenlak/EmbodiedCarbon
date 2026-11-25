@@ -81,7 +81,7 @@ from dataclasses import dataclass, field
 
 import pymupdf
 
-from ecarbon.intake.spans import read_spans
+from ecarbon.intake.spans import TEXT_DICT, join_rows, read_spans
 from ecarbon.intake.textrepair import repair
 
 # "N - FOUNDATION WALL ASSEMBLIES", "W - EXTERIOR WALL ASSEMBLIES"
@@ -128,6 +128,10 @@ _DEFER_RE = re.compile(r"\(?\s*REFER\s+TO\s+(\w+)[^)]*\)?", re.I)
 # Share of a stud cavity the studs and plates take, at 400 mm centres; the
 # fill takes the rest. Also used where framing is carried only as a wall area.
 FRAMING_FRACTION = 0.15
+# A stated stud spacing: `@406mm O/C`, `@ 16" O.C.`, `@ 600 CRS`.
+_STUD_SPACING_RE = re.compile(
+    r'@\s*(\d+(?:\.\d+)?)\s*(MM|"|IN\b)?\s*(?:O\.?\s*/?\s*C\b\.?|CRS\b|CTRS\b|CENTRES\b)', re.I
+)
 _CONCRETE_RE = re.compile(r"\bCONCRETE\b", re.I)
 STEEL_RE = re.compile(r"\b(METAL|STEEL)\b", re.I)
 
@@ -336,6 +340,25 @@ class Layer:
         return 1.0, None
 
     @property
+    def framing_share(self) -> float:
+        """Share of the framing depth that is timber, from the stated spacing.
+
+        At 400 mm centres studs are 38/400 of the wall and plates, blocking and
+        headers the rest of FRAMING_FRACTION; only the studs move with spacing.
+        Unstated, or within 5% of 400 (16" is 406), keeps FRAMING_FRACTION.
+        """
+        m = _STUD_SPACING_RE.search(self.material)
+        if not m:
+            return FRAMING_FRACTION
+        unit = (m.group(2) or "").upper()
+        spacing = float(m.group(1)) * (25.4 if unit in ('"', "IN") else 1.0)
+        if unit == "" and spacing < 50:  # a bare `@ 24 O.C.` is inches
+            spacing *= 25.4
+        if spacing <= 0 or abs(spacing - 400) <= 20:
+            return FRAMING_FRACTION
+        return round(min(38 / spacing + FRAMING_FRACTION - 38 / 400, 1.0), 4)
+
+    @property
     def is_framing(self) -> bool:
         return bool(_FRAMING_RE.search(self.material))
 
@@ -385,6 +408,9 @@ class Assembly:
     page: int | None = None
     # y of this assembly's name row, used to attach the tag beside its block.
     name_y: float | None = None
+    # Read from a wall legend (US practice: a hatch and a sentence, no tag), so
+    # the tag was given here and nothing on the plans references it.
+    from_legend: bool = False
 
     @property
     def total_thickness_mm(self) -> float:
@@ -930,6 +956,220 @@ def _attach_tags(assemblies: list[Assembly], tags: list[tuple[float, float, str]
             above[-1].tag = tag
 
 
+# A US wall legend line: `EXTERIOR - 5 1/2" WOOD STUD W/ PLYWOOD SHEATHING AND
+# FINISH`, `INTERIOR - 3 1/2" WOOD STUD W/ ONE LAYER GYP. WALL BOARD EACH SIDE`.
+# A rating in between (`EXTERIOR - 1 HOUR FIRE RATED - 5 1/2" ...`) is allowed.
+_LEGEND_RE = re.compile(
+    r'\b(EXTERIOR|INTERIOR)\s*-[^"]{0,40}?-?\s*(\d+\s+\d+/\d+|\d+/\d+|\d+)\s*"\s*(WOOD|METAL)\s+STUD\b(.*)$',
+    re.I,
+)
+_LEGEND_SPLIT_RE = re.compile(r"\s*(?:,|\bAND\b|\bW/)\s*", re.I)
+_LEGEND_STOP_RE = re.compile(r"\b(SEE|PER|REFER)\b.*$", re.I)
+
+
+def legend_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Assembly]:
+    """The exterior and interior wall from a US-style wall legend.
+
+    Only the stud depth is a thickness the legend states. The other materials
+    it names (sheathing, gypsum board, finish) are kept as layers with no
+    thickness, so they are reported rather than given a guessed depth.
+    """
+    found: dict[str, Assembly] = {}
+    for text in join_rows(_spans(page)):
+        m = _LEGEND_RE.search(text)  # the legend shares its row with other columns
+        if not m or m.group(1).upper() in found:
+            continue  # the first line of each kind is the standard wall; ratings follow
+        side, depth, kind, rest = m.group(1).upper(), m.group(2), m.group(3).upper(), m.group(4)
+        inches = _parse_inches(depth + '"')
+        if not inches:
+            continue
+        letter = "W" if side == "EXTERIOR" else "P"
+        layers = [Layer(0, f"{kind} STUD FRAMING", round(inches * 25.4, 1), note=f'stated {depth}" in the wall legend')]
+        for part in _LEGEND_SPLIT_RE.split(_LEGEND_STOP_RE.sub("", rest)):
+            part = part.strip(" .;-")
+            part = re.sub(r"(?i)\s+(ON|EACH(\s+SIDE)?)$", "", part)
+            # US shorthand, spelled out here rather than in the shared rules,
+            # which would move CMHC's own unmatched "GYP." layers.
+            part = re.sub(r"(?i)\bGYP\.?\s", "GYPSUM ", part)
+            # Only a named material: the row also carries the next column's words.
+            if part and any(p.search(part) for p, _ in _MATERIAL_RULES):
+                layers.append(Layer(len(layers), part, None, note="the legend states no thickness"))
+        found[side] = Assembly(
+            tag=f"{letter}1",
+            name=f"{side.title()} wall (from the wall legend, untagged)",
+            group_letter=letter,
+            layers=layers,
+            sheet=sheet,
+            page=page.number,
+            from_legend=True,
+        )
+    return list(found.values())
+
+
+# Dressed depth of nominal US lumber, mm: a 2x6 is 5 1/2".
+NOMINAL_DEPTH_MM = {"4": 89.0, "6": 140.0, "8": 184.0, "10": 235.0, "12": 286.0}
+# A framing note that sizes every exterior stud: `ALL EXTERIOR STUDS TO BE 2x6
+# @ 16" O.C.`, `EXTERIOR WALL STUDS SHALL BE 140x45 @ 600 CRS` (AU/UK: depth first).
+_STUD_NOTE_RE = re.compile(
+    r"\bEXTERIOR\s+(?:WALL\s+)?STUDS?\s+(?:TO\s+BE|SHALL\s+BE|:)\s*"
+    r"(?:2\s*X\s*(4|6|8|10|12)|(\d{2,3})\s*X\s*(?:35|38|45|42))\b"
+    r"(\s*@\s*\d+(?:\.\d+)?\s*(?:MM|\")?\s*(?:O\.?\s*/?\s*C\b\.?|CRS\b|CTRS\b))?",
+    re.I,
+)
+
+
+def stud_note_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Assembly]:
+    """The exterior wall's studs from a framing note, where no schedule or legend gives one.
+
+    Only the studs are stated, so only the studs are counted; the spacing,
+    when given, sets their share of the wall.
+    """
+    for text in join_rows(_spans(page)):
+        m = _STUD_NOTE_RE.search(text)
+        if not m:
+            continue
+        depth = NOMINAL_DEPTH_MM[m.group(1)] if m.group(1) else float(m.group(2))
+        if not 60 <= depth <= 300:
+            continue
+        spacing = re.sub(r"\s+", " ", m.group(3) or "").strip()
+        material = f"WOOD STUD FRAMING {spacing}".strip()
+        return [
+            Assembly(
+                tag="W1",
+                name="Exterior wall (from the framing notes, untagged)",
+                group_letter="W",
+                layers=[Layer(0, material, depth, note=f"stated as '{m.group(0).strip()}' in the framing notes")],
+                sheet=sheet,
+                page=page.number,
+                from_legend=True,
+            )
+        ]
+    return []
+
+
+# Alberta's NBC 9.36 energy tables, which every Alberta permit set carries:
+# a MATERIAL | RSI table per detail, one layer per row, its thickness in its
+# name (`7/16" OSB SHEATHING`, `2X6 STUDS @ 16" O.C. W/ R22`), ending at
+# TOTAL, with the detail's title in lettering twice the size below it.
+_TABLE_STUD_RE = re.compile(
+    r"^2\s*X\s*(4|6|8|10|12)\b.*?\bSTUDS?\b\s*(@\s*\d+\s*\"\s*O\.?\s*C\.?)?(.*)$", re.I
+)
+_TABLE_INSULATION_RE = re.compile(r"\bW/\s*R-?\d+|\bBATT\b", re.I)
+_LEADING_INCHES_RE = re.compile(r"^((?:\d+\s+)?\d+/\d+|\d+)\s*\"\s*(.+)$")
+_RSI_RE = re.compile(r"^\d{1,2}\.\d{2,3}$")
+# A title is lettered well above the row size (about twice it, on the sets seen).
+TITLE_SIZE_RATIO = 1.6
+# How far below the TOTAL row a title is looked for, in multiples of row size.
+TITLE_REACH = 30.0
+
+
+def _table_layers(rows: list[str]) -> list[Layer]:
+    layers: list[Layer] = []
+    for text in rows:
+        if re.search(r"AIR\s+FILM", text, re.I):
+            continue  # a resistance, not a material
+        stud = _TABLE_STUD_RE.match(text)
+        if stud:
+            depth = NOMINAL_DEPTH_MM[stud.group(1)]
+            spacing = re.sub(r"\s+", " ", stud.group(2) or "").strip()
+            note = f"stated as '{text}' in the energy table"
+            layers.append(Layer(len(layers), f"WOOD STUD FRAMING {spacing}".strip(), depth, note=note))
+            if _TABLE_INSULATION_RE.search(stud.group(3) or ""):
+                r_value = re.search(r"R-?\d+", stud.group(3) or "")
+                fill = f"BATT INSULATION ({r_value.group(0)}) IN STUD CAVITY" if r_value else "BATT INSULATION IN STUD CAVITY"
+                layers.append(Layer(len(layers), fill, depth, note=note))
+            continue
+        m = _LEADING_INCHES_RE.match(text)
+        if m:
+            mm, _ = parse_thickness(m.group(1) + '"')
+            # Spelled out here only, as the legend reader does with GYP.
+            material = re.sub(r"(?i)\bDRYWALL\b", "GYPSUM BOARD (DRYWALL)", m.group(2))
+            layers.append(Layer(len(layers), material, mm, note="thickness stated in the energy table"))
+        else:
+            layers.append(Layer(len(layers), text, None, note="the energy table states no thickness"))
+    _mark_shared_cavities(layers)
+    return layers
+
+
+def energy_table_assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Assembly]:
+    """The main exterior wall from 9.36 MATERIAL | RSI tables: the table titled
+    EXTERIOR WALL(S), not a garage or tall-wall variant, under the detail's own
+    tag (W1 when it has none). Other tables are not used yet."""
+    spans = []
+    for block in page.get_text("dict", flags=TEXT_DICT)["blocks"]:
+        for line in block.get("lines", []):
+            for sp in line["spans"]:
+                t = re.sub(r"\s+", " ", sp["text"]).strip()
+                if t:
+                    spans.append((t, sp["bbox"], sp["size"]))
+    out: list[Assembly] = []
+    for t, (hx0, hy0, _hx1, hy1), size in spans:
+        if t.upper() != "MATERIAL":
+            continue
+        rsi = [b for u, b, _ in spans if u.upper() == "RSI" and abs(b[1] - hy0) <= size and 0 < b[0] - hx0 < 60 * size]
+        if not rsi:
+            continue
+        rsi_x0, rsi_x1 = rsi[0][0], rsi[0][2]
+        col = sorted(
+            (b[1], u) for u, b, sz in spans
+            if abs(b[0] - hx0) <= size and b[1] > hy1 - 0.5 and abs(sz - size) < 0.5
+        )
+        rows: list[str] = []
+        pending: list[str] = []
+        total_y = None
+        last_y = hy0
+        for y, u in col:
+            if y - last_y > 4 * size:
+                break
+            last_y = y
+            if u.upper() == "TOTAL":
+                total_y = y
+                break
+            has_value = any(
+                _RSI_RE.match(v) and abs(b[1] - y) <= size and rsi_x0 - size <= b[0] <= rsi_x1 + 4 * size
+                for v, b, _ in spans
+            )
+            pending.append(u)
+            if has_value:  # a wrapped row carries its value on its last line
+                rows.append(" ".join(pending))
+                pending = []
+        if total_y is None or not rows:
+            continue
+        titles = sorted(
+            (b[1], b[0], u) for u, b, sz in spans
+            if sz >= TITLE_SIZE_RATIO * size
+            and 0 < b[1] - total_y <= TITLE_REACH * size
+            and hx0 - 30 * size <= b[0] <= rsi_x1 + 40 * size
+        )
+        # The detail's tag (W3) may be lettered the same size as its title.
+        tag = next((u for _, _, u in titles if _TAG_RE.match(u)), "")
+        titles = [t for t in titles if not _TAG_RE.match(t[2])]
+        if not titles:
+            continue
+        ty, tx, title = titles[0]
+        for y, x, u in titles[1:]:  # a second line directly under the first
+            if 0 < y - ty <= 2.5 * size * TITLE_SIZE_RATIO and abs(x - tx) <= size and u != title:
+                title += " " + u
+                break
+        out.append(
+            Assembly(
+                tag=tag,
+                name=f"{title.title()} (from the energy table{'' if tag else ', untagged'})",
+                group_letter="W",
+                layers=_table_layers(rows),
+                sheet=sheet,
+                page=page.number,
+                from_legend=True,
+            )
+        )
+    for asm in out:
+        name = asm.name.upper()
+        if re.search(r"\bEXTERIOR WALLS?\b", name) and "TALL" not in name and "GARAGE" not in name:
+            asm.tag = asm.tag if tag_prefix(asm.tag) == "W" else "W1"
+            return [asm]
+    return []
+
+
 def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
     """Every trustworthy assembly in a design's schedule sheets, by tag.
 
@@ -966,6 +1206,30 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                     )
                     continue
                 found[asm.tag] = asm
+        if not found:
+            # No schedule: a US set states its walls in a legend on the plans.
+            for s in sheets:
+                if s.sheet_type in (SheetType.FLOOR_PLAN, SheetType.LEGEND) and s.readable:
+                    for asm in legend_assemblies_on_page(doc[s.page], s.sheet_no):
+                        found.setdefault(asm.tag, asm)
+                if len(found) == 2:
+                    break
+        if not any(tag_prefix(t) == "W" for t in found):
+            # Alberta permit sets carry a 9.36 energy table per assembly.
+            for s in sheets:
+                if s.readable:
+                    got = energy_table_assemblies_on_page(doc[s.page], s.sheet_no)
+                    if got:
+                        found[got[0].tag] = got[0]
+                        break
+        if not any(tag_prefix(t) == "W" for t in found):
+            # Nor a legend: some US sets size the exterior studs in a framing note.
+            for s in sheets:
+                if s.readable:
+                    got = stud_note_assemblies_on_page(doc[s.page], s.sheet_no)
+                    if got:
+                        found["W1"] = got[0]
+                        break
     finally:
         doc.close()
     return found, rejected
@@ -1036,7 +1300,7 @@ def assembly_tags_used(design) -> dict[str, int]:
         for s in sheets:
             if s.sheet_type not in wanted or not s.readable:
                 continue
-            for block in doc[s.page].get_text("dict")["blocks"]:
+            for block in doc[s.page].get_text("dict", flags=TEXT_DICT)["blocks"]:
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
                         # Same scoped repair as the schedule reader. Ontario's

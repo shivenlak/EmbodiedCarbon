@@ -308,6 +308,15 @@ class TestUsTitleBlocks:
         # T24 is California's Title 24 energy sheet: no discipline, so "?".
         assert discipline_of(token).value == ("?" if token[0] == "T" else token[0])
 
+    @pytest.mark.parametrize(
+        ("token", "disc"), [("PRJ-XX-ZZ-DR-A-1001", "A"), ("HSE-ABC-ZZ-00-DR-S-2001", "S")]
+    )
+    def test_iso_19650_numbers_give_the_role_as_discipline(self, token, disc):
+        from ecarbon.intake.classify import SHEET_NO_RE, discipline_of
+
+        assert SHEET_NO_RE.match(token)
+        assert discipline_of(token).value == disc
+
     @pytest.mark.parametrize("token", ["A1", "B4", "12", "A-", "2X6", "UP14R", "DN14R"])
     def test_bubbles_and_noise_are_not_sheet_numbers(self, token):
         from ecarbon.intake.classify import SHEET_NO_RE

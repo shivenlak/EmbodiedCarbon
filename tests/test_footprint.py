@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from ecarbon.geometry.footprint import Footprint, Segment
+from ecarbon.geometry.footprint import Footprint, Segment, _without_spurs
 
 try:
     from ecarbon.config import discover, get_design
@@ -298,3 +298,87 @@ class TestDimensionStrings:
             for i in range(3):
                 page.insert_text((100, top + 60 * i), "10'-0\"", fontsize=8)
         assert sorted(round(t, 3) for t in _string_totals_m(find_dimension_labels(page), 50.8)) == [9.144, 9.144]
+
+
+
+def test_the_takeoff_refuses_an_outline_its_dimensions_contradict(tmp_path):
+    """20'-0" x 10'-0" stated around a 33'-4" x 16'-8" outline: 40% out, so no footprint."""
+    import pymupdf
+
+    from ecarbon.config import pdf_designs
+    from ecarbon.takeoff.builder import gather
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=1000, height=1000)
+    page.insert_text((800, 950), "FLOOR PLAN", fontsize=24)
+    page.insert_text((800, 980), "A-101", fontsize=40)
+    page.insert_text((600, 900), 'SCALE: 1/4" = 1\'-0"', fontsize=8)
+    for i in range(30):  # enough text for the sheet to count as readable
+        page.insert_text((100, 450 + 12 * i), f"{i + 1}. ALL DIMENSIONS TO FACE OF STUD UNLESS NOTED OTHERWISE.", fontsize=8)
+    # At 1/4" = 1'-0" (16.93 mm/pt), 600 x 300 pt is 10.16 x 5.08 m.
+    corners = [(100, 100), (700, 100), (700, 400), (100, 400), (100, 100)]
+    for (x0, y0), (x1, y1) in zip(corners, corners[1:], strict=False):
+        for i in range(4):
+            page.draw_line(
+                (x0 + (x1 - x0) * i / 4, y0 + (y1 - y0) * i / 4),
+                (x0 + (x1 - x0) * (i + 1) / 4, y0 + (y1 - y0) * (i + 1) / 4),
+                width=1.4,
+            )
+    # Shorter than the sides, so they contradict the outline without outrunning it.
+    for x, y, text in [(380, 90, "20'-0\""), (710, 250, "10'-0\""), (380, 420, "20'-0\"")]:
+        page.insert_text((x, y), text, fontsize=8)
+    doc.save(tmp_path / "set.pdf")
+
+    (design,) = pdf_designs(tmp_path)
+    inputs, _, gaps = gather(design)
+    assert inputs.footprint is None
+    assert any("contradict" in g.message for g in gaps)
+
+
+def test_part_of_a_plan_is_not_the_footprint():
+    """An overall dimension beside a candidate that runs well past it (Santa
+    Cruz 3: half the plan at one stroke, 44'-0 1/4" across the whole)."""
+    import pymupdf
+
+    from ecarbon.geometry.footprint import detect_footprint
+    from ecarbon.geometry.scale import ScaleEstimate, ScaleSource
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=1000, height=1000)
+    corners = [(100, 100), (300, 100), (300, 200), (100, 200), (100, 100)]
+    for (x0, y0), (x1, y1) in zip(corners, corners[1:], strict=False):
+        for i in range(4):
+            page.draw_line(
+                (x0 + (x1 - x0) * i / 4, y0 + (y1 - y0) * i / 4),
+                (x0 + (x1 - x0) * (i + 1) / 4, y0 + (y1 - y0) * (i + 1) / 4),
+                width=1.4,
+            )
+    page.insert_text((300, 200 + 40), "16'-8\"", fontsize=8)  # the box's depth chain
+    page.insert_text((190, 90), "33'-4\"", fontsize=8)  # agrees with the box's width
+    sc = ScaleEstimate(mm_per_pt=50.8, source=ScaleSource.DIMENSION_CHAIN)
+    assert detect_footprint(page, sc) is not None
+    page.insert_text((300, 70), "66'-8\"", fontsize=8)  # 400 pt, centred past the box
+    assert detect_footprint(page, sc) is None
+
+
+@needs_data
+def test_a_setback_storey_keeps_its_own_outline_for_partitions():
+    """QC_Rowhouse_02's third storey is half the depth of the floors below,
+    whose 16.66 m overall dimension is also drawn on its sheet."""
+    from ecarbon.geometry.partitions import partitions_for
+
+    runs = partitions_for(get_design("QC_Rowhouse_02")).runs
+    assert "A102" in [r.sheet for r in runs]
+
+
+def test_a_grid_stub_hanging_off_the_outline_is_trimmed():
+    """A closed outline keeps every run; a line with a free end is dropped."""
+    box = [
+        Segment(100, 0, 0, 100, 0, 0.7),
+        Segment(100, 100, 0, 100, 80, 0.7),
+        Segment(100, 100, 80, 0, 80, 0.7),
+        Segment(100, 0, 80, 0, 0, 0.7),
+    ]
+    stub = Segment(30, 50, 80, 50, 110, 0.7)  # down to a grid bubble
+    kept = _without_spurs(box + [stub], box + [stub], 1.0)
+    assert stub not in kept and len(kept) == 4

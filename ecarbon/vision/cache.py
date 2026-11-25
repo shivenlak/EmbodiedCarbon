@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 
-from ecarbon.vision.tasks import PROMPT_VERSION, Task
+from ecarbon.vision.tasks import PROMPT_VERSION, TASK_VERSIONS, Task
 
 
 def cache_dir() -> Path:
@@ -32,12 +32,19 @@ def max_pages() -> int:
 
 def key(png: bytes, task: Task, provider: str, model: str) -> str:
     h = hashlib.sha256(png)
-    h.update(f"|{task}|{PROMPT_VERSION}|{provider}/{model}".encode())
+    h.update(f"|{task}|{TASK_VERSIONS.get(task, PROMPT_VERSION)}|{provider}/{model}".encode())
     return h.hexdigest()
 
 
 def cached_read(provider, png: bytes, task: Task) -> dict | None:
-    path = cache_dir() / f"{key(png, task, provider.name, provider.model)}.json"
+    name = f"{key(png, task, provider.name, provider.model)}.json"
+    path = cache_dir() / name
+    # A read-only store to copy answers from, so staging a deployment carries
+    # only the answers its own sets use (deploy/prebuild.py).
+    seed = os.environ.get("ECARBON_VISION_SEED")
+    if not path.exists() and seed and (Path(seed).expanduser() / name).exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text((Path(seed).expanduser() / name).read_text())
     if path.exists():
         return json.loads(path.read_text())
     answer = provider.read(png, task)
