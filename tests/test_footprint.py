@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from ecarbon.geometry.footprint import Footprint, Segment
+from ecarbon.geometry.footprint import Footprint, Segment, _without_spurs
 
 try:
     from ecarbon.config import discover, get_design
@@ -369,3 +369,16 @@ def test_a_setback_storey_keeps_its_own_outline_for_partitions():
 
     runs = partitions_for(get_design("QC_Rowhouse_02")).runs
     assert "A102" in [r.sheet for r in runs]
+
+
+def test_a_grid_stub_hanging_off_the_outline_is_trimmed():
+    """A closed outline keeps every run; a line with a free end is dropped."""
+    box = [
+        Segment(100, 0, 0, 100, 0, 0.7),
+        Segment(100, 100, 0, 100, 80, 0.7),
+        Segment(100, 100, 80, 0, 80, 0.7),
+        Segment(100, 0, 80, 0, 0, 0.7),
+    ]
+    stub = Segment(30, 50, 80, 50, 110, 0.7)  # down to a grid bubble
+    kept = _without_spurs(box + [stub], box + [stub], 1.0)
+    assert stub not in kept and len(kept) == 4

@@ -81,6 +81,9 @@ AREA_MIN_MULTIPLE = 0.4
 # stroke, and the whole group's extent spans them all (Escondido ADU 1:
 # 24 x 12 m for a 6.7 x 6.7 m building).
 CLUSTER_GAP_MM = 600.0
+# How close, on the ground, a run's end must come to another line to count
+# as joined rather than a free-ended spur.
+SPUR_TOUCH_MM = 100.0
 # How far two neighbouring labels' gap may sit from their runs, at the page
 # scale, and still be one dimension string.
 RUN_SCALE_TOL = 0.15
@@ -204,6 +207,28 @@ def _clusters(segs: list[Segment], gap_pt: float) -> list[list[Segment]]:
     for i, s in enumerate(segs):
         out.setdefault(root(i), []).append(s)
     return list(out.values())
+
+
+def _without_spurs(runs: list[Segment], touch: list[Segment], tol_pt: float) -> list[Segment]:
+    """`runs` less any segment with an end that touches nothing in `touch`.
+
+    A wall outline is closed, so every wall run meets another at both ends; a
+    grid-line stub drawn at the wall weight hangs off it to its bubble with one
+    free end (Santa Cruz 2: grid 2.2 added 1.7 m to the depth).
+    """
+
+    def near(x: float, y: float, sg: Segment) -> bool:
+        lo_x, hi_x = sorted((sg.x0, sg.x1))
+        lo_y, hi_y = sorted((sg.y0, sg.y1))
+        return lo_x - tol_pt <= x <= hi_x + tol_pt and lo_y - tol_pt <= y <= hi_y + tol_pt
+
+    def free_end(sg: Segment) -> bool:
+        return any(
+            not any(o is not sg and near(x, y, o) for o in touch)
+            for x, y in ((sg.x0, sg.y0), (sg.x1, sg.y1))
+        )
+
+    return [sg for sg in runs if not free_end(sg)]
 
 
 def _string_totals_m(labels: list[DimLabel], mm_per_pt: float) -> list[float]:
@@ -400,11 +425,16 @@ def detect_footprint(
         parts = _clusters([sg for sg in all_segs if sg.width == width], CLUSTER_GAP_MM / s)
         # Only the largest drawing: the main plan outweighs its vignettes, and
         # offering every small cluster let a stair or a unit match some chain.
-        runs = max(
-            ([sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM] for part in parts), key=len
-        )
-        if len(runs) < len(groups[width]):
-            ranked = rank(width, runs)
+        part = max(parts, key=lambda p: sum(sg.length_mm >= MIN_SEGMENT_MM for sg in p))
+        runs = [sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM]
+        candidates = [runs] if len(runs) < len(groups[width]) else []
+        # The same drawing less its free-ended spurs, offered alongside; the
+        # dimension agreement decides between them.
+        trimmed = _without_spurs(runs, part, SPUR_TOUCH_MM / s)
+        if 0 < len(trimmed) < len(runs):
+            candidates.append(trimmed)
+        for cand in candidates:
+            ranked = rank(width, cand)
             if ranked and (best is None or ranked[0] < best[0]):
                 best = ranked
 
