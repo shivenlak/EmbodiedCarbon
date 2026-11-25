@@ -135,7 +135,7 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - Results fill `TakeoffInputs` (scale → `ScaleEstimate`, footprint → `Footprint`, levels → `StoreyHeights`, schedules → `Assembly` / `Opening`), so line building is unchanged.
   - Labels per **C3**: `"vision: "` note, an `assumptions` entry, and `Provenance.bbox`. The trace highlight then works by itself, because `trace_line` honours `bbox` first.
   - Emit `progress("vision", ...)` (**C4**).
-- [ ] **Cross-check:** where the rules and vision both answer, agreement goes in the note ("agrees with the dimension chain"), and disagreement becomes a WARNING `Gap` with both values. Never silently resolved.
+- [x] *(25 Nov: footprint only, on a rules footprint nothing corroborated; one page per set. All 9 US dev sets agree within 0.5%; disagreement tested on a fixture.)* **Cross-check:** where the rules and vision both answer, agreement goes in the note ("agrees with the dimension chain"), and disagreement becomes a WARNING `Gap` with both values. Never silently resolved.
 - [x] **Tests:** recorded provider responses under `tests/fixtures/vision/`. CI never calls an API. Test that the validator drops a hallucinated quote, and that vision-off leaves CMHC totals bit-identical.
 - [ ] **Provider bake-off (Mon 23):**
   - Run both providers on every dev set.
@@ -166,6 +166,10 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 ---
 
 ## Findings (append as you go)
+
+- **25 Nov (day), A4 cross-check and a box bug it found.**
+  - Every vector-page vision answer was being dropped. The API shrinks a large image before the model sees it (measured with `count_tokens` on claude-opus-5-5: a 2576 px long edge and about 3.69 MP, so a 110 dpi ARCH D sheet, 3960x2640, is read at 2352x1568). The model's boxes are in the shrunk pixels; `box_to_points` read them at full size, so every quote was looked for 1.68x too close to the top-left corner and not found. NOR and Citrus Heights were unaffected in value (image-only, no text to check), but their trace highlights pointed at the wrong spot; NOR's now sit exactly on "11973" and "17973". The PNG sent is unchanged, so every saved answer stays valid.
+  - Cross-check on the 9 US dev sets whose rules footprint had no stated area to corroborate it (9 calls, about $0.25): all 9 agree with the linework within 0.5%, e.g. Escondido 1 at 6.68 m measured vs 22'-0" = 6.71 m read. The agreement is appended to each footprint line's note; a disagreement over 2% would be a WARNING naming both, with the measured value kept.
 
 - *(A1 failure list, A3 before/after, A4 bake-off, A5 NOR before/after)*
 - **23 Nov, A2 locale on every local set:** all 44 text CMHC sets read `mixed`; region is right on every AB, BC, ON, QC, SK/MB set and on NOR's garage set (CA-NT). ATL and the 8 image-only NOR sets name no region (no state or province on 2+ sheets). All 10 US dev sets read `imperial` / `US-CA`; AU sets read `metric` with no region (no `VIC 3000`-style address in their title blocks). Cost: 12 sampled sheets, 1–5 s per set, almost all of it PyMuPDF text extraction; cached per file.

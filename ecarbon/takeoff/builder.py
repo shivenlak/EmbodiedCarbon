@@ -151,6 +151,8 @@ class TakeoffInputs:
     vision_levels_page: int | None = None
     vision_by: str | None = None
     vision_sheets: int = 0
+    # A4 cross-check: vision agreeing with a rules footprint, for the line notes.
+    vision_check: str | None = None
     # Sheet types vision read from title blocks the rules could not (page ->
     # (sheet no, type)); typed by the same title rules as the text reader.
     vision_types: dict | None = None
@@ -320,6 +322,25 @@ def gather(
                     inputs.footprint_sheet, inputs.footprint_page = s.sheet_no, s.page
                     inputs.vision = [w, d]
                     break
+
+        # A4 cross-check: a rules footprint nothing corroborated gets one vision
+        # read of its own sheet. The rules value stays; vision only agrees or not.
+        weak = inputs.footprint is not None and not inputs.vision and (
+            not inputs.footprint.confident or inputs.footprint_uncorroborated
+        )
+        check = provider_from_env() if weak and inputs.footprint_page is not None else None
+        if check is not None:
+            inputs.vision_sheets += 1
+            page = doc[inputs.footprint_page]
+            got = {r.field: r for r in read_page(check, page, inputs.footprint_sheet, Task.FOOTPRINT)}
+            if "width" in got and "depth" in got:
+                said = cross_check_footprint(
+                    inputs.footprint, got["width"], got["depth"], f"{check.name} ({check.model})"
+                )
+                if isinstance(said, Gap):
+                    gaps.append(said)
+                else:
+                    inputs.vision_check = said
     finally:
         doc.close()
 
@@ -452,6 +473,33 @@ def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> l
     ]
 
 
+CROSS_CHECK_PCT = 2.0
+
+
+def cross_check_footprint(fp: Footprint, w: Reading, d: Reading, by: str) -> str | Gap:
+    """Compare the rules footprint with a vision read of the same sheet.
+
+    Agreement comes back as a phrase for the line notes; disagreement as a
+    WARNING naming both, never silently resolved. Orientation is ignored, since a
+    plan's width and depth are only which string the reader took first.
+    """
+    rules = sorted((fp.width_m, fp.depth_m))
+    seen = sorted((w.value / 1000.0, d.value / 1000.0))
+    off = max(abs(a - b) / a * 100.0 for a, b in zip(rules, seen, strict=True))
+    said = f"{seen[0]:.2f} x {seen[1]:.2f} m ({w.quote} x {d.quote})"
+    if off <= CROSS_CHECK_PCT:
+        return f"Agrees with {by} reading the dimension strings: {said}."
+    return Gap(
+        code=GapCode.GEOMETRY_AMBIGUOUS,
+        severity=GapSeverity.WARNING,
+        message=(
+            f"The footprint measured from the linework, {rules[0]:.2f} x {rules[1]:.2f} m, "
+            f"disagrees by {off:.0f}% with {by} reading the dimension strings on the same "
+            f"sheet: {said}. The measured value is used; check which is right."
+        ),
+    )
+
+
 def _vision_levels(design, sheets, inputs: TakeoffInputs) -> None:
     """A4: vision for the level datums, only where the sections gave no height."""
     provider = provider_from_env()
@@ -523,6 +571,9 @@ def label_vision(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
     on vision-read heights keeps its own note behind the vision quotes.
     """
     for line in lines:
+        if inputs.vision_check and line.element_class in _FROM_FOOTPRINT and line.quantity:
+            note = f"{line.basis.note} {inputs.vision_check}".strip()
+            line.basis = line.basis.model_copy(update={"note": note})
         fp = bool(inputs.vision) and line.element_class in _FROM_FOOTPRINT
         lv = bool(inputs.vision_levels) and line.element_class in _FROM_HEIGHTS
         if not (fp or lv) or line.quantity == 0:
