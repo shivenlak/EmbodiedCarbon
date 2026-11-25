@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 
-from ecarbon.vision.tasks import PROMPT_VERSION, Task
+from ecarbon.vision.tasks import PROMPT_VERSION, TASK_VERSIONS, Task
 
 
 def cache_dir() -> Path:
@@ -32,7 +32,7 @@ def max_pages() -> int:
 
 def key(png: bytes, task: Task, provider: str, model: str) -> str:
     h = hashlib.sha256(png)
-    h.update(f"|{task}|{PROMPT_VERSION}|{provider}/{model}".encode())
+    h.update(f"|{task}|{TASK_VERSIONS.get(task, PROMPT_VERSION)}|{provider}/{model}".encode())
     return h.hexdigest()
 
 

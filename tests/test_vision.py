@@ -215,9 +215,15 @@ class TestOutlinedText:
         assert got["width"].confidence is Confidence.INFERRED
         assert RASTER_NOTE in got["width"].note
 
-    def test_one_number_in_the_text_keeps_the_full_check(self):
+    def test_a_licence_stamp_and_date_are_still_an_image(self):
         page = self.stamped_page()
-        page.insert_text((50, 50), "REV 2", fontsize=8)
+        page.insert_text((600, 570), "C 080657   03/31/23", fontsize=8)
+        got = validate(page, "A100", Task.FOOTPRINT, answer("footprint_found"), DPI)
+        assert {r.field for r in got} >= {"width"}
+
+    def test_one_printed_dimension_keeps_the_full_check(self):
+        page = self.stamped_page()
+        page.insert_text((50, 50), "12'-6\"", fontsize=8)
         got = validate(page, "A100", Task.FOOTPRINT, answer("footprint_hallucinated"), DPI)
         assert got == []
 

@@ -25,16 +25,21 @@ log = logging.getLogger(__name__)
 # How far outside the model's box (in points) the quoted text may sit.
 NEAR_PT = 36.0
 RASTER_NOTE = "read from an image; not verifiable against text"
-# A page whose text layer holds no number at all cannot hold its own
-# dimensions or datums: NOR's sheets carry only a "NOT FOR PERMIT OR
-# CONSTRUCTION" stamp while every dimension is outlined linework. Such a page
-# is checked as an image (kept, INFERRED, with RASTER_NOTE). One digit
-# anywhere keeps the full quote-and-locate check.
-_DIGIT = re.compile(r"\d")
+# A page whose text layer holds no dimension, scale or datum elevation cannot hold its own
+# measurements: NOR's sheets carry only a "NOT FOR PERMIT OR CONSTRUCTION"
+# stamp, Citrus Heights' only an engineer's licence number and date, while
+# every dimension is outlined linework. Such a page is checked as an image
+# (kept, INFERRED, with RASTER_NOTE). One printed dimension, scale or elevation anywhere
+# keeps the full quote-and-locate check.
 
 
 def text_is_thin(spans) -> bool:
-    return not any(_DIGIT.search(t) for _, t in spans)
+    from ecarbon.extract.levels import _elevation_m  # lazy: levels is heavier than vision
+
+    return not any(
+        parse_dimension(t)[0] is not None or parse_scale_text(t) or _elevation_m(t) is not None
+        for _, t in spans
+    )
 
 
 @dataclass(frozen=True)

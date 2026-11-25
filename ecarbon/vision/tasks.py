@@ -12,8 +12,11 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-# Bump when a prompt or schema changes; it is part of the cache key.
+# Bump when a prompt or schema changes; it is part of the cache key. A task
+# whose prompt changed alone gets its own entry, so the other tasks' saved
+# answers (the demo's, shipped in the image) stay valid.
 PROMPT_VERSION = "2"
+TASK_VERSIONS = {"footprint": "3"}  # 3: the porch rule
 
 
 class Task(StrEnum):
@@ -74,7 +77,9 @@ PROMPTS: dict[Task, str] = {
     Task.FOOTPRINT: (
         "This is a floor plan. Find the two OVERALL exterior dimension strings: the "
         "longest dimension running across the whole building in each direction "
-        "(width and depth), not a room or partial run. Quote each dimension "
+        "(width and depth), not a room or partial run. Measure the enclosed "
+        "building: where an outer string also spans an open porch, deck or patio, "
+        "take the string that stops at the exterior wall. Quote each dimension "
         "string as printed. " + _NOT_THERE
     ),
     Task.LEVELS: (
