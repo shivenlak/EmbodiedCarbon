@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import pymupdf
 
@@ -441,6 +442,31 @@ def _footprint_where(inputs: TakeoffInputs) -> str:
     return inputs.footprint_sheet or f"p{(inputs.footprint_page or 0) + 1}"
 
 
+_VISION_WANTED = (*PLAN_TYPES, SheetType.SECTION, SheetType.ELEVATION)
+
+
+def _listed_pages(drawings_pdf: str) -> dict[int, int]:
+    """Pages to classify first (page -> rank), from the set's own List of Drawings.
+
+    Only an order: vision still reads each title block, so a wrong hint costs
+    a call, never a wrong type. CMHC sets list sheet i on page i + 1 (an
+    unlisted cover comes first) until an unlisted sheet shifts the rest.
+    shortcut: +1, then +0; read the offset off the first title if another publisher differs.
+    """
+    from ecarbon.bench.sheet_truth import parse_list_of_drawings
+
+    lists = sorted(Path(drawings_pdf).parent.rglob("*List of Drawings*.pdf")) if drawings_pdf else []
+    if not lists:
+        return {}
+    try:
+        listed = parse_list_of_drawings(lists[0])
+    except Exception:  # a hint only; an unreadable list changes nothing
+        return {}
+    wanted = [i for i, t in enumerate(listed) if t.sheet_type in _VISION_WANTED]
+    pages = [i + 1 for i in wanted] + [i for i in wanted]
+    return {p: rank for rank, p in enumerate(dict.fromkeys(pages))}
+
+
 def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> list:
     """Sheets of `types` for vision to read.
 
@@ -456,6 +482,8 @@ def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> l
     if inputs.vision_types is None:
         inputs.vision_types = {}
         unknown = [s for s in sheets if s.sheet_type is SheetType.UNKNOWN]
+        hint = _listed_pages(doc.name)
+        unknown.sort(key=lambda s: hint.get(s.page, len(hint)))
         for s in unknown[: max_classify_pages()]:
             got = {r.field: r for r in read_page(provider, doc[s.page], s.sheet_no, Task.SHEET)}
             if "title" not in got:
@@ -514,7 +542,8 @@ def _vision_levels(design, sheets, inputs: TakeoffInputs) -> None:
         found_sheets.sort(key=lambda s: s.sheet_type is not SheetType.SECTION)
         for s in found_sheets[:budget]:
             inputs.vision_sheets += 1
-            got = read_page(provider, doc[s.page], s.sheet_no, Task.LEVELS)
+            # one section sheet repeats its datums in every cut; one reading each
+            got = list({r.note: r for r in read_page(provider, doc[s.page], s.sheet_no, Task.LEVELS)}.values())
             found = StoreyHeights(
                 levels=[Level(r.field, r.value, s.sheet_no) for r in got],
                 floor_assembly_mm=inputs.heights.floor_assembly_mm,

@@ -336,3 +336,20 @@ def test_a_box_on_a_sheet_the_api_shrank_maps_back_to_the_printed_text():
     # text printed at (1423, 115) pt is at (2174, 176) px rendered, (1291, 104) as seen
     back = box_to_points(page, [1291 - 5, 104 - 5, 1291 + 5, 104 + 5], DPI)
     assert back.contains(pymupdf.Point(1423, 115)) and s < 1
+
+
+def test_a_drawing_list_orders_the_title_reads_toward_plans_and_sections(tmp_path):
+    """Sheet i on a CMHC List of Drawings is page i + 1; those pages are read first."""
+    from ecarbon.takeoff.builder import _listed_pages
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=600, height=400)
+    rows = ["A000 COVER SHEET", "A001 ASSEMBLIES SCHEDULE", "A100 MAIN FLOOR PLAN", "A300 SECTIONS"]
+    for n, row in enumerate(rows):
+        no, title = row.split(" ", 1)
+        page.insert_text((50, 60 + 24 * n), no, fontsize=10)
+        page.insert_text((150, 60 + 24 * n), title, fontsize=10)
+    (tmp_path / "CAD").mkdir()
+    doc.save(tmp_path / "CAD" / "X_List of Drawings.pdf")
+    assert list(_listed_pages(str(tmp_path / "X_Drawings.pdf"))) == [3, 4, 2]
+    assert _listed_pages(str(tmp_path / "nowhere" / "Y.pdf")) == {}
