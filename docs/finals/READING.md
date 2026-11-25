@@ -16,7 +16,7 @@ Tick each box in the PR that lands it.
 
 The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; traceable and editable. Your part is the reading that makes the Canadian numbers right, plus two small contracts B needs.
 
-- [ ] **A7. Per-wall partitions (C7). Wed night; it blocks B13, so do it first.**
+- [x] **A7. Per-wall partitions (C7). Wed night; it blocks B13, so do it first.** *(25 Nov night: done; `PartitionRun.walls`, tested on all 7 Alberta sets; totals unchanged.)*
   - In `geometry/partitions.py`, every `PartitionRun` gets `walls: list[Wall(id, rect, length_m, depth_mm)]`.
   - IDs are stable `p{page}-w{n}`, sorted by position.
   - Test: the walls' lengths sum to `length_m` on all Alberta sets.
@@ -24,7 +24,7 @@ The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; tra
 - [ ] **A8. Canada coverage and accuracy. Thu, the main block.**
   - Order the work by the CMHC gap matrix (ask B for the latest `matrix_*.json`, or use `scripts/run_pipeline.py`), largest gap first.
   - **SK/MB (0.37):** the assembly schedule format; the floor assemblies.
-  - **ATL (0.46):** footing and frost-wall sections; `intake/locale.py` reads ATL as CA-ON, so fix the region.
+  - **ATL (0.46):** footing and frost-wall sections; `intake/locale.py` reads ATL as CA-ON, so fix the region. *(25 Nov night: region fixed. It was every CMHC set, not just ATL; see SHARED A → B.)*
   - **BC (0.64):** the exterior-wall schedule is refused as unreliable; recover it.
   - **ON (0.72):** glyph-shifted sheets; floor depth.
   - **NOR:** a vision pass with recorded fixtures, so CI never calls the API.

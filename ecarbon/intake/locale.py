@@ -42,6 +42,13 @@ _MM_RE = re.compile(r"\b\d{2,5}\s*mm\b", re.I)
 MAX_PAGES = 8
 
 
+# Text that names a province or state that is not the site: a licence's governing-law
+# clause, and the publisher's own office. Every CMHC set, whichever province it is for,
+# carries both "700 MONTREAL ROAD, OTTAWA, ONTARIO" and "LAWS OF THE PROVINCE OF ONTARIO".
+# shortcut: one publisher's address; add others as catalogues arrive.
+_NOT_THE_SITE = re.compile(r"\bLAWS OF THE (?:PROVINCE|STATE|COMMONWEALTH) OF\b|\b700 MONTREAL ROAD\b")
+
+
 def locale_from_texts(texts: list[str]) -> Locale:
     """The locale from page texts; separated from the PDF for testing."""
     from ecarbon.carbon.region import from_text
@@ -51,7 +58,16 @@ def locale_from_texts(texts: list[str]) -> Locale:
     ft_in = mm = 0
     for raw in texts:
         up = re.sub(r"\s+", " ", raw).upper()
-        if (geo := from_text(up)) and geo[:2] in ("US", "CA"):
+        # from_text reads an address, so give it one line at a time: on a whole page,
+        # an assembly tag shaped like a postcode ("P1A 2X4") makes "SLAB ON GRADE" Ontario.
+        # Paragraphs (blank-line separated) are where a boilerplate clause is caught whole.
+        for geo in {
+            g
+            for para in raw.split("\n\n")
+            if not _NOT_THE_SITE.search(re.sub(r"\s+", " ", para).upper())
+            for line in para.upper().splitlines()
+            if (g := from_text(line)) and g[:2] in ("US", "CA")
+        }:
             regions[geo] += 1
         codes["US"] += len(_US_CODE_RE.findall(up))
         codes["CA"] += len(_CA_CODE_RE.findall(up))
@@ -99,7 +115,10 @@ def detect_locale(design) -> Locale:
     except Exception:
         return Locale(None, None, None, [])
     try:
-        texts = [doc[i].get_text("text") for i in range(min(len(doc), MAX_PAGES))]
+        texts = [
+            "\n\n".join(b[4] for b in doc[i].get_text("blocks"))
+            for i in range(min(len(doc), MAX_PAGES))
+        ]
     finally:
         doc.close()
     return locale_from_texts(texts)
