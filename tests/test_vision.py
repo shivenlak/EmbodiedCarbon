@@ -297,3 +297,42 @@ def test_a_seed_store_copies_only_the_answers_used(tmp_path, monkeypatch):
     assert sorted(p.name for p in ship.iterdir()) == sorted(
         p.name for p in seed.iterdir() if p.name != "unrelated.json"
     )
+
+
+class TestCrossCheck:
+    """A4: where the rules and vision both answer, agree in the note or warn with both."""
+
+    def check(self, fp):
+        from ecarbon.takeoff.builder import cross_check_footprint
+
+        w, d = validate(plan_page(), "A101", Task.FOOTPRINT, answer("footprint_found"), DPI)
+        return cross_check_footprint(fp, w, d, "recorded (fixture)")
+
+    def test_agreement_goes_in_the_basis(self):
+        from ecarbon.geometry.footprint import Footprint
+
+        fp = Footprint(2.29, 9.09, basis=["outline"])  # swapped and within 2%
+        assert self.check(fp).startswith("Agrees with recorded (fixture)")
+
+    def test_disagreement_is_a_warning_with_both_values(self):
+        from ecarbon.geometry.footprint import Footprint
+        from ecarbon.models import GapSeverity
+
+        fp = Footprint(9.1, 3.0, basis=["outline"])
+        gap = self.check(fp)
+        assert gap.severity is GapSeverity.WARNING
+        assert "3.00 x 9.10 m" in gap.message and "2.29 x 9.10 m" in gap.message
+        assert fp.depth_m == 3.0
+
+
+def test_a_box_on_a_sheet_the_api_shrank_maps_back_to_the_printed_text():
+    """An ARCH D sheet at 110 dpi is 3960x2640 px; the model sees it at 2352x1568."""
+    from ecarbon.vision.validate import api_scale
+
+    assert api_scale(3960, 2640) == pytest.approx(2352 / 3960, abs=0.002)
+    assert api_scale(1222, 917) == 1.0
+    page = pymupdf.open().new_page(width=2592, height=1728)
+    s = api_scale(3960, 2640)
+    # text printed at (1423, 115) pt is at (2174, 176) px rendered, (1291, 104) as seen
+    back = box_to_points(page, [1291 - 5, 104 - 5, 1291 + 5, 104 + 5], DPI)
+    assert back.contains(pymupdf.Point(1423, 115)) and s < 1

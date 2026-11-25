@@ -56,9 +56,24 @@ def _norm(text: str) -> str:
     return re.sub(r"[\s’′]+", "", text).replace("″", '"').upper()
 
 
+# The API shrinks a large image before the model sees it, and the model's boxes are
+# in the shrunk pixels. Measured with count_tokens on claude-opus-5-5 (25 Nov):
+# 3960x2640 costs the same as 2352x1568, 2000x2000 about 1920x1920, 3000x1000
+# about 2576x859, i.e. a 2576 px long edge and about 3.69 MP.
+# shortcut: Claude's limits; re-measure if the model or the Gemini adapter is used.
+API_LONG_EDGE = 2576
+API_MAX_PX = 3.688e6
+
+
+def api_scale(w: float, h: float) -> float:
+    """How much the API shrinks a w x h image before the model reads it."""
+    return min(1.0, API_LONG_EDGE / max(w, h), (API_MAX_PX / (w * h)) ** 0.5)
+
+
 def box_to_points(page: pymupdf.Page, box: list[float], dpi: int) -> pymupdf.Rect:
-    """A pixel box on the rendered (rotated) image, as unrotated PDF points."""
-    r = pymupdf.Rect(box) * (72.0 / dpi)
+    """A pixel box on the image the model saw (rotated page), as unrotated PDF points."""
+    s = api_scale(page.rect.width * dpi / 72.0, page.rect.height * dpi / 72.0)
+    r = pymupdf.Rect(box) * (72.0 / dpi / s)
     r = r * page.derotation_matrix
     r.normalize()
     return r
