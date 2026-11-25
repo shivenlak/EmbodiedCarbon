@@ -22,6 +22,51 @@ Tick each box in the PR that lands it.
 
 ---
 
+## START HERE (25 Nov evening): B9–B15, every number traceable and editable
+
+See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the schedule.
+
+- [ ] **B9. Calculation trace (C8). The top priority; Wed night → Thu am.**
+  - **`carbon/calc_trace.py`.** Steps per line:
+    1. the quantity read (basis, sheet)
+    2. the effective quantity (override and note)
+    3. the conversion: density kg/m³, thickness m, mass in kg (mass)
+    4. waste (× 1.00 unless B14 says otherwise)
+    5. the factor: GWP value and unit, source / EPD, geography, data type, modules, valid-to, ±uncertainty
+    6. `= N kgCO₂e`, asserted equal to `kg_co2e`
+  - **Endpoints:** `GET /projects/{id}/lines/{line_id}/calc`, and the calculation is also folded into the carbon response.
+  - **CSV:** add the effective and converted quantity, density, thickness, GWP value and unit, declared unit, geography, data type, attribution, valid-to, uncertainty, override note, a one-line `calculation` formula and the trace kind. Add a header block (project, region, factor set, date, both totals, app version).
+  - **Report:** an "Audit trail" table.
+  - **UI:** every kgCO₂e figure opens a `CalcPopover` of the steps, with source chips and a sheet chip.
+  - **Fix:** the substitution delta should use the converted quantity.
+  - **Test:** the steps reproduce every line on four CMHC sets.
+- [ ] **B10. Units explicit. Thu am.**
+  - `fmtCarbon` / `fmtIntensity` / `fmtMass` / `fmtFactor` in `units.js`; kgCO₂e with a `<sub>`, mass as kg (mass).
+  - Replace about 12 ambiguous "kg" and about 15 unit-less numbers.
+  - The same wording in the CSV and report.
+  - The footer names the factor set actually used.
+- [ ] **B11. Edit everything (C9). Thu.**
+  - Material, factor, thickness and quantity edits per line, replayed after rebuilds.
+  - Swaps and decisions are saved server-side (`POST /swaps`, `POST /decisions`) and exported.
+  - A line editor drawer, with the calculation re-rendered live; undo and "reset all".
+- [ ] **B12. Your own materials. Thu.**
+  - An "Add a material" form: name, declared unit, GWP, density, source / EPD, valid-to.
+  - A library CSV/XLSX upload, both in the upload dialog and in "Your spec", with a template download.
+  - Suggestions are ranked from the library first.
+- [ ] **B13. Clickable plan set (needs C7). Thu pm.**
+  - The partition walls are clickable on the sheet; a click toggles the wall, which posts `excluded_walls`, which recomputes the line.
+  - A counter of walls and metres counted.
+- [ ] **B14. Canadian factor sources. Thu eve.**
+  - URL and EPD number per Canadian factor (values unchanged).
+  - Waste shown as an explicit step (1.00 default).
+  - Region picker limited to Canadian provinces.
+- [ ] **B15. Accuracy and submission. Thu night → Fri.**
+  - Refresh accuracy.json after A8; a "how to audit this number" walkthrough.
+  - `docs/benchmark.md`, `docs/FINALS.md`, `docs/ARCHITECTURE.md` flowchart.
+  - Deck, video, deploy, warm, submit.
+
+---
+
 ## B1. Holdout truth and licences (Thu 19)
 
 - [ ] Run `python scripts/fetch_corpus.py --split holdout`.
