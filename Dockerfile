@@ -18,14 +18,21 @@ FROM python:3.13-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    EC_DATA=/data/cmhc
+    EC_DATA=/data/cmhc \
+    ECARBON_VISION=cache \
+    ECARBON_VISION_CACHE=/data/cmhc/_vision
 
 WORKDIR /app
 
+# ECARBON_VISION=cache: image-only sets (NOR) show the vision answers saved in
+# deploy/data/_vision by deploy/prebuild.py. No API key is in the image and no
+# call is ever made. Those answers are keyed by the rendered page, so pymupdf
+# stays pinned to the version that rendered them.
+#
 # Only what the service needs at runtime. Pinned to the same majors the
 # project develops against; the test and benchmark extras are not installed.
 RUN pip install --no-cache-dir \
-      "pymupdf>=1.24" \
+      "pymupdf==2.1" \
       "pydantic>=2.7" \
       "fastapi>=0.115" \
       "uvicorn[standard]>=0.30" \

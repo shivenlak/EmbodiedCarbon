@@ -721,7 +721,8 @@ def _wall_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
     if len(heights.floors) == 1:
         basis_name = "floor to top plate"
     area = round(fp.perimeter_m * height, 2)
-    sheet = next((s.split(":")[0] for s in heights.sources), None)
+    # a vision source reads "vision: A300: 'T/O ROOF' ...", so its sheet is the second field
+    sheet = next((s.removeprefix("vision:").split(":")[0].strip() for s in heights.sources), None)
 
     note = (
         f"Perimeter {fp.perimeter_m:.1f} m from the measured footprint x {height:.3f} m "
@@ -1554,6 +1555,18 @@ def build_takeoff(
             "other assemblies are assumed where noted",
         ),
     }
+    # A sheet the rules could not read may still have been read as an image.
+    for start, readings, classes, what in (
+        ("No readable floor plan", inputs.vision, _FROM_FOOTPRINT, "footprint was"),
+        ("No readable section", inputs.vision_levels, _FROM_HEIGHTS, "storey heights were"),
+    ):
+        if readings:
+            sheet = readings[0].note.split(":")[1].strip()
+            instead[start] = (
+                [ln.id for ln in lines if ln.element_class in classes],
+                f"the {what} read by AI from the image of {sheet}, "
+                "which cannot be checked against text",
+            )
     for gap in gaps:
         for start, (ids, how) in instead.items():
             if gap.message.startswith(start) and ids:
