@@ -1,0 +1,233 @@
+# Holdout-split truth for scripts/score_blind.py --split holdout.
+#
+# STREAM A: DO NOT OPEN. This file is the answer key for the blind test; the
+# reading rules must never be tuned against it (docs/finals/SHARED.md, blind
+# protocol). Written by Stream B on 24 Nov, before the feature freeze, and
+# scored once after it.
+#
+# Read by eye off each set's drawings, with the same conventions as
+# corpus/dev_truth.yaml. Facts only: the drawings themselves never enter git.
+#
+# footprint_m:        overall W x D in metres, off the overall dimension strings
+# footprint_area_m2:  only where the footprint is not a rectangle; the area the
+#                     sheet states (checked against the outline less its notch)
+# storey_heights_m:   plate height per storey on a one-storey set
+# windows / doors:    instances in the base schedule (QTY summed), or counted
+#                     off the plan callouts where a set has no schedule;
+#                     alternates, access hatches and options are left out
+# null:               the set does not state it
+
+# ---- Orange County pre-approved ADUs (Design Path Studio, Jan 2026) ---------
+# One template: A0.1 schedules, A1.1 floor plan, A4.1 sections ("8'-0" PLATE
+# HEIGHT"), S2 foundation plan ("5" SLAB ON GRADE"). Craftsman and Ranch
+# differ in elevations only; plans and schedules match, read separately.
+
+us-oc-adu-craftsman-393:
+  footprint_m: [6.045, 6.655]   # 19'-10" x 21'-10"
+  footprint_area_m2: 36.51      # 393 SF stated; outline less a 5'-7" x 7'-5" porch notch = 392
+  storeys: 1
+  storey_heights_m: [2.438]     # 8'-0" PLATE HEIGHT
+  windows: 5                    # QNTY 1+2+1+1
+  doors: 3
+  slab_mm: 127                  # 5" slab on grade
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "A1.1 floor plan; A0.1 schedules"
+
+us-oc-adu-ranch-393:
+  footprint_m: [6.045, 6.655]
+  footprint_area_m2: 36.51
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 5
+  doors: 3
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "as craftsman-393"
+
+us-oc-adu-craftsman-558:
+  footprint_m: [6.096, 8.407]   # 20'-0" x 27'-7"; 558 SQ. FT. stated (551 by the outline)
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 8                    # QNTY 2+1+1+1+1+2
+  doors: 6
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "A1.1"
+
+us-oc-adu-ranch-558:
+  footprint_m: [6.096, 8.407]
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 8
+  doors: 6
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "as craftsman-558"
+
+us-oc-adu-craftsman-748:
+  footprint_m: [5.334, 13.386]  # 17'-6" x 43'-11"; 748 SQ. FT. stated (769 by the outline)
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 7                    # QNTY 1+2+2+2
+  doors: 9
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "A1.1"
+
+us-oc-adu-ranch-748:
+  footprint_m: [5.334, 13.386]
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 7
+  doors: 9
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "as craftsman-748"
+
+us-oc-adu-craftsman-800:
+  footprint_m: [9.093, 8.687]   # 29'-10" x 28'-6" (the 30'-10" string runs to the porch edge)
+  footprint_area_m2: 74.32      # 800 SF stated; outline less a 14'-9" x 4'-1" porch notch = 790
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 9                    # QNTY 1+2+2+2+1+1
+  doors: 9
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "A1.1"
+
+us-oc-adu-ranch-800:
+  footprint_m: [9.093, 8.687]
+  footprint_area_m2: 74.32
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 9
+  doors: 9
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "as craftsman-800"
+
+us-oc-adu-craftsman-972:
+  footprint_m: [8.357, 11.532]  # 27'-5" x 37'-10"
+  footprint_area_m2: 90.30      # 972 SF stated; porch inset at one corner
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 7                    # QNTY 1+2+4
+  doors: 11
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "A1.1"
+
+us-oc-adu-ranch-972:
+  footprint_m: [8.357, 11.532]
+  footprint_area_m2: 90.30
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 7
+  doors: 11
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "as craftsman-972"
+
+us-oc-adu-craftsman-1200:
+  footprint_m: [11.582, 10.541] # 38'-0" x 34'-7"
+  footprint_area_m2: 111.48     # 1200 SF stated; entry notch mid-front (~1189 by the outline)
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 24                   # QNTY 12+3+3+6
+  doors: 10
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "A1.1"
+
+us-oc-adu-ranch-1200:
+  footprint_m: [11.582, 10.541]
+  footprint_area_m2: 111.48
+  storeys: 1
+  storey_heights_m: [2.438]
+  windows: 24
+  doors: 10
+  slab_mm: 127
+  exterior_wall: '2x studs @ 16" o.c. (size per structural), stucco by default'
+  notes: "as craftsman-1200"
+
+# ---- City of Martinez pre-approved ADUs (William Wood Architects) ----------
+# The architectural sheets (A1-A5, pages 20-25) and the cover set carry no
+# text layer; read off the images. No window or door schedule: counted off
+# the plan callouts (2050 CSMT etc.). Plate "8'-1"" (S-sheets), slab 5".
+
+us-martinez-adu-a:
+  footprint_m: [5.334, 9.144]   # 17'-6" x 30'-0" (16'-0" across the bedroom end)
+  footprint_area_m2: 46.08      # 496 S.F. stated; outline ~501
+  storeys: 1
+  storey_heights_m: [2.464]     # 8'-1" plate
+  windows: 12                   # 2050x2, 3050x2, 2030, 3050x3, 5050 SL, 3050x2, 1080 FX
+  doors: 6                      # closet slider, bedroom, bath, linen, double closet, entry
+  slab_mm: 127
+  exterior_wall: '2x6 wood studs @ 16" o.c. (FLOORPLAN NOTES 1)'
+  notes: "A1 on page 20; one bedroom, craftsman, no piers"
+
+us-martinez-adu-b:
+  footprint_m: [5.334, 9.144]
+  footprint_area_m2: 46.08
+  storeys: 1
+  storey_heights_m: [2.464]
+  windows: 12
+  doors: 6
+  slab_mm: 127
+  exterior_wall: '2x6 wood studs @ 16" o.c.'
+  notes: "same plan as martinez-a"
+
+us-martinez-adu-c:
+  footprint_m: [6.096, 6.858]   # 20'-0" x 22'-6"
+  footprint_area_m2: 39.95      # 430 S.F. stated; outline less a 9'-2" x 2'-6" notch = 427
+  storeys: 1
+  storey_heights_m: [2.464]
+  windows: 12                   # 3050x2, 2050x4, 2030, 3050x2, 2650x3
+  doors: 5                      # closet slider pair, closet double, bedroom, bath, entry
+  slab_mm: 127
+  exterior_wall: '2x6 wood studs @ 16" o.c.'
+  notes: "A1 on page 20; one bedroom 430 SF"
+
+us-martinez-adu-d:
+  footprint_m: [6.096, 6.858]
+  footprint_area_m2: 39.95
+  storeys: 1
+  storey_heights_m: [2.464]
+  windows: 12
+  doors: 5
+  slab_mm: 127
+  exterior_wall: '2x6 wood studs @ 16" o.c.'
+  notes: "same plan as martinez-c"
+
+# ---- El Dorado County permit-ready ADU (image-only, 38 pages) ---------------
+
+us-eldorado-adu:
+  footprint_m: [13.081, 7.976]  # 42'-11" O.A. x 26'-2" O.A.
+  footprint_area_m2: 92.53      # 996 SF gross stated; outline less the 128 SF inset porch = 995
+  storeys: 1
+  storey_heights_m: [2.692]     # 8'-10" rough floor to top (A8-10 section; 8'-2" interior clear)
+  windows: 10                   # W1-W10
+  doors: 9                      # 1-9; door 10 is an alternate to window 8, 11-12 are access hatches
+  slab_mm: null                 # raised floor over a crawl space; no slab
+  exterior_wall: '2x6 wood stud, R-21 (A2-10 general notes)'
+  notes: "every page is a raster image; A2-10 floor plan p12, A8-10 schedules and section p16"
+
+# ---- Victoria Future Homes (design intent, no dimensions or datums) ---------
+
+au-vic-futurehomes-c:
+  footprint_m: null             # no dimension strings on any plan
+  storeys: 3                    # car park and units at grade, two apartment levels over
+  storey_heights_m: null        # the sections state no levels
+  windows: null
+  doors: null
+  slab_mm: null
+  notes: "design intent set, 1:100 presentation plans; A890 sections carry no datums"
+
+au-vic-futurehomes-d:
+  footprint_m: null
+  storeys: 3
+  storey_heights_m: null
+  windows: null
+  doors: null
+  slab_mm: null
+  notes: "design intent set; A867 sections carry no datums"
