@@ -82,7 +82,7 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - UK `FFL +3.000` / `SSL` / `TOS`
   - DE `OKFF ±0,00`
   - Reuse `scale.parse_imperial`. Keep the plate-vs-ridge distinction (`roof_level_m`).
-- [ ] **`extract/specs.py`:** `4" CONC. SLAB ON GRADE`, `16" x 8" CONT. FTG`, `#4 @ 12" O.C.`, `N12-300` (AU rebar), `150 THK SLAB`, `100mm thick`.
+- [x] **`extract/specs.py`:** *(24 Nov: all slab and footing forms read, plus `8" CONC. FOUNDATION WALL` and a stated foundation wall height; rebar notes `#4 @ 12"` / `N12-300` not read, as no quantity uses them)* `4" CONC. SLAB ON GRADE`, `16" x 8" CONT. FTG`, `#4 @ 12" O.C.`, `N12-300` (AU rebar), `150 THK SLAB`, `100mm thick`.
 - [ ] **`extract/assemblies.py`:** *(24 Nov: nominal lumber, AU/UK depth-first and spacing-based framing share done; decimal comma not)*
   - [x] Nominal lumber: 2x4 → 89, 2x6 → 140, 2x8 → 184, 2x10 → 235, 2x12 → 286 mm. Also AU/UK `90x45` / `140x45` (stud depth is the first number).
   - [x] Framing fraction from the stated spacing: `@ 16" O.C.` / `@ 24" O.C.` / `@ 400 crs` / `@ 600 crs`. Use the spacing to compute stud share instead of always `FRAMING_FRACTION = 0.15`; the no-spacing case keeps 0.15, so CMHC is unchanged.
@@ -251,3 +251,10 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
   - Landmark (rules only): RPL and RSL now read their exterior wall's full build-up; it was studs only. Coverage stays 48%, because the coverage score counts wall area, which was already there. CMHC and dev are identical on every set.
   - Not done: Townhome's tables (page rotated 90°, titles only 1.2× the rows, tags `EW1`/`EW2`), and the floor, roof and foundation tables on the same sheets.
   - Hygiene: the 24 Nov wall-height entry, its code comment and its tests had carried Landmark's own dimensions. They are replaced here with generic values. Commit `a62f98c` (message and diff) still holds them in history.
+- **24 Nov, imperial foundations (A3 specs) and Landmark's basements:**
+  - `extract/specs.py` reads strip footings in inches (`24"Wx10"H CONC. STRIP FOOTING`, `16" x 8" CONT. FTG`, `Footings · Minimum 20" x 10''`; pad footings refused), a foundation wall in inches (`10" WIDE CONC. FOUNDATION WALL`), a basement's stated wall height (`8'-6" FOUNDATION WALL HEIGHT`, new `FoundationSpec.foundation_wall_height_mm`), and slabs written `4'' (nominal) thick 25 MPA concrete slab`, `150 THK SLAB`, `SLAB ON GRADE, 100mm THICK`.
+  - A set with no structural sheet at all (Landmark numbers none) reads its whole foundation from the other sheets; before, only the slab was taken from them.
+  - `takeoff/framing.py` (B's, announced under Requests): a stated foundation wall height replaces frost depth + 200 mm. Screw piles beside strip footings with no grade beam (a deck) no longer make a "foundation is on screw piles" line.
+  - Landmark (rules only): RPL 48 → 91%, RSL 48 → 91%, Townhome 66 → 91% coverage. Each now reads its footing section, foundation wall thickness and slab; RPL also its wall height. Still missing on all three: openings (sizes are stacked W/H labels at each opening, no schedule) and the floor/roof assemblies. No Landmark quantity is recorded here.
+  - CMHC: `foundation_spec_for` gives identical specs on all 53 sets with and without this change, and no CMHC sheet states a foundation wall height. Alberta gate unchanged. `run_pipeline.py` coverage is at or above `out/baseline.json` on every set.
+  - Dev (rules only, before this change): Escondido 78–85%, Riverside 85%, Santa Cruz 2–9%; the AU sets, Citrus Heights and the BC catalogue read 0% and need vision (outlined text or image only).

@@ -676,7 +676,10 @@ def _foundation_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
             )
         )
 
-    if spec.screw_piles:
+    # Screw piles beside strip footings and no grade beam carry a deck or porch
+    # (Landmark's basements), not the house.
+    if spec.screw_piles and spec.system != "strip_footing":
+        dia = f", {spec.pile_diameter_mm:.0f} mm dia" if spec.pile_diameter_mm else ""
         out.append(
             TakeoffLine(
                 id="ln-screw-piles",
@@ -685,7 +688,7 @@ def _foundation_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
                 unit=Unit.M3,
                 confidence=Confidence.ASSUMED,
                 material="steel_screw_pile",
-                description=f"Screw piles, {spec.pile_diameter_mm or 0:.0f} mm dia (steel, by supplier)",
+                description=f"Screw piles{dia} (steel, by supplier)",
                 basis=Basis(sources=[BasisSource.SECTION_NOTE]),
                 assumptions=[
                     "Foundation is on screw piles, which are a steel product supplied by "

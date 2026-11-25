@@ -517,13 +517,16 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
     if strips and not has_fwall and fp.perimeter_m:
         depth = getattr(spec, "frost_depth_mm", None)
         thick = getattr(spec, "foundation_wall_mm", None)
-        h_m = ((depth or STANDARD_FROST_MM) + ABOVE_GRADE_MM) / 1000.0
+        stated_h = getattr(spec, "foundation_wall_height_mm", None)
+        h_m = (stated_h or (depth or STANDARD_FROST_MM) + ABOVE_GRADE_MM) / 1000.0
         t_mm = thick or STANDARD_FOUNDATION_WALL_MM
         depth_src = (
             f"the stated frost protection depth ({depth:.0f} mm)"
             if depth
             else f"a {STANDARD_FROST_MM:.0f} mm frost depth (assumed; none stated)"
-        )
+        ) + f" plus {ABOVE_GRADE_MM:.0f} mm above grade"
+        if stated_h:
+            depth_src = f"the stated foundation wall height ({stated_h:.0f} mm)"
         thick_src = (
             f"the stated foundation wall schedule ({t_mm:.0f} mm)"
             if thick
@@ -543,16 +546,19 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
             basis=Basis(
                 sources=[BasisSource.DEFAULT_RULE, BasisSource.SECTION_NOTE, BasisSource.VECTOR_PATH],
                 note=(
-                    f"Height is {depth_src} plus {ABOVE_GRADE_MM:.0f} mm above grade; "
+                    f"Height is {depth_src}; "
                     f"thickness {thick_src}; run is the measured footprint perimeter."
                 ),
             ),
             assumptions=([UNREAD_FOUNDATION] if unread else [
+                "The drawings state the foundation wall height but no wall quantity."
+                if stated_h else
                 "The drawings show strip footings, which carry a concrete wall from "
                 "frost depth to the slab, but state no wall height or quantity.",
-            ]) + [
+            ]) + ([] if stated_h else [
                 "A frost wall is assumed, not a full basement: a basement wall is about "
                 "twice as tall, so if the building has a basement this understates it.",
+            ]) + [
                 "Run taken as the rectangular footprint perimeter; interior bearing "
                 "and party walls are not counted.",
             ],
