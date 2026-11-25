@@ -25,7 +25,7 @@ Tick each box in the PR that lands it.
 ## B1. Holdout truth and licences (Thu 19)
 
 - [ ] Run `python scripts/fetch_corpus.py --split holdout`.
-- [ ] Write `corpus/holdout_truth.yaml` in the same format as `dev_truth.yaml` (see READING.md A1). **Never share holdout sets with Stream A.**
+- [x] Write `corpus/holdout_truth.yaml` (24 Nov: all 19 sets) in the same format as `dev_truth.yaml` (see READING.md A1). **Never share holdout sets with Stream A.**
 - [ ] Confirm every `licence` row in `sources.yaml`. Anything that can't be redistributed is marked `local_only: true` and never goes in `deploy/data`.
 
 ## B2. Overrides plumbing (C2) and endpoints (Thu 19 – Fri 20; C2 merged by Fri)
