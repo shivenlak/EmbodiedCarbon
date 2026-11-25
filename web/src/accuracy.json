@@ -1,55 +1,55 @@
 {
- "generated": "2026-11-23",
+ "generated": "2026-11-25",
  "designs": 53,
  "quantity_error_pct": {
   "exterior wall area vs IFC model": {
-   "n": 46,
-   "median": -3.8,
-   "q1": -21.7,
-   "q3": 23.6,
-   "within_10pct": 11
+   "n": 39,
+   "median": 7.4,
+   "q1": -11.1,
+   "q3": 43.0,
+   "within_10pct": 9
   },
   "footprint vs energy model ceiling": {
-   "n": 32,
-   "median": 6.1,
-   "q1": -3.6,
-   "q3": 14.4,
-   "within_10pct": 16
+   "n": 37,
+   "median": 8.9,
+   "q1": -2.8,
+   "q3": 16.0,
+   "within_10pct": 18
   },
   "window area vs energy model": {
    "n": 37,
    "median": -5.3,
-   "q1": -24.9,
+   "q1": -17.6,
    "q3": 21.7,
-   "within_10pct": 12
+   "within_10pct": 13
   },
   "slab concrete vs IFC (plausible IFC slabs only)": {
    "n": 19,
    "median": 9.3,
-   "q1": -41.9,
+   "q1": -10.7,
    "q3": 22.0,
    "within_10pct": 5
   },
   "foundation walls + footings concrete vs IFC": {
-   "n": 24,
-   "median": -25.9,
-   "q1": -42.0,
-   "q3": 14.3,
-   "within_10pct": 3
+   "n": 36,
+   "median": -16.9,
+   "q1": -32.7,
+   "q3": 13.6,
+   "within_10pct": 8
   },
   "Concrete, CIP volume vs IFC model": {
-   "n": 33,
-   "median": 1.2,
-   "q1": -44.9,
-   "q3": 37.7,
-   "within_10pct": 6
+   "n": 38,
+   "median": 26.9,
+   "q1": -29.5,
+   "q3": 112.0,
+   "within_10pct": 5
   },
   "Gypsum Board volume vs IFC model": {
-   "n": 46,
-   "median": -29.8,
-   "q1": -63.0,
-   "q3": 3.7,
-   "within_10pct": 10
+   "n": 38,
+   "median": 2.6,
+   "q1": -24.7,
+   "q3": 25.8,
+   "within_10pct": 9
   },
   "Insulation, Rigid volume vs IFC model": {
    "n": 18,
@@ -59,17 +59,17 @@
    "within_10pct": 2
   },
   "Plywood volume vs IFC model": {
-   "n": 46,
-   "median": -23.9,
-   "q1": -54.8,
-   "q3": 10.2,
-   "within_10pct": 3
+   "n": 38,
+   "median": -19.8,
+   "q1": -34.4,
+   "q3": 18.0,
+   "within_10pct": 5
   },
   "Wood Framing volume vs IFC model": {
-   "n": 46,
-   "median": -92.9,
-   "q1": -95.0,
-   "q3": -90.5,
+   "n": 38,
+   "median": -91.4,
+   "q1": -93.1,
+   "q3": -89.3,
    "within_10pct": 0
   }
  },
@@ -80,53 +80,53 @@
   "Material gaps the tool already reports as not counted: floor joists and roof trusses (wood framing), foundation walls (concrete), steel studs, and the cladding and roofing placeholders."
  ],
  "carbon_vs_ifc_same_factors": {
-  "n": 46,
-  "median_ratio": 0.7,
-  "q1": 0.21,
-  "q3": 1.01,
+  "n": 38,
+  "median_ratio": 0.9,
+  "q1": 0.62,
+  "q3": 1.27,
   "note": "Our carbon over the architect's IFC quantities priced with OUR factors, for the materials both name (concrete, gypsum, insulation, sheathing; framing excluded because the IFC models it as solid layers). This isolates quantity error from factor and module differences."
  },
  "intensity_vs_cmhc_a1_a5": {
-  "n": 39,
+  "n": 43,
   "median_ratio": 0.44,
-  "q1": 0.31,
+  "q1": 0.35,
   "q3": 0.62,
   "note": "Our kg CO2e per m2 of measured floor area over CMHC's A1-A5 per m2 of its own floor area: robust to a report that covers one unit of a block the drawings show whole."
  },
  "carbon_vs_cmhc_a1_a5": {
-  "n": 52,
-  "median_ratio": 0.41,
-  "q1": 0.22,
-  "q3": 0.58,
+  "n": 44,
+  "median_ratio": 0.54,
+  "q1": 0.38,
+  "q3": 0.71,
   "note": "Our A1-A3 total over CMHC's reported A1-A5 for the same design. Below 1 is expected (A4 transport and A5 construction are not counted) and the rest of the gap is scope we flag as not counted: cladding and roofing placeholders, joists, trusses, steel studs, foundation walls."
  },
  "element_share_diff_points": {
   "foundations": {
-   "n": 51,
-   "median": -6.2
+   "n": 43,
+   "median": 0.1
   },
   "upper_floors": {
-   "n": 42,
-   "median": -5.0
+   "n": 38,
+   "median": -5.5
   },
   "roofs": {
-   "n": 51,
-   "median": 2.6
+   "n": 43,
+   "median": 1.4
   },
   "external_walls": {
-   "n": 51,
-   "median": 12.7
+   "n": 43,
+   "median": 7.9
   },
   "windows_doors": {
-   "n": 51,
-   "median": 2.2
+   "n": 43,
+   "median": 2.7
   },
   "interiors": {
-   "n": 44,
-   "median": -10.6
+   "n": 36,
+   "median": -8.1
   },
   "stairs": {
-   "n": 37,
+   "n": 30,
    "median": -1.0
   }
  },
@@ -147,15 +147,15 @@
   "ATL": {
    "designs": 9,
    "wall_vs_ifc": {
-    "n": 8,
-    "median": -7.7,
+    "n": 9,
+    "median": -8.3,
     "q1": -11.0,
-    "q3": 22.6,
-    "within_10pct": 1
+    "q3": 17.8,
+    "within_10pct": 2
    },
    "with_carbon": 9,
-   "intensity_ratio_median": 0.19,
-   "carbon_ratio_median": 0.31
+   "intensity_ratio_median": 0.32,
+   "carbon_ratio_median": 0.46
   },
   "BC": {
    "designs": 7,
@@ -167,34 +167,34 @@
     "within_10pct": 0
    },
    "with_carbon": 7,
-   "intensity_ratio_median": 0.54,
-   "carbon_ratio_median": 0.58
+   "intensity_ratio_median": 0.57,
+   "carbon_ratio_median": 0.64
   },
   "NOR": {
    "designs": 9,
    "wall_vs_ifc": {
-    "n": 9,
-    "median": -21.7,
+    "n": 1,
+    "median": -41.1,
     "q1": -41.1,
-    "q3": -6.7,
-    "within_10pct": 3
+    "q3": -41.1,
+    "within_10pct": 0
    },
-   "with_carbon": 9,
+   "with_carbon": 1,
    "intensity_ratio_median": null,
-   "carbon_ratio_median": 0.15
+   "carbon_ratio_median": null
   },
   "ON": {
    "designs": 7,
    "wall_vs_ifc": {
     "n": 7,
-    "median": 15.6,
-    "q1": -50.9,
-    "q3": 43.0,
+    "median": 34.8,
+    "q1": -26.1,
+    "q3": 91.1,
     "within_10pct": 0
    },
    "with_carbon": 7,
-   "intensity_ratio_median": 0.73,
-   "carbon_ratio_median": 0.32
+   "intensity_ratio_median": 0.36,
+   "carbon_ratio_median": 0.72
   },
   "QC": {
    "designs": 7,
@@ -207,7 +207,7 @@
    },
    "with_carbon": 7,
    "intensity_ratio_median": 0.46,
-   "carbon_ratio_median": 0.5
+   "carbon_ratio_median": 0.51
   },
   "SKMB": {
    "designs": 7,
@@ -219,8 +219,23 @@
     "within_10pct": 0
    },
    "with_carbon": 7,
-   "intensity_ratio_median": 0.38,
-   "carbon_ratio_median": 0.34
+   "intensity_ratio_median": 0.39,
+   "carbon_ratio_median": 0.37
   }
+ },
+ "blind_holdout": {
+  "sets": 17,
+  "countries": [
+   "US"
+  ],
+  "footprint_read": 4,
+  "footprint_err_median_pct": 4.1,
+  "footprint_within_10pct": 4,
+  "storeys_right": 12,
+  "openings_exact": 10,
+  "full_bill": 4,
+  "nothing_read": 5,
+  "vision": false,
+  "scored": "once, after the 25 Nov freeze, rules only"
  }
 }

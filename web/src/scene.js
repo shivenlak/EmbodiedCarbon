@@ -262,14 +262,22 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     label: "Slab on grade", detail: `${W.toFixed(1)} × ${D.toFixed(1)} m footprint`,
   });
 
-  // Grade beam round the perimeter, below grade.
-  const beamY = -SLAB_T - BEAM_D - GAP;
-  const beam = { cls: "footing", y: beamY, h: BEAM_D, opacity: 0.9, label: "Footings", detail: "grade beam on the perimeter, below grade" };
-  const g = GAP;
-  solid({ ...beam, x: g, z: g, w: W - 2 * g, d: BEAM_W });
-  solid({ ...beam, x: g, z: D - BEAM_W - g, w: W - 2 * g, d: BEAM_W });
-  solid({ ...beam, x: g, z: BEAM_W + 2 * g, w: BEAM_W, d: D - 2 * BEAM_W - 4 * g });
-  solid({ ...beam, x: W - BEAM_W - g, z: BEAM_W + 2 * g, w: BEAM_W, d: D - 2 * BEAM_W - 4 * g });
+  // What the bill has under the slab, at its depth: a grade beam, a
+  // foundation wall on its footing, a thickened edge. Nothing when the bill
+  // has no foundation line, rather than a footing nobody read.
+  const BEAM_DEPTH = massing.foundation_depth_m === undefined ? BEAM_D : massing.foundation_depth_m;
+  if (BEAM_DEPTH) {
+    const beamY = -SLAB_T - BEAM_DEPTH - GAP;
+    const beam = {
+      cls: "footing", y: beamY, h: BEAM_DEPTH, opacity: 0.9, label: "Footings",
+      detail: massing.foundation_label || "grade beam on the perimeter, below grade",
+    };
+    const g = GAP;
+    solid({ ...beam, x: g, z: g, w: W - 2 * g, d: BEAM_W });
+    solid({ ...beam, x: g, z: D - BEAM_W - g, w: W - 2 * g, d: BEAM_W });
+    solid({ ...beam, x: g, z: BEAM_W + 2 * g, w: BEAM_W, d: D - 2 * BEAM_W - 4 * g });
+    solid({ ...beam, x: W - BEAM_W - g, z: BEAM_W + 2 * g, w: BEAM_W, d: D - 2 * BEAM_W - 4 * g });
+  }
 
   // The envelope, one shell per storey so the storeys can be pulled apart.
   heights.forEach((h, s) => {

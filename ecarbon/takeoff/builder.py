@@ -1259,6 +1259,15 @@ def _assumed_partition_lines(
         )
 
     built, more = expand(asm, [])
+    if drawn is not None:
+        from ecarbon.takeoff.framing import missing_layer_lines
+
+        faces, _ = missing_layer_lines(
+            "P", built, inputs, _assembly_lines, est, ElementClass.INTERIOR_PARTITION,
+            Confidence.ASSUMED, f"Area assumed from the floor area: {est:.0f} m2 of partition wall.",
+            assumptions,
+        )
+        built += faces
     if not built and drawn is not None:
         # The drawn assembly states no layer depth that gives a volume.
         built, more = expand(_standard_assembly("P", inputs), [
@@ -1351,6 +1360,13 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
         ),
         extra_assumptions=shared,
     )
+    from ecarbon.takeoff.framing import missing_layer_lines
+
+    faces, _ = missing_layer_lines(
+        "P", built, inputs, _assembly_lines, area, ElementClass.INTERIOR_PARTITION,
+        Confidence.ASSUMED, f"Area is the {area:.1f} m2 of partition measured.",
+    )
+    built += faces
     for line in built:
         line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
 
