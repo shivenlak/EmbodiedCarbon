@@ -79,6 +79,7 @@ from ecarbon.takeoff.framing import (
     mark_assumed_heights,
     single_storey_fallback,
     standard_assembly_lines,
+    standard_code,
 )
 from ecarbon.takeoff.overrides import (
     _FROM_FOOTPRINT,
@@ -1569,7 +1570,10 @@ def build_takeoff(
                 if "ln-strip-footing" in framed_ids:
                     done.append("a strip footing on ln-strip-footing")
                 if "ln-foundation-wall" in framed_ids:
-                    done.append("a frost wall on ln-foundation-wall")
+                    done.append(
+                        ("a stem wall" if standard_code(inputs) == "IRC" else "a frost wall")
+                        + " on ln-foundation-wall"
+                    )
                 done = done or [f"the slab on {line_id}"]
                 edge = "ln-thickened-edge" in ids
                 left = [] if edge or any(i.startswith("ln-strip-footing") for i in ids) else ["footings"]

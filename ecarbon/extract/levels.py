@@ -59,6 +59,9 @@ _LEVEL_LABEL_RE = re.compile(
 )
 # Labels that mark a reference line rather than a constructed floor level.
 _NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM|CEILING)\b")
+# "T.O.S." is top of slab on an architectural section and top of steel on a
+# structural one; it counts as a floor only as the 0 datum itself.
+_TOS_RE = re.compile(r"(?i)\bT\.\s*O\.\s*S\b")
 # Labels that are the top of the structure rather than a floor.
 _ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
 # The top of the wall: a one-storey house's wall height, with no floor above.
@@ -105,6 +108,8 @@ class Level:
     def is_floor(self) -> bool:
         """A constructed floor level, as opposed to a reference line."""
         if _NOT_A_FLOOR_RE.search(self.label):
+            return False
+        if _TOS_RE.search(self.label) and abs(self.elevation_m) > 0.01:
             return False
         return not self.is_roof
 
