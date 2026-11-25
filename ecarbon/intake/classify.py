@@ -109,6 +109,8 @@ class Span:
     text: str
     font: str = ""
     repaired: bool = False
+    # Set at right angles to the page (a US title block's vertical column).
+    vertical: bool = False
 
 
 def _spans(page: pymupdf.Page, repair: FontRepair | None = None) -> list[Span]:
@@ -123,9 +125,11 @@ def _spans(page: pymupdf.Page, repair: FontRepair | None = None) -> list[Span]:
             for s in line.get("spans", []):
                 t = s["text"].strip()
                 if t:
-                    raw.append(
-                        Span(round(s["size"], 1), s["bbox"][0], s["bbox"][1], t, s.get("font", ""))
-                    )
+                    dx, dy = line.get("dir", (1.0, 0.0))
+                    raw.append(Span(
+                        round(s["size"], 1), s["bbox"][0], s["bbox"][1], t, s.get("font", ""),
+                        vertical=abs(dy) > abs(dx),
+                    ))
 
     fix = repair
     if fix is None:
@@ -139,7 +143,7 @@ def _spans(page: pymupdf.Page, repair: FontRepair | None = None) -> list[Span]:
         if looks_broken(text):
             # Undecodable: a wrong title is worse than an admitted unknown.
             continue
-        out.append(Span(s.size, s.x, s.y, text, s.font, repaired))
+        out.append(Span(s.size, s.x, s.y, text, s.font, repaired, s.vertical))
     return out
 
 
@@ -353,6 +357,9 @@ def from_title_block(
         # further from the number than boilerplate such as "PUBLIC SET". Only
         # when the nearest text names no sheet type, take the closest large
         # span that does, within a wider radius, with its same-size neighbours.
+        # Text set the same way as that boilerplate comes first: Santa Cruz's
+        # vertical "FLOOR PLANS" is further away than the horizontal "LEGEND"
+        # heading a notes panel beside the title block.
         wide = sorted(
             (
                 s
@@ -362,7 +369,7 @@ def from_title_block(
                 and not _is_noise(s.text)
                 and dist(s) <= 0.3 * diag
             ),
-            key=dist,
+            key=lambda s: (s.vertical != closest.vertical, dist(s)),
         )
         typed = [s for s in wide if sheet_type_of(s.text) is not SheetType.UNKNOWN]
         # The title-block column first: a drawing heading ("LEGEND") can sit
@@ -374,9 +381,12 @@ def from_title_block(
                 s
                 for s in wide
                 if abs(s.size - hit.size) < 0.6
+                and s.vertical == hit.vertical
                 and abs(s.x - hit.x) + abs(s.y - hit.y) <= 5 * hit.size
             ]
-            group.sort(key=lambda s: (round(s.y / max(hit.size, 1.0)), s.x))
+            # A vertical title's lines run left to right across the column.
+            group.sort(key=(lambda s: (round(s.x / max(hit.size, 1.0)), -s.y)) if hit.vertical
+                       else (lambda s: (round(s.y / max(hit.size, 1.0)), s.x)))
             title = re.sub(r"\s+", " ", " ".join(s.text for s in group)).strip(" -–,")
     return sheet_no, title or None
 
