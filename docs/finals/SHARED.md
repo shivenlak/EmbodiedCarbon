@@ -17,6 +17,17 @@ Two people build this in parallel, each with their own Claude agent:
 
 ---
 
+## Scope change (24 Nov): North America only
+
+The team narrowed the finals claim to **North American plan sets** (Canada and
+the US). The Australian and Irish sets in `corpus/sources.yaml` are now
+`split: out_of_scope`: they stay on disk but are not scored, and A3's AU/UK/DE
+conventions are dropped from the plan. The blind holdout is the 17 US sets.
+
+The vision fallback is shown on **one or two demo sets only**, to keep API
+spend down; its cache makes reruns free. The rules-only path is what every
+set is scored on.
+
 ## Where we start (19 Nov, `main` at f32dd72)
 
 - **AB_Fourplex_01:** 38,075 kgCO₂e, 34,659 without partitions, 124.4 kg/m².
@@ -241,3 +252,4 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
   - `extract/assemblies.thickness_in_name`: a layer with an empty thickness cell takes a depth its description opens with (`11 1/4" UNFACED FIBERGLASS BATT`); spacings (`16" O.C.`, `@`) are refused.
   - `extract/specs.py`: `FROST_WALL_RE` (ATL's drawn `8" FROST WALL DETAIL` / `FROST WALL, SEE DETAIL` means a strip footing plus a frost wall of that thickness; the plural concrete-strength note does not count); `STRIP AND PAD FOOTING` (ON); `FOOTINGS AT 1200mm BELOW GRADE` as the frost depth; `THICKENED EDGE SLAB` as its own system (SK/MB).
   - `extract/levels.repair_level_span`: the scoped 0x1D glyph-shift repair, like `repair_schedule_cell`, accepted only when it yields a capitalised level label or an elevation that parses. ON's `T/O F/F THIRD` was refused by the global repair, so four ON multiplexes read 2 storeys instead of 3. Only five sets' ladders change (four ON, ATL_Fourplex_01 Option 2); Alberta is unchanged.
+- **DONE by B, 24 Nov (scope change, please review):** `intake/locale.py` is now real for North America (US vs Canada by address, ZIP/postcode and building-code citations; units by dimension strings; None on a weak or split vote). Country is right on every CMHC and US set it answers; region is wrong on most ATL sets (reads CA-ON), harmless for factors and frost depth but worth a look. `extract/levels.py` reads a value-first datum span ("8'-0\" PLATE HEIGHT", "0'-0\" FINISHED FLOOR"), floor and plate labels only, so the four Riverside dev sets read 1 storey at 2.438 m instead of none.

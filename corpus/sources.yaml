@@ -72,7 +72,7 @@ sets:
 
   # ---- Australia, metric (Victoria "Future Homes", four architects) -----------
   - id: au-vic-futurehomes-a
-    split: dev
+    split: out_of_scope  # was dev; North America only (24 Nov)
     country: AU
     region: AU-VIC
     units: metric
@@ -85,7 +85,7 @@ sets:
     licence: "Victorian Government; see terms: https://www.planning.vic.gov.au/__data/assets/pdf_file/0029/635357/terms-and-conditions-for-licence-of-future-homes-exemplar-plans.pdf"
     local_only: true
   - id: au-vic-futurehomes-b
-    split: dev
+    split: out_of_scope  # was dev; North America only (24 Nov)
     country: AU
     region: AU-VIC
     units: metric
@@ -98,7 +98,7 @@ sets:
     licence: "As au-vic-futurehomes-a."
     local_only: true
   - id: au-vic-futurehomes-c
-    split: holdout
+    split: out_of_scope  # was holdout; North America only (24 Nov)
     country: AU
     region: AU-VIC
     units: metric
@@ -111,7 +111,7 @@ sets:
     licence: "As au-vic-futurehomes-a."
     local_only: true
   - id: au-vic-futurehomes-d
-    split: holdout
+    split: out_of_scope  # was holdout; North America only (24 Nov)
     country: AU
     region: AU-VIC
     units: metric
@@ -308,7 +308,7 @@ sets:
     licence: "Santa Cruz County pre-designed ADU plans, public download. Redistribution not granted."
     local_only: true
   - id: au-nsw-manor-homes-01
-    split: dev
+    split: out_of_scope  # was dev; North America only (24 Nov)
     country: AU
     region: AU-NSW
     units: metric
@@ -479,7 +479,7 @@ sets:
     page: https://www.fresnocountyca.gov/Departments/Public-Works-and-Planning/divisions-of-public-works-and-planning/community-development-division/Duplex-Plans
     fetch: browser
   - id: gb-ie-plana-timber-house
-    split: todo
+    split: out_of_scope  # was todo; North America only (24 Nov)
     country: IE
     units: metric
     type: 42 m2 timber house (Plana Architecture, released free)

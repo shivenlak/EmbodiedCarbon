@@ -52,7 +52,8 @@ _ELEV_INCHES_RE = re.compile(r"^(?:([-+±])\s*(\d{1,2}(?:\s+\d{1,2}/\d{1,2})?)|(
 # A datum label. Deliberately broad; `is_floor_level` decides what counts.
 _LEVEL_LABEL_RE = re.compile(
     # T/O CONCRETE / T/O SLAB: SK/MB's ground datum is the top of the slab.
-    r"(?i)\b(T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|SECOND|THIRD|FOURTH"
+    # FINISHED FLOOR: the US sections' "0'-0" FINISHED FLOOR" datum.
+    r"(?i)\b(T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|FINISHED\s+FLOOR|SECOND|THIRD|FOURTH"
     r"|BASEMENT|ROOF|TRUSS|PLATE|CEILING|GRADE|LEVEL\s*\d)\b"
 )
 # Labels that mark a reference line rather than a constructed floor level.
@@ -222,6 +223,17 @@ def _elevation_m(text: str) -> float | None:
     return round((-mm if m.group(1) == "-" else mm) / 1000.0, 3)
 
 
+# An elevation that opens its own label's span: "8'-0\" PLATE HEIGHT".
+_LEADING_ELEV_RE = re.compile(
+    r"^([-+±]?\s*\d{1,3}'\s*-?\s*\d{1,2}(?:\s+\d{1,2}/\d{1,2})?\")\s+([A-Z][A-Z .&/-]{3,})$"
+)
+
+# Only floor and plate datums count in that form; the same sections set
+# "8'-0\" TOP OF TRELLIS", "7'-4\" BOTTOM OF BEAM", which are not levels.
+_LEAD_LABEL_RE = re.compile(
+    r"(?i)(?:FINISHED|GROUND|MAIN|SECOND|THIRD|FOURTH)\s+FLOOR|PLATE\s+(?:HEIGHT|HT\.?)|TOP\s+OF\s+PLATE|T\.?\s*O\.?\s*PLATE"
+)
+
 # Glyph-ID shifts to try on a span the global repair declines (see
 # extract/assemblies.repair_schedule_cell; 0x1D is Ontario's).
 _SPAN_SHIFTS = (0x1D, 0x1F, 0x1E, 0x20)
@@ -260,6 +272,14 @@ def levels_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Level]:
 
     out: list[Level] = []
     for y, x, text in spans:
+        # US sections set the value first, in the same span as its label:
+        # Riverside's "8'-0\" PLATE HEIGHT", "0'-0\" FINISHED FLOOR".
+        lead = _LEADING_ELEV_RE.match(text)
+        if lead and _LEAD_LABEL_RE.fullmatch(lead.group(2).strip()):
+            elev = _elevation_m(lead.group(1))
+            if elev is not None:
+                out.append(Level(label=re.sub(r"\s+", " ", lead.group(2)), elevation_m=elev, sheet=sheet))
+                continue
         if not _LEVEL_LABEL_RE.search(text) or _elevation_m(text) is not None:
             continue
         # The elevation sits on the line directly below its label.

@@ -156,6 +156,8 @@ class TakeoffInputs:
     # Sheet types vision read from title blocks the rules could not (page ->
     # (sheet no, type)); typed by the same title rules as the text reader.
     vision_types: dict | None = None
+    # Where the set was drawn (intake.locale, contract C1); None when unsure.
+    locale: object | None = None
 
     def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
         """The assembly of one group that this design actually uses."""
@@ -1274,6 +1276,12 @@ def build_takeoff(
         facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
     )
     inputs, sheets, gaps = gather(design, expected, overrides=overrides)
+    try:
+        from ecarbon.intake.locale import detect_locale
+
+        inputs.locale = detect_locale(design)
+    except Exception:
+        inputs.locale = None
     tell(
         "sheets",
         f"{len(sheets)} sheets classified, {sum(1 for s in sheets if s.readable)} readable",
