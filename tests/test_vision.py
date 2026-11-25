@@ -258,7 +258,9 @@ class TestVisionSheetTypes:
         monkeypatch.setattr(b, "read_page", fake_read)
         sheets = [SheetInfo(page=0, sheet_type=SheetType.UNKNOWN)]
         inputs = b.TakeoffInputs()
-        got = b._vision_candidates(object(), [None], sheets, inputs, b.PLAN_TYPES)
+        doc = pymupdf.open()  # unsaved, so no List of Drawings beside it
+        doc.new_page()
+        got = b._vision_candidates(object(), doc, sheets, inputs, b.PLAN_TYPES)
         assert [(s.page, s.sheet_no, s.sheet_type) for s in got] == [(0, "A100", SheetType.FLOOR_PLAN)]
         assert sheets[0].sheet_type is SheetType.UNKNOWN  # the inventory is untouched
 
@@ -312,7 +314,7 @@ class TestCrossCheck:
         from ecarbon.geometry.footprint import Footprint
 
         fp = Footprint(2.29, 9.09, basis=["outline"])  # swapped and within 2%
-        assert self.check(fp).startswith("Agrees with recorded (fixture)")
+        assert "extents agree with recorded (fixture)" in self.check(fp)
 
     def test_disagreement_is_a_warning_with_both_values(self):
         from ecarbon.geometry.footprint import Footprint

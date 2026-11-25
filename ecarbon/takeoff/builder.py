@@ -84,6 +84,7 @@ from ecarbon.takeoff.framing import (
 from ecarbon.takeoff.overrides import (
     _FROM_FOOTPRINT,
     _FROM_HEIGHTS,
+    StatedFootprint,
     StatedStoreyHeights,
     footprint_from_polygon,
     label_stated,
@@ -435,7 +436,66 @@ def gather(
                 message=f"Storey heights: {missing}.",
             )
         )
+    shape = _shape_gap(design, inputs)
+    if shape is not None:
+        gaps.append(shape)
     return inputs, sheets, gaps
+
+
+# A US set states its conditioned area: "909 SQ. FT." in a plan title, "Plan - 909 s.f.",
+# "PLAN 1 484 SF CONDITIONED", "CONDITIONED PLAN 2 FLOOR 637 SF". Attic vent and
+# porch areas ("235 SF", "UNCONDITIONED PORCH 85 SF") are not matched.
+_AREA_N = r"(?<![\d,.])(\d{1,2},\d{3}|\d{3,5})"
+_STATED_AREA = re.compile(
+    _AREA_N + r"\s*(?:SQ\.\s*FT\.|S\.F\.|SF\s+CONDITIONED)|CONDITIONED\b.{0,30}?" + _AREA_N + r"\s*SF\b",
+    re.I,
+)
+
+
+def stated_area_sf(texts) -> float | None:
+    """The one floor area a set states in square feet, or None if none or several."""
+    found = {
+        float(n.replace(",", ""))
+        for t in texts
+        if "UNCONDITIONED" not in t.upper()
+        for m in _STATED_AREA.finditer(t)
+        for n in m.groups()
+        if n
+    }
+    return found.pop() if len(found) == 1 else None
+
+
+def _shape_gap(design, inputs: TakeoffInputs) -> Gap | None:
+    """Warn when the stated area says the building is not its bounding rectangle.
+
+    The footprint is the overall width by depth, so an L or a notched porch is
+    priced as the full rectangle. Single storey only: on a taller building the
+    stated area may be the sum of its floors.
+    """
+    fp = inputs.footprint
+    if fp is None or isinstance(fp, StatedFootprint) or inputs.heights.n_storeys != 1:
+        return None
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        texts = [" ".join(b[4].split()) for page in doc for b in page.get_text("blocks")]
+    finally:
+        doc.close()
+    sf = stated_area_sf(texts)
+    if sf is None:
+        return None
+    stated, drawn = sf * 0.09290304, fp.area_m2
+    if abs(drawn - stated) / stated <= 0.10:
+        return None
+    return Gap(
+        code=GapCode.GEOMETRY_AMBIGUOUS,
+        severity=GapSeverity.WARNING,
+        message=(
+            f"The drawings state {sf:,.0f} sq ft ({stated:.1f} m2), but the footprint's overall "
+            f"extents, {fp.width_m:.2f} x {fp.depth_m:.2f} m, enclose {drawn:.1f} m2. The plan "
+            "is probably not a rectangle (an L, a notch, a porch), and quantities from the "
+            "footprint use the full extents. Trace the outline to measure it as drawn."
+        ),
+    )
 
 
 def _footprint_where(inputs: TakeoffInputs) -> str:
@@ -516,7 +576,7 @@ def cross_check_footprint(fp: Footprint, w: Reading, d: Reading, by: str) -> str
     off = max(abs(a - b) / a * 100.0 for a, b in zip(rules, seen, strict=True))
     said = f"{seen[0]:.2f} x {seen[1]:.2f} m ({w.quote} x {d.quote})"
     if off <= CROSS_CHECK_PCT:
-        return f"Agrees with {by} reading the dimension strings: {said}."
+        return f"The overall extents agree with {by} reading the dimension strings: {said}."
     return Gap(
         code=GapCode.GEOMETRY_AMBIGUOUS,
         severity=GapSeverity.WARNING,
