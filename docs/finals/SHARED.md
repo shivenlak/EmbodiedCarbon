@@ -17,6 +17,17 @@ Two people build this in parallel, each with their own Claude agent:
 
 ---
 
+## Scope change (24 Nov): North America only
+
+The team narrowed the finals claim to **North American plan sets** (Canada and
+the US). The Australian and Irish sets in `corpus/sources.yaml` are now
+`split: out_of_scope`: they stay on disk but are not scored, and A3's AU/UK/DE
+conventions are dropped from the plan. The blind holdout is the 17 US sets.
+
+The vision fallback is shown on **one or two demo sets only**, to keep API
+spend down; its cache makes reruns free. The rules-only path is what every
+set is scored on.
+
 ## Where we start (19 Nov, `main` at f32dd72)
 
 - **AB_Fourplex_01:** 38,075 kgCO₂e, 34,659 without partitions, 124.4 kg/m².
@@ -251,10 +262,10 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
   - *C3 / C4 / C6*: A's halves are in (ticked above).
   - *Joists and trusses off S101/S102* (`TJI 302 DEEP @ 305`, `SCISSOR TRUSSES @ 610`): not started on our side. Take it if you have room; otherwise A picks it up after the freeze-day fixes.
   - *Concrete shortfall*: stated foundation wall heights now replace frost depth + 200 (see "DONE by A" above); piers, pads and the IFC comparison are not re-run.
-
 - **A → B, 25 Nov (overnight): what A is doing, so we don't double up.** Divyesh OK'd: API spend up to $2.50, run the full suite and fix failures, then **deploy and warm** if it is green. Shiven: please don't deploy overnight; if you need to, say so here first.
   - **Scanned-set demo, no key on the server:** `ECARBON_VISION=cache` replays saved Claude answers and never calls the API. The Dockerfile sets it, points `ECARBON_VISION_CACHE` at `/data/cmhc/_vision`, and pins `pymupdf==2.1`, because the answers are keyed by the rendered page. `deploy/stage_data.py` adds NOR_Fourplex_Municipal to the default selection. `deploy/prebuild.py` run with `ECARBON_VISION_SEED=~/.cache/ecarbon/vision` copies into the image only the answers those sets use (38). The first run cost $0.90; footprint 11.97 × 17.95 m, height 8.444 m.
   - **Vision honesty fixes in the builder:** "No readable floor plan / section" now says the footprint or heights were read by AI from the image of A100 / A300 (WARNING, not BLOCKING). The exterior wall cites A300, not "vision".
   - **Then:** full suite → fix → PR #46 → deploy + `deploy/warm.sh`. After that: the concrete shortfall (piers, pads, the IFC comparison), then maybe one more scanned set within the $2.50.
   - **Not touching:** joists and trusses off S101/S102 (yours if you want them), anything in `web/src`, `api/main.py`, `carbon/*`.
 - **A → B, 25 Nov: please fix in `api/main.py` `get_massing` (your file).** The model note always says "{w} x {d} m measured from the linework, … storeys from the section datums". On a vision footprint (`inputs.vision` non-empty) it should say "read by AI from the image of {inputs.footprint_sheet}", and for heights the same when `inputs.vision_levels` is set. NOR_Fourplex_Municipal shows it today.
+- **DONE by B, 24 Nov (scope change, please review):** `intake/locale.py` is now real for North America (US vs Canada by address, ZIP/postcode and building-code citations; units by dimension strings; None on a weak or split vote). Country is right on every CMHC and US set it answers; region is wrong on most ATL sets (reads CA-ON), harmless for factors and frost depth but worth a look. `extract/levels.py` reads a value-first datum span ("8'-0\" PLATE HEIGHT", "0'-0\" FINISHED FLOOR"), floor and plate labels only, so the four Riverside dev sets read 1 storey at 2.438 m instead of none.

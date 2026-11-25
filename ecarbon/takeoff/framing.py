@@ -54,6 +54,29 @@ STANDARD_SLAB_MM = 100.0
 # A frost wall on strip footings: Part 9's common frost depth, 200 mm out of
 # the ground, 200 mm thick (NBC Table 9.15.4.2.A, two or more storeys).
 STANDARD_FROST_MM = 1200.0
+# Where the sheets state no frost depth, the depth the code region implies.
+# Canada keeps the Part 9 figure above. The US Sun Belt builds slabs on a
+# shallow monolithic footing (IRC Figure R403.1(1); frost depth ~0-12"), the
+# rest of the US at a 36" design frost depth; both are labelled assumed.
+WARM_US_STATES = {"CA", "AZ", "NV", "NM", "TX", "LA", "MS", "AL", "GA", "FL", "SC", "HI"}
+US_WARM_FROST_MM = 300.0
+US_FROST_MM = 900.0
+
+
+def assumed_frost_mm(inputs) -> tuple[float, str]:
+    """(depth, where it came from) for a foundation whose depth no sheet states."""
+    loc = getattr(inputs, "locale", None)
+    country = getattr(loc, "country", None)
+    region = getattr(loc, "region", None) or ""
+    if country == "US":
+        state = region.partition("-")[2]
+        if state in WARM_US_STATES:
+            return US_WARM_FROST_MM, (
+                f"a {US_WARM_FROST_MM:.0f} mm footing depth (assumed; none stated), as for "
+                f"a slab in {state}, where frost depth is negligible"
+            )
+        return US_FROST_MM, f"a {US_FROST_MM:.0f} mm US frost depth (assumed; none stated)"
+    return STANDARD_FROST_MM, f"a {STANDARD_FROST_MM:.0f} mm frost depth (assumed; none stated)"
 ABOVE_GRADE_MM = 200.0
 STANDARD_FOUNDATION_WALL_MM = 200.0
 # A strip footing drawn with no section: 600 x 200 mm, the common Part 9 footing.
@@ -518,12 +541,13 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
         depth = getattr(spec, "frost_depth_mm", None)
         thick = getattr(spec, "foundation_wall_mm", None)
         stated_h = getattr(spec, "foundation_wall_height_mm", None)
-        h_m = (stated_h or (depth or STANDARD_FROST_MM) + ABOVE_GRADE_MM) / 1000.0
+        fallback_mm, fallback_src = assumed_frost_mm(inputs)
+        h_m = (stated_h or (depth or fallback_mm) + ABOVE_GRADE_MM) / 1000.0
         t_mm = thick or STANDARD_FOUNDATION_WALL_MM
         depth_src = (
             f"the stated frost protection depth ({depth:.0f} mm)"
             if depth
-            else f"a {STANDARD_FROST_MM:.0f} mm frost depth (assumed; none stated)"
+            else fallback_src
         ) + f" plus {ABOVE_GRADE_MM:.0f} mm above grade"
         if stated_h:
             depth_src = f"the stated foundation wall height ({stated_h:.0f} mm)"

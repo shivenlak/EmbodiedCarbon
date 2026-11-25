@@ -319,3 +319,22 @@ def test_a_dotted_top_of_slab_is_the_floor_under_a_plate():
         page.insert_text((300, y), text, fontsize=8)
     levels = levels_on_page(page)
     assert StoreyHeights(levels=levels).storey_heights_m() == [2.464]
+
+
+class TestValueFirstDatums:
+    """US sections print the value before the label in one span."""
+
+    def test_a_plate_and_floor_read_value_first(self):
+        from ecarbon.extract.levels import _LEAD_LABEL_RE, _LEADING_ELEV_RE
+
+        m = _LEADING_ELEV_RE.match('8\'-0" PLATE HEIGHT')
+        assert m and _LEAD_LABEL_RE.fullmatch(m.group(2))
+        m = _LEADING_ELEV_RE.match('0\'-0" FINISHED FLOOR')
+        assert m and _LEAD_LABEL_RE.fullmatch(m.group(2))
+
+    @pytest.mark.parametrize("text", ['8\'-0" TOP OF TRELLIS', '7\'-4" BOTTOM OF BEAM', '0\'-8" TOP OF COLUMN'])
+    def test_other_tops_are_not_levels(self, text):
+        from ecarbon.extract.levels import _LEAD_LABEL_RE, _LEADING_ELEV_RE
+
+        m = _LEADING_ELEV_RE.match(text)
+        assert not (m and _LEAD_LABEL_RE.fullmatch(m.group(2)))

@@ -58,7 +58,6 @@ from ecarbon.geometry.footprint import REFUSE_PCT, Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
 from ecarbon.intake import coverage_gaps, inventory, readability_gaps
 from ecarbon.intake.classify import discipline_of, sheet_type_of
-from ecarbon.intake.locale import detect_locale
 from ecarbon.models import (
     Basis,
     BasisSource,
@@ -154,6 +153,8 @@ class TakeoffInputs:
     # Sheet types vision read from title blocks the rules could not (page ->
     # (sheet no, type)); typed by the same title rules as the text reader.
     vision_types: dict | None = None
+    # Where the set was drawn (intake.locale, contract C1); None when unsure.
+    locale: object | None = None
 
     def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
         """The assembly of one group that this design actually uses."""
@@ -1348,6 +1349,12 @@ def build_takeoff(
         facts.gfa_m2 / facts.storeys if facts.gfa_m2 and facts.storeys else None
     )
     inputs, sheets, gaps = gather(design, expected, overrides=overrides)
+    try:
+        from ecarbon.intake.locale import detect_locale
+
+        inputs.locale = detect_locale(design)
+    except Exception:
+        inputs.locale = None
     tell(
         "sheets",
         f"{len(sheets)} sheets classified, {sum(1 for s in sheets if s.readable)} readable",
@@ -1698,7 +1705,8 @@ def build_takeoff(
             )
         )
 
-    gaps += mark_units(lines, detect_locale(design))
+    if inputs.locale is not None:
+        gaps += mark_units(lines, inputs.locale)
 
     # Every wall and partition on an assumed storey height says so.
     mark_assumed_heights(inputs, lines)
