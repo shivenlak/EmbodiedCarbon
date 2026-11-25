@@ -41,6 +41,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import pymupdf
 
@@ -83,6 +84,7 @@ from ecarbon.takeoff.framing import (
 from ecarbon.takeoff.overrides import (
     _FROM_FOOTPRINT,
     _FROM_HEIGHTS,
+    StatedFootprint,
     StatedStoreyHeights,
     footprint_from_polygon,
     label_stated,
@@ -434,12 +436,96 @@ def gather(
                 message=f"Storey heights: {missing}.",
             )
         )
+    shape = _shape_gap(design, inputs)
+    if shape is not None:
+        gaps.append(shape)
     return inputs, sheets, gaps
+
+
+# A US set states its conditioned area: "909 SQ. FT." in a plan title, "Plan - 909 s.f.",
+# "PLAN 1 484 SF CONDITIONED", "CONDITIONED PLAN 2 FLOOR 637 SF". Attic vent and
+# porch areas ("235 SF", "UNCONDITIONED PORCH 85 SF") are not matched.
+_AREA_N = r"(?<![\d,.])(\d{1,2},\d{3}|\d{3,5})"
+_STATED_AREA = re.compile(
+    _AREA_N + r"\s*(?:SQ\.\s*FT\.|S\.F\.|SF\s+CONDITIONED)|CONDITIONED\b.{0,30}?" + _AREA_N + r"\s*SF\b",
+    re.I,
+)
+
+
+def stated_area_sf(texts) -> float | None:
+    """The one floor area a set states in square feet, or None if none or several."""
+    found = {
+        float(n.replace(",", ""))
+        for t in texts
+        if "UNCONDITIONED" not in t.upper()
+        for m in _STATED_AREA.finditer(t)
+        for n in m.groups()
+        if n
+    }
+    return found.pop() if len(found) == 1 else None
+
+
+def _shape_gap(design, inputs: TakeoffInputs) -> Gap | None:
+    """Warn when the stated area says the building is not its bounding rectangle.
+
+    The footprint is the overall width by depth, so an L or a notched porch is
+    priced as the full rectangle. Single storey only: on a taller building the
+    stated area may be the sum of its floors.
+    """
+    fp = inputs.footprint
+    if fp is None or isinstance(fp, StatedFootprint) or inputs.heights.n_storeys != 1:
+        return None
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        texts = [" ".join(b[4].split()) for page in doc for b in page.get_text("blocks")]
+    finally:
+        doc.close()
+    sf = stated_area_sf(texts)
+    if sf is None:
+        return None
+    stated, drawn = sf * 0.09290304, fp.area_m2
+    if abs(drawn - stated) / stated <= 0.10:
+        return None
+    return Gap(
+        code=GapCode.GEOMETRY_AMBIGUOUS,
+        severity=GapSeverity.WARNING,
+        message=(
+            f"The drawings state {sf:,.0f} sq ft ({stated:.1f} m2), but the footprint's overall "
+            f"extents, {fp.width_m:.2f} x {fp.depth_m:.2f} m, enclose {drawn:.1f} m2. The plan "
+            "is probably not a rectangle (an L, a notch, a porch), and quantities from the "
+            "footprint use the full extents. Trace the outline to measure it as drawn."
+        ),
+    )
 
 
 def _footprint_where(inputs: TakeoffInputs) -> str:
     """The footprint's sheet number, or its page on an unnumbered sheet ("p11")."""
     return inputs.footprint_sheet or f"p{(inputs.footprint_page or 0) + 1}"
+
+
+_VISION_WANTED = (*PLAN_TYPES, SheetType.SECTION, SheetType.ELEVATION)
+
+
+def _listed_pages(drawings_pdf: str) -> dict[int, int]:
+    """Pages to classify first (page -> rank), from the set's own List of Drawings.
+
+    Only an order: vision still reads each title block, so a wrong hint costs
+    a call, never a wrong type. CMHC sets list sheet i on page i + 1 (an
+    unlisted cover comes first) until an unlisted sheet shifts the rest.
+    shortcut: +1, then +0; read the offset off the first title if another publisher differs.
+    """
+    from ecarbon.bench.sheet_truth import parse_list_of_drawings
+
+    lists = sorted(Path(drawings_pdf).parent.rglob("*List of Drawings*.pdf")) if drawings_pdf else []
+    if not lists:
+        return {}
+    try:
+        listed = parse_list_of_drawings(lists[0])
+    except Exception:  # a hint only; an unreadable list changes nothing
+        return {}
+    wanted = [i for i, t in enumerate(listed) if t.sheet_type in _VISION_WANTED]
+    pages = [i + 1 for i in wanted] + [i for i in wanted]
+    return {p: rank for rank, p in enumerate(dict.fromkeys(pages))}
 
 
 def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> list:
@@ -457,6 +543,8 @@ def _vision_candidates(provider, doc, sheets, inputs: TakeoffInputs, types) -> l
     if inputs.vision_types is None:
         inputs.vision_types = {}
         unknown = [s for s in sheets if s.sheet_type is SheetType.UNKNOWN]
+        hint = _listed_pages(doc.name)
+        unknown.sort(key=lambda s: hint.get(s.page, len(hint)))
         for s in unknown[: max_classify_pages()]:
             got = {r.field: r for r in read_page(provider, doc[s.page], s.sheet_no, Task.SHEET)}
             if "title" not in got:
@@ -488,7 +576,7 @@ def cross_check_footprint(fp: Footprint, w: Reading, d: Reading, by: str) -> str
     off = max(abs(a - b) / a * 100.0 for a, b in zip(rules, seen, strict=True))
     said = f"{seen[0]:.2f} x {seen[1]:.2f} m ({w.quote} x {d.quote})"
     if off <= CROSS_CHECK_PCT:
-        return f"Agrees with {by} reading the dimension strings: {said}."
+        return f"The overall extents agree with {by} reading the dimension strings: {said}."
     return Gap(
         code=GapCode.GEOMETRY_AMBIGUOUS,
         severity=GapSeverity.WARNING,
@@ -515,7 +603,8 @@ def _vision_levels(design, sheets, inputs: TakeoffInputs) -> None:
         found_sheets.sort(key=lambda s: s.sheet_type is not SheetType.SECTION)
         for s in found_sheets[:budget]:
             inputs.vision_sheets += 1
-            got = read_page(provider, doc[s.page], s.sheet_no, Task.LEVELS)
+            # one section sheet repeats its datums in every cut; one reading each
+            got = list({r.note: r for r in read_page(provider, doc[s.page], s.sheet_no, Task.LEVELS)}.values())
             found = StoreyHeights(
                 levels=[Level(r.field, r.value, s.sheet_no) for r in got],
                 floor_assembly_mm=inputs.heights.floor_assembly_mm,
