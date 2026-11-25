@@ -1543,7 +1543,8 @@ def build_takeoff(
             "the windows and doors are read from the size labels on the plans instead",
         ),
         "No readable assembly schedule": (
-            [ln.id for ln in lines if ln.id.startswith("ln-exterior-wall-")],
+            [ln.id for ln in lines if ln.id.startswith("ln-exterior-wall-")
+             and ln.confidence != Confidence.ASSUMED],
             "the exterior wall is read from the drawings' own wall notes instead; "
             "other assemblies are assumed where noted",
         ),

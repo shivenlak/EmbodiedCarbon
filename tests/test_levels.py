@@ -305,3 +305,17 @@ def test_ontario_multiplexes_read_three_storeys():
 
     h = storey_heights_for(get_design("ON_Sixplex"))
     assert h.n_storeys == 3
+
+
+def test_a_dotted_top_of_slab_is_the_floor_under_a_plate():
+    """US marker: T.O.S. 0'-0" under PLATE 8'-1" gives one 8'-1" storey."""
+    import pymupdf
+
+    from ecarbon.extract.levels import levels_on_page
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=600, height=400)
+    for y, text in ((100, "PLATE"), (112, "8' - 1\""), (240, "T.O.S."), (252, "0' - 0\"")):
+        page.insert_text((300, y), text, fontsize=8)
+    levels = levels_on_page(page)
+    assert StoreyHeights(levels=levels).storey_heights_m() == [2.464]
