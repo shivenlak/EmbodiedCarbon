@@ -154,8 +154,8 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 
 ## A5. Image-only sets (Tue 24)
 
-- [ ] Run vision on the 8 NOR CMHC sets with no text, and on any image-only sets in the dev corpus. **Target:** "nothing read" becomes a bill with every line `INFERRED` and traced. Record before/after.
-- [ ] Make sure these sets still say plainly that the values were read from an image.
+- [ ] *(25 Nov: done for NOR_Fourplex_Municipal and Citrus Heights only; about $0.90 a set, mostly title-block reads, so the other 7 NOR sets wait for a decision on spend. See Findings.)* Run vision on the 8 NOR CMHC sets with no text, and on any image-only sets in the dev corpus. **Target:** "nothing read" becomes a bill with every line `INFERRED` and traced. Record before/after.
+- [x] Make sure these sets still say plainly that the values were read from an image. *(25 Nov: each line's note carries "read from an image; not verifiable against text", the assumption names the sheet, and the "No readable floor plan / section" gaps say what AI read instead, as WARNING.)*
 
 ## A6. Hardening and numbers (Wed 25, freeze at end of day)
 
@@ -282,3 +282,8 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 - **24 Nov, US opening schedules:** a header token with a digit is no longer a column (a "3.C" grid bubble beside Santa Cruz 3's window schedule became its tag column and lost every window), and a "WINDOW LEGEND" / "DOOR LEGEND" that heads a WIDTH / HEIGHT table counts when the page has no schedule of that kind (Escondido 2's window schedule is titled that way). Windows against truth: Santa Cruz 3 0 -> 11 (10, the 11th is an alternate), Escondido 2 0 -> 7 (7), Escondido 4 10 -> 11 (11). Openings compared on all 71 sets (CMHC, dev, sponsor): only those three change.
 - **24 Nov, dev truth correction:** Riverside 3 `windows` 3 -> 8. A0.1's window schedule states QNTY A 5, B 2, C 1 (D x2 is an option in place of doors 3 and 4); 3 was the number of types. We read 10, counting the optional D; open_err for that set is now 2 rather than 7, and the change is to the reference, not the reader.
 - **24 Nov, dev rerun after today's fixes** (`out/blind.json` dev rows): coverage Riverside 1–4 60 -> 85%, Escondido 2 78 -> 85%, Santa Cruz 2 9 -> 85% (footprint 14% off, height exact), Santa Cruz 3 2 -> 17% (height exact; footprint still refused on purpose). Opening error: Escondido 2 7 -> 0, Escondido 4 1 -> 0, Riverside 3 7 -> 2, Santa Cruz 3 13 -> 4. No set went down. AU, Citrus and the BC catalogue stay at 0% until vision runs.
+- **25 Nov, vision on outlined-text sets (A5, partial; $1.71 spent in all):**
+  - NOR_Fourplex_Municipal: nothing read -> 20 lines, footprint 11.973 x 17.973 m (215 m2), storey heights from A300, 34 tCO2e. First run 38 calls, $0.90; it ships in the image as cached answers (`ECARBON_VISION=cache`), so the live site shows it with no key and no calls.
+  - Citrus Heights (dev): its text layer is only an engineer's stamp ("C 080657", "03/31/23"). A single digit used to make a page count as text, so all 33 title-block answers were checked against the stamp and dropped ($0.72, nothing kept). A page is now read as an image when no span reads as a dimension, a scale or a datum elevation. After that: sheets sorted, footprint 31'-0" x 16'-0" = 46 m2, exact against dev truth; heights still none (the 9' wall height is a plan note, not a datum).
+  - The footprint prompt took Citrus Heights' 39'-0" string over the covered porch. It now asks for the string that stops at the exterior wall; the footprint task's cache version moved alone (`TASK_VERSIONS`), and NOR re-read to the same 215 m2.
+  - Not run: the other 7 NOR sets, the AU and BC dev sets, and the Gemini half of the bake-off (no key). Cross-check (rules and vision both answering) never fires today: vision only runs where the rules came back empty.
