@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from ecarbon.models import Confidence, ElementClass
+from ecarbon.models import Confidence, ElementClass, GapSeverity
 from ecarbon.takeoff.builder import ELEMENT_CARBON_SHARE, coverage_report
 
 try:
@@ -293,10 +293,11 @@ def test_unmeasurable_partitions_are_assumed_from_floor_area_and_say_so():
         build_takeoff,
     )
 
-    # ATL_ADU_01's linework gives 2 m2 of run, a failed reading. (ON_Fourplex_01
-    # used to be the example; its schedule depths now read and its run
-    # measures 328 m2 against the IFC's 345.)
-    t = build_takeoff(get_design("ATL_ADU_01"))
+    # ON_Stacked_Townhouse_01 outlines two floors at a lighter stroke than its
+    # walls and measures no run. (ATL_ADU_01 was the example until its studs
+    # read 140 mm deep rather than 38, and its 14.8 m of partitions measured;
+    # ON_Fourplex_01 before that, until its schedule depths read.)
+    t = build_takeoff(get_design("ON_Stacked_Townhouse_01"))
     parts = [ln for ln in t.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
     assert parts and all(ln.confidence is Confidence.ASSUMED for ln in parts)
     assert any(f"{PARTITION_M2_PER_FLOOR_M2} m2 per m2 of floor" in a for a in parts[0].assumptions)
@@ -398,6 +399,17 @@ def test_stairs_are_counted_off_the_plans_and_say_how():
 
 
 @needs_data
+def test_a_multi_storey_set_with_no_labelled_stair_says_so():
+    """QC labels no riser count or UP arrow, so no stair is counted, and the
+    takeoff says why instead of staying silent."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("QC_Fourplex_01"))
+    assert all(ln.id != "ln-stairs" for ln in t.lines)
+    assert any(g.message.startswith("Stairs: 2 storeys read") for g in t.gaps)
+
+
+@needs_data
 def test_a_stated_block_foundation_says_it_is_priced_as_cast_concrete():
     from ecarbon.takeoff.builder import build_takeoff
 
@@ -454,6 +466,29 @@ def test_a_floor_over_a_crawl_space_is_the_ground_floor_not_a_slab():
     assert any(
         g.message.startswith("No slab on grade is counted. F2") for g in t.gaps
     )
+
+
+@needs_data
+def test_a_missing_foundation_plan_does_not_deny_a_measured_slab():
+    """SKMB_ADU_01 has no foundation plan but states its slab and grade beam on
+    the sections; the note said those 'cannot be produced' beside them."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("SKMB_ADU_01"))
+    gap = next(g for g in t.gaps if g.message.startswith("No readable foundation plan"))
+    assert "cannot be produced" not in gap.message
+    assert gap.severity is GapSeverity.WARNING and "ln-slab-on-grade" in gap.affects
+
+
+@needs_data
+def test_a_one_storey_slab_building_has_no_floor_assembly_rather_than_a_missing_one():
+    """ON_ADU_01 is one storey on a slab (its IFC models no framed floor); it
+    was called a PARTIAL total for lacking a floor assembly."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("ON_ADU_01"))
+    assert not any("covers roughly" in g.message for g in t.gaps)
+    assert any("no framed floor between storeys" in g.message for g in t.gaps)
 
 
 @needs_data

@@ -368,12 +368,13 @@ class TestAcrossFirms:
             assert kept[tag].total_thickness_mm == pytest.approx(ifc_mm, abs=1.0)
 
     def test_an_unreliable_parse_is_reported_rather_than_used(self):
-        """BC's exterior wall defeats both strategies, so it is refused and the
-        reason is on the record."""
+        """QC_Rowhouse_01's terrace roof R3 runs past the merge guard, so it is
+        refused and the reason is on the record. (BC_Duplex was the example until
+        its blocks were parted at the blank band and all read.)"""
         from ecarbon.extract.assemblies import assemblies_for
 
-        kept, rejected = assemblies_for(get_design("BC_Duplex"))
-        assert rejected, "BC_Duplex has assemblies that cannot be read reliably"
+        kept, rejected = assemblies_for(get_design("QC_Rowhouse_01"))
+        assert rejected, "QC_Rowhouse_01's R3 cannot be read reliably"
         for message in rejected:
             assert "could not be read reliably" in message
             assert "not counted" in message
@@ -510,6 +511,7 @@ class TestThicknessInTheName:
             ('11 1/4" UNFACED FIBERGLASS BATT INSULATION', 285.8),
             ("150mm RIGID INSULATION", 150.0),
             ('5/8" TYPE X GYPSUM BOARD', 15.9),
+            ('MIN 3/4" PLYWOOD SHEATHING (REF ALSO STRUC)', 19.0),  # BC W1.1
         ],
     )
     def test_a_leading_depth_is_read(self, material, mm):
@@ -519,6 +521,11 @@ class TestThicknessInTheName:
         assert got == pytest.approx(mm, abs=0.1)
         assert "material description" in note
 
+    def test_a_stated_minimum_says_so(self):
+        from ecarbon.extract.assemblies import thickness_in_name
+
+        assert "minimum" in thickness_in_name('MIN 3/4" PLYWOOD SHEATHING')[1]
+
     @pytest.mark.parametrize(
         "material",
         [
@@ -527,6 +534,8 @@ class TestThicknessInTheName:
             "2-PLY SBS ROOFING MEMBRANE",
             'DESIGN THICKNESS OF FLOOR FINISH 1 1/8"',  # not leading
             "2x10 JOISTS",
+            'MIN 16" O.C. STUDS',  # a minimum spacing is still a spacing
+            "MINERAL WOOL BATT",
         ],
     )
     def test_anything_else_is_not(self, material):
@@ -660,3 +669,167 @@ def test_a_cavity_fill_with_its_own_depth_is_priced_but_not_added_to_the_depth()
     assert f2.total_thickness_mm == sum(
         lay.thickness_mm for lay in f2.layers if lay.thickness_mm and not lay.in_cavity
     )
+
+
+class TestStudCavityFill:
+    """BC's partitions: a batt beside its studs shares their cavity."""
+
+    def _layers(self, *rows):
+        from ecarbon.extract.assemblies import Layer, _mark_shared_cavities
+
+        layers = [Layer(index=i, material=m, thickness_mm=t) for i, (m, t) in enumerate(rows)]
+        _mark_shared_cavities(layers)
+        return layers
+
+    def test_a_batt_named_for_the_full_cavity_shares_it(self):
+        _, studs, batt, _ = self._layers(
+            ("TYPE X GYPSUM WALL BOARD", 16.0), ('WOOD STUD FRAMING @ 16" C/C', 89.0),
+            ('3 1/2" MW ACOUSTIC BATT', None), ("TYPE X GYPSUM WALL BOARD", 16.0),
+        )
+        assert batt.thickness_mm == 89.0 and batt.shares_cavity_with == studs.index
+        assert "as its name states" in batt.note
+
+    def test_a_shallower_named_batt_is_a_partial_fill(self):
+        """BC P6: '3 1/2" MW ACOUSTIC BATT' in a 2x6 wall is 89 mm, not 140."""
+        _, studs, batt = self._layers(
+            ("PLYWOOD", 13.0), ('2"X6" WOOD STUD FRAMING @ 16" C/C', 140.0),
+            ('3 1/2" MW ACOUSTIC BATT', None),
+        )
+        assert batt.thickness_mm == pytest.approx(88.9, abs=0.1)
+        assert batt.in_cavity and batt.shares_cavity_with == studs.index
+
+
+@needs_data
+def test_a_refer_also_row_does_not_split_studs_from_their_batt():
+    """BC P2 prints 'REFER ALSO TO STRUCTURAL' between its studs and its C/W
+    batt. As a layer it priced the batt over the whole wall at full depth."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, _ = assemblies_for(get_design("BC_Sixplex"))
+    mats = [lay.material for lay in a["P2"].layers]
+    assert not any("REFER ALSO" in m for m in mats)
+    studs, batt = a["P2"].layers[1], a["P2"].layers[2]
+    assert batt.shares_cavity_with == studs.index and not studs.deferred_to
+
+
+@needs_data
+def test_a_stud_size_gives_its_depth_and_furring_its_thickness():
+    """ATL states studs as '2 x 6 /38mm x140mm' (on edge: 140 deep); QC states
+    furring as '19mm x 64mm' (flat: 19 thick)."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    atl, _ = assemblies_for(get_design("ATL_Sixplex"))
+    studs = next(lay for lay in atl["W1"].layers if "STUD FRAMING" in lay.material)
+    assert studs.thickness_mm == 140.0
+    qc, _ = assemblies_for(get_design("QC_ADU_01"))
+    furring = next(lay for lay in qc["W1"].layers if "FURRING" in lay.material)
+    assert furring.thickness_mm == 19.0
+
+
+def test_non_combustible_sheathing_is_not_plywood():
+    """AB/ON W2 'NON-COMBUSTIBLE EXTERIOR SHEATHING': plywood burns, and the ON
+    IFC models the layer as glass-fibre gypsum board."""
+    from ecarbon.extract.assemblies import Layer, cmhc_material
+
+    def mat(name):
+        return cmhc_material(Layer(index=0, material=name, thickness_mm=16.0))
+
+    assert mat("NON-COMBUSTIBLE EXTERIOR SHEATHING") == "CMHC_Gypsum Board"
+    assert mat("EXTERIOR GRADE PLYWOOD SHEATHING") == "CMHC_Plywood"
+    assert mat("EXTERIOR SHEATHING") == "CMHC_Plywood"
+
+
+@needs_data
+def test_a_name_column_53pt_from_its_header_is_still_the_name():
+    """ATL_Fourplex_01 Option1 sets its wall names 53 pt from DESCRIPTION, against
+    Option2's 48; a 50 pt window took each first layer as the name and refused
+    all nine walls, W2 among them, which the plans tag 17 times."""
+    from ecarbon.config import discover
+    from ecarbon.extract.assemblies import assemblies_for
+
+    d = next(d for d in discover() if d.key.startswith("ATL_Fourplex_01") and d.key.endswith("Option1"))
+    a, _ = assemblies_for(d)
+    assert a["W2"].name == "EXTERIOR ENVELOPE WALL NON COMBUSTIBLE"
+    assert a["W1"].layers[0].thickness_mm == 19.0  # the cladding, no longer the name
+    assert len(a["W5"].layers) == 9  # no longer carrying W4's last three rows
+
+
+@needs_data
+def test_a_wrapped_note_ending_in_a_cross_reference_is_one_row():
+    """QC R1's bulkhead note wraps over three rows, the last 'DUCTS. REFER TO
+    MECHANICAL.'; as three layers they took R1 to 16, past the merge guard, and
+    the stated roof was replaced by an assumed standard one."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, _ = assemblies_for(get_design("QC_ADU_01"))
+    r1 = a["R1"]
+    assert len(r1.layers) == 14
+    assert r1.layers[-1].material.startswith("WOOD FRAMED/LIGHT GAUGE STEEL WITH GYPSUM BOARD BULKHEAD")
+    assert any(layer.thickness_mm == 152.0 for layer in r1.layers)  # R-30 rigid, as stated
+
+
+@needs_data
+def test_bc_blocks_part_at_the_blank_band_not_the_tag():
+    """BC sets W1.3's tag 26 pt under its name and W1.4's on a layer: a midpoint
+    began W1.3 on VAPOUR CONTROL BARRIER and merged W1.4 and W2 into refusals.
+    Each block also lost its last rows (W1.2's gypsum, FW1.1 ended on FW1.2's name)."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, _ = assemblies_for(get_design("BC_Sixplex"))
+    for tag in ("W1.1", "W1.2", "W1.3", "W1.4"):
+        w = a[tag]
+        assert w.name.startswith("2x6 WOOD STUD"), tag
+        assert "GYPSUM" in w.layers[-1].material, tag
+    assert a["W2"].name.startswith("NON- COMBUSTIBLE")
+    assert a["FW1.2"].name == "FOUNDATION WALL"
+    assert a["FW1.1"].layers[-1].material.startswith("CAST-IN-PLACE CONCRETE")
+
+
+@needs_data
+def test_bc_stud_row_complete_with_fill_is_two_layers_sharing_the_cavity():
+    """'WOOD STUD FRAMING ... C/W IN-FILL INSULATION' is the studs and the batts
+    between them: the fill is counted, and the wall is no deeper for it."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    w = assemblies_for(get_design("BC_Sixplex"))[0]["W1.1"]
+    fill = next(x for x in w.layers if x.material == "IN-FILL INSULATION")
+    assert fill.thickness_mm == 140.0
+    assert not any("C/W" in x.material for x in w.layers if x.is_framing)
+
+
+@needs_data
+def test_a_typical_assembly_is_not_replaced_by_its_alternate():
+    """SK/MB tag both 'TYP. PITCHED ROOF ASSEMBLY' and its 'ALTERNATE' R1; the
+    later alternate used to overwrite the design."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    r1 = assemblies_for(get_design("SKMB_ADU_01"))[0]["R1"]
+    assert r1.name == "TYP. PITCHED ROOF ASSEMBLY"
+
+
+@needs_data
+def test_a_name_between_the_thickness_and_material_columns_is_still_the_name():
+    """ATL_Fourplex_03's N table puts 'FOUNDATION' 91 pt from its header, past the
+    window, so N1 (tagged 14 times) began on PARGING and was refused, and R1/R2
+    were not read at all: the roof was an assumed standard one."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, rejected = assemblies_for(get_design("ATL_Fourplex_03"))
+    assert a["N1"].name == "FOUNDATION"
+    assert any(x.thickness_mm == 419.0 for x in a["R1"].layers)  # cellulose to R-60
+    assert not any(" N1 " in m for m in rejected)
+
+
+@needs_data
+def test_a_backup_wall_stated_per_another_assembly_is_taken_from_it():
+    """BC's W2 states its cladding and furring, then the rest 'PER EW1'. It gave
+    no volume, so BC_ADU_01 priced an assumed standard wall; W1.1's layers are
+    now used from its insulation inwards, the cavity still shared, and the choice said."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, notes = assemblies_for(get_design("BC_ADU_01"))
+    w2 = a["W2"]
+    assert w2.layers[1].material.startswith("HORIZONTAL METAL FURRING")
+    assert w2.layers[2].material == "SEMI-RIGID INSULATION"
+    assert w2.total_thickness_mm == 273.0  # 25 + 22 + W1.1's 51 + 19 + 140 cavity + 16
+    assert any(n.startswith("W2 states its backup wall as per W1") for n in notes)

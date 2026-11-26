@@ -40,10 +40,11 @@ pytestmark = pytest.mark.skipif(
 # of the building its bill of quantities reaches.
 ALBERTA = {
     # Coverage reached 100% on six of seven when interior partitions became
-    # measurable (median 5.7% against the reference models). AB_ADU_01 stays at
-    # 53%: a single-storey plan yields fewer than two floor datums, so there is
-    # no wall height and therefore no wall, floor or partition area.
-    "AB_ADU_01": {"assemblies": 17, "coverage": 53},
+    # measurable (median 5.7% against the reference models). AB_ADU_01 was 53%
+    # (one floor datum, so no wall height), then 84% once its storey height was
+    # read, and is 100% since a one-storey building on a slab is recorded as
+    # having no framed floor rather than missing one (its IFC models none).
+    "AB_ADU_01": {"assemblies": 17, "coverage": 100},
     "AB_ADU_02": {"assemblies": 17, "coverage": 100},
     "AB_Fourplex_01": {"assemblies": 17, "coverage": 100},
     "AB_Fourplex_02": {"assemblies": 17, "coverage": 100},
@@ -163,7 +164,7 @@ class TestAlbertaCoverage:
         assert actual >= expected, f"{key} coverage fell {expected}% -> {actual}%"
 
     def test_six_of_seven_reach_ninety_one_percent(self):
-        """AB_ADU_01 is the single-storey outlier at 53%; the rest are 91%."""
+        """All seven reach 91%; at least six must."""
         reached = sum(1 for k in ALBERTA if coverage_of(takeoff_for(k)) >= 91)
         assert reached >= 6
 

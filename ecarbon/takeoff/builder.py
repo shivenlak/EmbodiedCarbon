@@ -1219,6 +1219,15 @@ def absent_elements(inputs: TakeoffInputs) -> dict[ElementClass, str]:
             f"{crawl.tag} ({crawl.name.title()}) is the ground floor, framed over the "
             f"crawl space, and no sheet read states a slab beneath it."
         )
+    # A one-storey ADU on a slab has no floor between storeys; five were called
+    # PARTIAL for it, and none of their reference models has one either.
+    elif crawl is None and len(inputs.heights.storey_heights_m()) == 1 and (
+        inputs.spec.slab_thickness_mm or "slab" in system
+    ):
+        out[ElementClass.FLOOR_ASSEMBLY] = (
+            "One storey is read on the sections, standing on the slab on grade, so "
+            "there is no framed floor between storeys to count."
+        )
     return out
 
 
@@ -1955,7 +1964,19 @@ def build_takeoff(
     gaps += fw_gaps
     _name_masonry_foundation(lines, inputs)
     _name_ladder_footing(lines, inputs)
-    lines += _stair_lines(design)
+    stairs = _stair_lines(design)
+    lines += stairs
+    n_storeys = len(inputs.heights.storey_heights_m())
+    if not stairs and n_storeys > 1:
+        # Two storeys need a stair; say why none is counted rather than staying silent.
+        gaps.append(Gap(
+            code=GapCode.SECTION_DETAIL_MISSING,
+            severity=GapSeverity.INFO,
+            message=(
+                f"Stairs: {n_storeys} storeys read, but no floor plan labels a stair flight "
+                f"(no riser label such as '14 RISERS @ 190mm' and no UP arrow), so no stair is counted."
+            ),
+        ))
     for gap in gaps:
         for marker, line_id in covered.items():
             if marker in gap.message and gap.message.startswith("Foundation:"):
@@ -2044,6 +2065,13 @@ def build_takeoff(
              and ln.confidence != Confidence.ASSUMED],
             "the exterior wall is read from the drawings' own wall notes instead; "
             "other assemblies are assumed where noted",
+        ),
+        # SK/MB state the slab and grade beam on the sections; "cannot be
+        # produced" sat beside a measured slab.
+        "No readable foundation plan": (
+            [ln.id for ln in lines if ln.material == "CMHC_Concrete, CIP"
+             and ln.confidence != Confidence.ASSUMED],
+            "the foundation concrete is read from the sections and notes instead",
         ),
     }
     # A sheet the rules could not read may still have been read as an image.

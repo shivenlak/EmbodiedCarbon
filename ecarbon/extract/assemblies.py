@@ -108,6 +108,9 @@ def tag_prefix(tag: str) -> str:
     return m.group(1).upper() if m else ""
 # A metric thickness anywhere in the cell, which is the reliable signal.
 _MM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*mm", re.I)
+# A member size, two figures: ATL's stud '2 x 6 /38mm x140mm', QC's furring
+# '19mm x 64mm'. Which one is the wall depth depends on the member (see the layer loop).
+_MM_BY_MM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*mm\s*[x\u00d7]\s*(\d+(?:\.\d+)?)\s*mm", re.I)
 # Imperial: the digits, spaces and slashes immediately before an inch mark.
 # Parsed afterwards rather than in the pattern, because the sheet writes whole
 # inches (8"), fractions (3/4") and mixed numbers (5 1/2") interchangeably and
@@ -124,6 +127,7 @@ _PLACEHOLDER_RE = re.compile(r"PLACE\s?HOLDER", re.I)
 # describing this one.
 _CW_TAIL_RE = re.compile(r"\s+C/W:?\s*$", re.I)
 _DEFER_RE = re.compile(r"\(?\s*REFER\s+TO\s+(\w+)[^)]*\)?", re.I)
+_REFER_ALSO_RE = re.compile(r"^\(?\s*REFER\s+ALSO\s+TO\s+\w+[^)]*\)?\s*$", re.I)
 # The framing layer and the insulation that fills the gaps between it.
 # Share of a stud cavity the studs and plates take, at 400 mm centres; the
 # fill takes the rest. Also used where framing is carried only as a wall area.
@@ -158,9 +162,10 @@ _CAVITY_FILL_RE = re.compile(r"CAVITY\s+(IN-?FILL|FILL)|BATT|IN-?FILL\s+INSULATI
 # 1794.3/1866.4.
 COL_TOL = 14.0
 # How far a name column may sit from its own DESCRIPTION header. Wide enough
-# for Atlantic's 34 pt offset, narrow enough to exclude the performance column,
-# which is 190 pt out on every layout measured.
-NAME_COLUMN_WINDOW = 50.0
+# for Atlantic's offsets (34 pt, and 53 pt on ATL_Fourplex_01 Option1, whose 50 pt
+# window refused all nine walls), narrow enough to exclude the performance
+# column, which is 190 pt out on every layout measured.
+NAME_COLUMN_WINDOW = 60.0
 # Sanity bounds on a parsed assembly. A low-rise wall, roof or floor runs to a
 # dozen layers and a few hundred millimetres; well past that means the parse
 # merged blocks rather than that the building is unusual.
@@ -278,7 +283,7 @@ def parse_thickness(text: str) -> tuple[float | None, str | None]:
 # INSULATION', '150mm RIGID INSULATION'. Only a leading dimension counts, and
 # not one followed by a spacing ('16" O.C.', '@ 400'), which is a pitch.
 _LEADING_DIM_RE = re.compile(
-    r"^\s*(?P<v>\d+(?:\.\d+)?\s*mm|(?:\d+\s+)?\d+(?:/\d+)?\s*(?:\"|\u201d))(?!\s*(?:O\.?\s*C|C/C|@))",
+    r"^\s*(?P<min>MIN(?:IMUM)?\.?\s+)?(?P<v>\d+(?:\.\d+)?\s*mm|(?:\d+\s+)?\d+(?:/\d+)?\s*(?:\"|\u201d))(?!\s*(?:O\.?\s*C|C/C|@))",
     re.I,
 )
 
@@ -291,6 +296,10 @@ def thickness_in_name(material: str) -> tuple[float | None, str | None]:
     mm, _ = parse_thickness(m.group("v"))
     if mm is None or not (3.0 <= mm <= 400.0):
         return None, None
+    if m.group("min"):
+        # BC W1.1 'MIN 3/4" PLYWOOD SHEATHING (REF ALSO STRUC)': a stated floor, priced as stated.
+        return mm, ("minimum thickness read from the material description; the schedule's "
+                    "thickness cell is empty, and a thicker panel would add to it")
     return mm, "thickness read from the material description; the schedule's thickness cell is empty"
 
 
@@ -733,6 +742,14 @@ def learn_columns(
         c
         for c in scored
         if c[0] not in {thick_x, mat_x} and abs(c[0] - desc_x) < NAME_COLUMN_WINDOW
+    ] or [
+        # ATL_Fourplex_03's short N table: two names at 538, between the thickness
+        # (502) and material (574) columns, 91 pt from its header. Only consulted
+        # when the window holds nothing, so a table that found a name is unchanged.
+        c
+        for c in scored
+        if thick_x is not None and mat_x is not None and thick_x < c[0] < mat_x
+        and c[3] >= 0.5 and abs(c[0] - desc_x) < 2 * NAME_COLUMN_WINDOW
     ]
     name_x = (
         max(name_pool, key=lambda c: (c[1], -abs(c[0] - desc_x)))[0] if name_pool else None
@@ -762,8 +779,21 @@ def _mark_shared_cavities(layers: list[Layer]) -> None:
                 and fill.note is None
                 and not fill.stated_no_thickness
             ):
+                named, _ = thickness_in_name(fill.material)
+                if named and named < frame.thickness_mm - 2.0:
+                    # BC P6's '3 1/2" MW ACOUSTIC BATT' in a 2x6 wall: a partial fill.
+                    fill.thickness_mm, fill.in_cavity = named, True
+                    fill.note = (f"its own stated depth, {named:.0f} mm, inside the "
+                                 f"{frame.thickness_mm:.0f} mm stud cavity")
+                    # Still between the studs, so it takes the fill's share of its depth.
+                    frame.shares_cavity_with, fill.shares_cavity_with = fill.index, frame.index
+                    continue
                 fill.thickness_mm = frame.thickness_mm
-                fill.note = f"depth of the {frame.thickness_mm:.0f} mm stud cavity it fills (no depth stated)"
+                fill.note = (
+                    f"depth of the {frame.thickness_mm:.0f} mm stud cavity it fills, as its name states"
+                    if named and abs(named - frame.thickness_mm) <= 2.0
+                    else f"depth of the {frame.thickness_mm:.0f} mm stud cavity it fills (no depth stated)"
+                )
         if a.thickness_mm is None or b.thickness_mm is None:
             continue
         if abs(a.thickness_mm - b.thickness_mm) > 1.0:
@@ -942,7 +972,20 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             # thickness keeps the midpoint, because starting there named
             # BC's F2 "FLOOR FINISH w/ UNDERLAY".
             text_ys = sorted({y for y, _, _ in text_cells})
+            steps = sorted(b - a for a, b in zip(text_ys, text_ys[1:], strict=False) if b - a > ROW_DY)
+            pitch = steps[len(steps) // 2] if steps else 0.0
             for i, ty in enumerate(tag_ys[1:]):
+                # Blocks are parted by a blank band (BC: 30-43 pt against a 10 pt row
+                # pitch), and that is the surest split. BC sets W1.3's tag mid-block,
+                # 26 pt under its name, and W1.4's on its second layer, so neither
+                # the midpoint nor the tag's own row finds the name.
+                window = [y for y in text_ys if tag_ys[i] < y <= ty + ROW_DY]
+                gaps = [(b - a, a, b) for a, b in zip(window, window[1:], strict=False)]
+                if pitch and gaps:
+                    gap, a, b = max(gaps)
+                    if gap > 2.5 * pitch:
+                        bounds[i] = (a + b) / 2
+                        continue
                 on_row = [y for y in text_ys if abs(y - ty) <= ROW_DY]
                 if on_row and any(abs(y - ty) <= ROW_DY for y in thicknesses):
                     above = [y for y in text_ys if y < min(on_row) - ROW_DY / 2]
@@ -986,6 +1029,11 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 if paired is None and current.layers and _continues(current.layers[-1], text):
                     _join(current.layers[-1], text)
                     continue
+                if _REFER_ALSO_RE.match(text):
+                    # BC P2's bare "REFER ALSO TO STRUCTURAL" under its studs: a pointer,
+                    # not a layer and not a deferral (the studs are stated here). As a
+                    # layer it split the studs from their C/W batt.
+                    continue
                 material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", text)).strip(" ,")
                 if not material:
                     # The whole cell was a cross-reference, e.g. F1's bare
@@ -1001,6 +1049,12 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                             and bool(current.layers) and current.layers[-1].thickness_mm is None)
                 if mm is None and (paired is None or cw_alone) and not defer:
                     mm, note = thickness_in_name(material)
+                member = _MM_BY_MM_RE.search(paired or "")
+                if member and _FRAMING_RE.search(material):
+                    # A stud stands on edge, so the wall takes its larger figure (ATL
+                    # '38mm x140mm'); furring lies flat and keeps the first.
+                    mm = max(float(member.group(1)), float(member.group(2)))
+                    note = "stud size stated as two figures; the wall depth is the larger"
                 current.layers.append(
                     Layer(
                         index=len(current.layers),
@@ -1028,8 +1082,31 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             # may sit above a table it does not describe, and BC's FW group
             # must not be read as F.
             asm.group_letter = tag_prefix(asm.tag)
+        _split_cw_fill(asm.layers)
         _mark_shared_cavities(asm.layers)
     return [a for a in out if a.layers and a.tag]
+
+
+_CW_FILL_RE = re.compile(r"\s+C/W:?\s+(.*\b(?:INSULATION|BATT|IN-?FILL)\b.*)$", re.I)
+
+
+def _split_cw_fill(layers: list[Layer]) -> None:
+    """Give a fill named on its studs' row a layer of its own.
+
+    BC writes "WOOD STUD FRAMING, SPACING PER STRUCTURAL C/W IN-FILL INSULATION"
+    on one 140 mm row, so the batt was never priced. Only where the stud depth is
+    stated: the fill then takes it as the cavity it fills.
+    """
+    i = 0
+    while i < len(layers):
+        frame = layers[i]
+        m = _CW_FILL_RE.search(frame.material)
+        if m and frame.is_framing and frame.thickness_mm:
+            frame.material = frame.material[: m.start()].strip(" ,")
+            layers.insert(i + 1, Layer(index=0, material=m.group(1).strip()))
+        i += 1
+    for n, layer in enumerate(layers):
+        layer.index = n
 
 
 # A wrapped description line, not a layer: ATL's R1a runs "ENGINEERED WOOD
@@ -1041,11 +1118,14 @@ _CONT_START_RE = re.compile(r"^(W/|C/W|AT|AND|OR|WITH|TO|FOR|OF|IN|ON|BE)(?=\s|$
 
 def _continues(prev: Layer, text: str) -> bool:
     """Whether a row with no thickness cell is the layer above, wrapped."""
-    t = text.strip()
+    # Judged without a trailing cross-reference: QC's "DUCTS. REFER TO MECHANICAL."
+    # ends a wrapped bulkhead note, and as its own row pushed R1 past the layer cap.
+    t = _DEFER_RE.sub("", text).strip(" ,")
     return bool(
         _CONT_END_RE.search(prev.material.strip())
         or _CONT_START_RE.match(t)
         or re.fullmatch(r"[A-Z][A-Z-]+\.", t, re.I)
+        or (re.search(r"\bGYPSUM$", prev.material.strip(), re.I) and re.match(r"BOARD\b", t, re.I))
     )
 
 
@@ -1325,6 +1405,10 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                         f"Its materials are not counted."
                     )
                     continue
+                # SK/MB tag "TYP. PITCHED ROOF ASSEMBLY" and its "... ALTERNATE" both R1;
+                # the typical one is the design, the alternate an option beside it.
+                if asm.tag in found and re.search(r"\bALT(ERNATE)?\b", asm.name, re.I):
+                    continue
                 found[asm.tag] = asm
         if not found:
             # No schedule: a US set states its walls in a legend on the plans.
@@ -1352,7 +1436,51 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                         break
     finally:
         doc.close()
+    _resolve_per_references(found, rejected)
     return found, rejected
+
+
+_PER_REF_RE = re.compile(r"\bPER\s+E?([A-Z]{1,2}\d+)\b", re.I)
+
+
+def _resolve_per_references(found: dict, notes: list[str]) -> None:
+    """Take a backup wall stated as 'PER EW1' from that assembly.
+
+    BC's W2 states only its cladding and furring, then 'INSULATION PER EW1 ...'
+    and 'AIR BARRIER, SHEATHING, FRAMING, INSULATION, VAPOUR BARRIER AND GB PER
+    EW1': it gave no volume, so BC_ADU_01/02 priced an assumed standard wall.
+    The referenced family's first variant supplies the layers from the first
+    deferring layer's material inwards, and the choice is said.
+    """
+    import copy
+
+    for tag, asm in found.items():
+        hits = [(i, m) for i, x in enumerate(asm.layers) if (m := _PER_REF_RE.search(x.material))]
+        refs = {m.group(1).upper() for _, m in hits}
+        if len(refs) != 1:
+            continue
+        fam = refs.pop()
+        base_tag = fam if fam in found else next(iter(sorted(t for t in found if t.startswith(fam + "."))), None)
+        if base_tag in (None, tag):
+            continue
+        first = hits[0][0]
+        word = asm.layers[first].material.split()[0].upper()
+        base = found[base_tag].layers
+        start = next((j for j, x in enumerate(base) if word in x.material.upper()), None)
+        if start is None:
+            continue
+        taken = [copy.copy(x) for x in base[start:]]
+        for x in taken:
+            if x.shares_cavity_with is not None:
+                x.shares_cavity_with += first - start
+        asm.layers = asm.layers[:first] + taken
+        for n, layer in enumerate(asm.layers):
+            layer.index = n
+        notes.append(
+            f"{tag} states its backup wall as per {fam}; the layers of {base_tag}, "
+            f"{'the first variant, ' if base_tag != fam else ''}from '{base[start].material}' "
+            f"inwards are used. Choose another if the project builds a different one."
+        )
 
 
 # A layer's description, in the drawing's words, mapped to the catalogue's
@@ -1366,6 +1494,9 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
 _MATERIAL_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"METAL\s+(STUD|Z-?GIRT|FRAMING)|FURRING\s+CHANNEL", re.I), "CMHC_Metal Framing"),
     (re.compile(r"GYPSUM", re.I), "CMHC_Gypsum Board"),
+    # Plywood is combustible, so "NON-COMBUSTIBLE EXTERIOR SHEATHING" is not it: the
+    # ON IFC models that layer as glass-fibre gypsum board, the nearest factor held.
+    (re.compile(r"NON-?\s*COMBUSTIBLE\b.*\bSHEATHING", re.I), "CMHC_Gypsum Board"),
     (re.compile(r"PLYWOOD|EXTERIOR\s+SHEATHING|OSB", re.I), "CMHC_Plywood"),
     # A subfloor or roof deck named only as sheathing: Atlantic's floors say
     # "T&G SHEATHING", 16 mm, and it was dropped. A sheathing *membrane* is a

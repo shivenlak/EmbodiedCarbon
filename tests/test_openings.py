@@ -470,3 +470,27 @@ class TestSizeLabelsOnPlans:
         ])
         assert size_labels_on_page(page) == []
         doc.close()
+
+
+@needs_data
+def test_a_structural_plan_of_the_same_storey_is_not_called_an_option():
+    """BC_Duplex groups S102 with A102. S102 is the framing plan, not a design
+    option, so no note should tell the reader to choose between them; A102
+    alone is still the one counted."""
+    from ecarbon.extract.openings import openings_for
+
+    openings, notes = openings_for(get_design("BC_Duplex"))
+    assert not any("S102" in n or "S103" in n for n in notes)
+    assert not any("S102" in o.counts for o in openings)
+
+
+@needs_data
+def test_a_qualified_schedule_title_still_starts_its_table():
+    """skmb_rowhouse titles its table 'WINDOW SCHEDULE (SINGLE)'; every window
+    was lost and the total called PARTIAL for it."""
+    from ecarbon.extract.openings import openings_for
+
+    openings, _ = openings_for(get_design("skmb_rowhouse"))
+    windows = [o for o in openings if o.kind == "window"]
+    assert len(windows) == 17
+    assert next(o for o in windows if o.tag == "WC01").width_mm == 2231.0

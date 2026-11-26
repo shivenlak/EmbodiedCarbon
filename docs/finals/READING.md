@@ -44,7 +44,7 @@ The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; tra
     - QC: T/O FOOTING is measured off the datum ladder (−2.44 m, the IFC's), so the foundation wall is 2.44 m, not a 1.42 m frost wall; it says "measured, not printed".
     - CMU: ON N1 says it is priced as cast concrete and overstates; a CMU factor is asked of B.
     - Open: floor area split by F tag (BC F1 between units vs F2; done by tag count it would spread soffits and balconies over floor area, so not done); QC stairs have no riser labels; ATL_Stacked_Townhouse_01 runs 1.43, from stated XPS layers rather than a double count; NOR (below) is not in the 44.
-- [ ] **A9. Builder material list (C10). Thu.** *Update 25 Nov: B landed the CSV/XLSX parser (`carbon/user_factors.py`), so skip that part; only the optional EPD-PDF reading below remains, and only if A8 is done.*
+- [x] **A9. Builder material list (C10). Thu.** *(26 Nov: B's parser covers it; the EPD-PDF reading is cut, cut-list item 1.)* *Update 25 Nov: B landed the CSV/XLSX parser (`carbon/user_factors.py`), so skip that part; only the optional EPD-PDF reading below remains, and only if A8 is done.*
   - `intake/materials.py` `read_material_list(path)` reads CSV/XLSX.
   - Headers are tolerant (case, spaces, units in brackets).
   - It returns a row-level error list instead of failing the whole file.
@@ -126,29 +126,29 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - DE `OKFF ±0,00`
   - Reuse `scale.parse_imperial`. Keep the plate-vs-ridge distinction (`roof_level_m`).
 - [x] **`extract/specs.py`:** *(24 Nov: all slab and footing forms read, plus `8" CONC. FOUNDATION WALL` and a stated foundation wall height; rebar notes `#4 @ 12"` / `N12-300` not read, as no quantity uses them)* `4" CONC. SLAB ON GRADE`, `16" x 8" CONT. FTG`, `#4 @ 12" O.C.`, `N12-300` (AU rebar), `150 THK SLAB`, `100mm thick`.
-- [ ] **`extract/assemblies.py`:** *(24 Nov: nominal lumber, AU/UK depth-first and spacing-based framing share done; decimal comma not)*
+- [x] **`extract/assemblies.py`:** *(Closed 26 Nov: decimal comma cut, no Canadian set uses it. 24 Nov: nominal lumber, AU/UK depth-first and spacing-based framing share done; decimal comma not)*
   - [x] Nominal lumber: 2x4 → 89, 2x6 → 140, 2x8 → 184, 2x10 → 235, 2x12 → 286 mm. Also AU/UK `90x45` / `140x45` (stud depth is the first number).
   - [x] Framing fraction from the stated spacing: `@ 16" O.C.` / `@ 24" O.C.` / `@ 400 crs` / `@ 600 crs`. Use the spacing to compute stud share instead of always `FRAMING_FRACTION = 0.15`; the no-spacing case keeps 0.15, so CMHC is unchanged.
   - Decimal comma (`2,40`).
   - US wall-type legends that are a list of notes rather than a layer table. *(done 23 Nov: `legend_assemblies_on_page`, Escondido and Santa Cruz format)*
-- [ ] **`extract/openings.py`:** *(24 Nov: no `3068`-style door code occurs in the dev or Landmark corpus, so not built; plans with no schedule now read each opening's width-over-height label, see Findings)* imperial as primary when there's no metric column; `3068` / `2868` / `2668` door codes (W×H in feet-inches); tags `W-1`, `W01`, `D1`, `101A`.
+- [x] **`extract/openings.py`:** *(Closed 26 Nov: `3068` codes cut, none in any corpus. 24 Nov: no `3068`-style door code occurs in the dev or Landmark corpus, so not built; plans with no schedule now read each opening's width-over-height label, see Findings)* imperial as primary when there's no metric column; `3068` / `2868` / `2668` door codes (W×H in feet-inches); tags `W-1`, `W01`, `D1`, `101A`.
 - [x] **`intake/classify.py`:** *(24 Nov: all listed numbers and titles type; ISO 19650 added; a title-block-column title now beats a nearer drawing heading)*
   - US `A-101`, `A2.1`, `S-1`, `G-001`
   - UK BS 1192 / ISO 19650 numbering (`PRJ-XX-ZZ-DR-A-1001`)
   - AU `DA-01` / `CC-101`
   - titles such as "BUILDING SECTIONS", "WALL SECTIONS", "WALL TYPES", "DOOR & WINDOW SCHEDULE", "GENERAL ARRANGEMENT", "GROUND FLOOR PLAN", "FIRST FLOOR PLAN" (= the second storey in UK/AU usage!)
 - [x] **`geometry/scale.py`:** *(24 Nov: all listed forms already parse; `NTS` gives no scale)* `1:100 @ A1`, `1:100 @A3`, `SCALE: 1/8" = 1'-0"` spacing variants, `NTS` as "no scale". Graphic bar scales only if cheap.
-- [ ] **The old `feat/pipeline-improvements` work** (tag `archive/pipeline-improvements`):
+- [x] **The old `feat/pipeline-improvements` work** *(26 Nov: left archived. BC's W1.3/W1.4 refusal costs nothing, because the plans tag only the W1 family, which maps to W1.1.)* (tag `archive/pipeline-improvements`):
   - It merges cleanly into `main` and keeps the Alberta gate.
   - But it makes `BC_Duplex`'s exterior wall parse where `main` refuses it as unreliable, so `tests/test_assemblies.py::TestAcrossFirms::test_an_unreliable_parse_is_reported_rather_than_used` fails.
   - **Optional:** check the BC_Duplex read against its IFC layer set (`scripts/score_assemblies.py`). If it's right, bring the commits in and update that test with the evidence. If not, leave it archived.
-- [ ] After A3: rerun `score_blind.py --split dev` and `run_pipeline.py`. Record before/after under "Findings".
+- [x] After A3: rerun `score_blind.py --split dev` and `run_pipeline.py`. *(Done in A6 and A10.)* Record before/after under "Findings".
 
 ## A4. `ecarbon/vision/`, a fallback only where the rules failed (Sat 21 – Mon 23)
 
 **Principle:** the rules run first and stay the source of truth. Vision only runs where the rules came back empty, and every vision value must prove where it came from.
 
-- [ ] **Triggers** (computed in `gather()`; already cheap to detect):
+- [x] **Triggers** *(26 Nov: footprint and heights only; the rest cut, Canada's text sets don't need them)* (computed in `gather()`; already cheap to detect):
   - sheets with `readable=False` or toolchain `RASTER` / `DISTILLER_OUTLINED` (`intake/inventory.py`)
   - `footprint is None`
   - empty `assemblies_for` or `openings_for`
@@ -159,7 +159,7 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - Two adapters: `ClaudeProvider` and `GeminiProvider`. **Load the `claude-api` skill before writing the Claude adapter**, and use the current model ID and its structured-output/tool-use pattern.
   - Selected by `ECARBON_VISION=claude|gemini`, with keys from `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`. Unset means vision is off and behaviour is exactly as today.
   - Add the SDKs as an optional extra in `pyproject.toml` (`[project.optional-dependencies] vision = [...]`), imported lazily.
-- [ ] **`vision/tasks.py`:** (1–4 done: sheet, scale, footprint, levels; footprint and levels feed the takeoff) one pydantic answer schema plus a prompt per task, in priority order:
+- [x] **`vision/tasks.py`:** *(5–6 cut, cut-list item 2)* (1–4 done: sheet, scale, footprint, levels; footprint and levels feed the takeoff) one pydantic answer schema plus a prompt per task, in priority order:
   1. sheet type and number
   2. scale note
   3. overall footprint dimensions (from dimension strings, not by measuring pixels)
@@ -174,13 +174,13 @@ Work in the order of the A1 failure list. Each new pattern gets a unit test, and
   - **Raster pages:** there's no text to check, so the value is kept but capped at `INFERRED`, with the note "read from an image; not verifiable against text".
   - Numbers in the answer must parse out of the quote with the existing parsers (`parse_dimension`, `parse_scale_text`, `parse_imperial`). The model's own arithmetic is never trusted.
 - [x] **`vision/cache.py`:** a disk cache in `~/.cache/ecarbon/vision/` keyed by `sha256(png + task + PROMPT_VERSION + provider/model)`, plus a page budget per upload (env `ECARBON_VISION_MAX_PAGES`, default 12).
-- [ ] **Into the takeoff:**
+- [x] **Into the takeoff:** *(footprint and levels, with C3 labels and bbox)*
   - Results fill `TakeoffInputs` (scale → `ScaleEstimate`, footprint → `Footprint`, levels → `StoreyHeights`, schedules → `Assembly` / `Opening`), so line building is unchanged.
   - Labels per **C3**: `"vision: "` note, an `assumptions` entry, and `Provenance.bbox`. The trace highlight then works by itself, because `trace_line` honours `bbox` first.
   - Emit `progress("vision", ...)` (**C4**).
 - [x] *(25 Nov: footprint only, on a rules footprint nothing corroborated; one page per set. All 9 US dev sets agree within 0.5%; disagreement tested on a fixture.)* **Cross-check:** where the rules and vision both answer, agreement goes in the note ("agrees with the dimension chain"), and disagreement becomes a WARNING `Gap` with both values. Never silently resolved.
 - [x] **Tests:** recorded provider responses under `tests/fixtures/vision/`. CI never calls an API. Test that the validator drops a hallucinated quote, and that vision-off leaves CMHC totals bit-identical.
-- [ ] **Provider bake-off (Mon 23):**
+- [x] **Provider bake-off (Mon 23):** *(cut: no Gemini key; Claude only)*
   - Run both providers on every dev set.
   - Per provider, record: answers accepted by the validator, answers right against `dev_truth.yaml`, wrong answers that got through, answers dropped by the validator, $ per set, and seconds per set.
   - Choose the default by **accepted-and-right per dollar**. Put the table under "Findings"; it goes in the deck.
@@ -204,11 +204,36 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 
 - [x] Rerun `score_blind.py --split dev` and `run_pipeline.py --json`. Fix the top regressions. CMHC coverage must be at or above `out/baseline.json`. *(24 Nov: no set down, mean 67.6 -> 79.6%; see Findings.)*
 - [x] Hand B the numbers (under "Findings"): CMHC coverage before → after, dev stage scores before → after, the bake-off table, and NOR before → after. *(Rules-only numbers given 24 Nov; the bake-off and NOR need a vision key.)*
-- [ ] Freeze. After this, bug fixes only.
+- [x] Freeze. After this, bug fixes only. *(26 Nov 10 pm; later fixes were by the user's call and each is in Findings.)*
 
 ---
 
 ## Findings (append as you go)
+
+- **26 Nov (night), the last A8 items, checked.**
+  - ON floor depth / concrete: not a misread. The IFC's 454 mm ON "slab" is a framed floor modelled as a slab (the QC artefact). ON ADU's 254 mm IFC slab is not on the drawings: A001 says "VAR, REFER TO STRUCTURAL" and S001 states 102 mm, which we read. ON ADU's ours/IFC of 1.6–2.4 is our foundation walls and footings against an IFC that models none.
+  - BC W1.3/W1.4: still refused on all 7 sets, but no plan tags them (the plans tag the W1 family, which maps to W1.1), so no number moves. Left alone.
+  - Stairs: a set with two or more storeys and no labelled flight now gets an INFO gap saying no stair is counted and why (all multi-storey QC sets). Lines and totals are unchanged.
+  - CMU on ON N1: still waiting on B's factor; the line says what it stands in for.
+  - BC's wall sheathing `MIN 3/4" PLYWOOD SHEATHING (REF ALSO STRUC)` reads 19 mm (a stated minimum, and the note says so); it was unpriced on all 7 BC sets. BC_Sixplex plywood 7.1 -> 13.9 m3 (IFC 25.6).
+  - BC partitions: a bare `REFER ALSO TO STRUCTURAL` row between the studs and their C/W batt was read as a layer, so the batt priced at full depth over the whole wall. It is now skipped (a pointer, not a deferral, so the studs still count). A batt naming a shallower depth than its cavity (`3 1/2"` in a 2x6) prices at its own depth. BC totals -0.1 to -1.4%; AB identical.
+  - ATL studs: the thickness cell `2 x 6 /38mm x140mm` is width x depth, and every ATL stud read 38 mm. Framing now takes the larger figure (furring, which lies flat, keeps the first: QC `19mm x 64mm`). With the right depth, ATL partitions measure plausibly (ADU_01 0.7 -> 14.8 m, Fourplex_02 26.7 -> 138 m), gypsum moves toward the IFC on 7 of 9 sets, and ATL ours/IFC median goes 1.22 -> 1.20. The ATL A1-A3/BPR median goes 0.55 -> 0.53 as overcounted partition gypsum leaves.
+  - Tried and reverted: ON_Stacked_Townhouse_01 measures no partitions (two floors outline at 0.71, the walls are drawn at 1.42, and the commonest stroke wins). Falling back to the other strokes measured 137 m (0.35 m per m2 of floor, the same as _02), but gypsum went 32.8 -> 26.9 m3 against the IFC's 42.5 and ours/IFC 0.68 -> 0.62: the assumed estimate it replaced was closer. Left on the assumed estimate, which says it is assumed.
+  - `NON-COMBUSTIBLE EXTERIOR SHEATHING` (W2 on 5 AB and 5 ON sets) priced as gypsum board, not plywood: plywood burns, and the ON IFCs model the layer as glass-fibre gypsum. AB_Fourplex_01 46916 -> 46990 kg (+0.16%, inside the gate's 2%).
+  - Checked, not misreads (the drawings and the IFC differ, and we follow the drawings): ATL_Fourplex_02/ADU_02 slab (F1 is scheduled as slab on grade with 76 mm XPS; the IFC models none); QC rigid insulation +300-450% (R2 states 216 mm R-42 rigid, the IFC models 279 mm mineral wool; W1 is brick and mineral wool in the IFC); AB_Rowhouse_02 at 0.45 of the IFC (we price the stated 131 m2 unit, the IFC the 528 m2 block; 0.90 of its BPR).
+  - ATL_Fourplex_01 Option1 read none of its nine walls: its names sit 53 pt from DESCRIPTION and the window was 50. Now 60; only Option1 changes, it matches Option2 layer for layer, and its total goes 41032 -> 50780 kg.
+  - Also checked, not misreads: ON_Sixplex's remaining plywood (roof deck, sheathing, T&G subfloor, all stated; the IFC has no roof plywood and models floors as a 454 mm slab); ATL_Sixplex concrete (walls and footings -6.8% against the IFC; the IFC slab isn't matched, so the slab looks like an overcount and isn't one).
+  - Left refused: QC_Rowhouse_01/02 R3 (terrace roof, 17 real layers plus a wrapped note, over the 15-layer merge guard; tagged once). Raising the guard would let QC's merged F5 (25 rows) through.
+  - Notes that overstated what was missing, fixed (quantities unchanged): BC's S102/S103 framing plans were called "alternative versions ... the builder's decision"; SK/MB "no foundation plan" said concrete "cannot be produced" beside a measured slab and grade beam; AB_ADU_01, ON_ADU_01 and SKMB_ADU_01 (one storey on a stated slab, no framed floor in any of their IFCs) were called PARTIAL for lacking a floor assembly. AB_ADU_01 gate coverage 84 -> 100.
+  - skmb_rowhouse read no windows: its title is "WINDOW SCHEDULE (SINGLE)". Now 17 types, 31.65 m2, counted from plan tags.
+  - BC assemblies parted at the blank band between blocks rather than the tag midpoint. BC sets W1.3's tag 26 pt under its name and W1.4's on a layer, so W1.3 began on VAPOUR CONTROL BARRIER and W1.4/W2 merged into refusals; every block also lost its last rows (W1.2's gypsum, F1's second Type X, R2's joists and gypsum; FW1.1 ended on FW1.2's name). Now W1.1-W1.4 and W2 read on all 7 BC sets with nothing refused. The same rule completes SK/MB's F3 and R2 (skmb_rowhouse R2 had been named "CONTROL] AS PER CAN/ULC-S705.2") and adds F4/F5. Only BC and SK/MB assemblies change. The AB gate cannot move.
+  - BC's "WOOD STUD FRAMING ... C/W IN-FILL INSULATION" is now two layers, the studs and the 140 mm fill sharing the cavity (built depth unchanged, 283 mm). The fill had not been counted at all. BC_Sixplex 37734 -> 42201, BC_Duplex 35988 -> 40657.
+  - SK/MB tag both "TYP. PITCHED ROOF ASSEMBLY" and its "...ALTERNATE" R1, and the later alternate overwrote the design. The typical one is kept. SKMB_Sixplex 70533 -> 71125, skmb_rowhouse 29499 -> 29705 (together with the band rule).
+  - BC's W2 (non-combustible cladding) states its cladding and furring, then the rest "PER EW1". It gave no volume, so BC_ADU_01/02, which tag W2 twice and W1 once, priced an assumed standard wall. W1.1's layers are now taken from its insulation inwards (W1.1 is the first variant, as the family mapping already uses), and the choice is stated. 11539 -> 12145, 13684 -> 14734. The other BC sets are unchanged. After this, the only sets still on a standard stand-in are the textless NOR garage's.
+  - ATL_Fourplex_03's N table names its blocks 91 pt from the header, between the thickness and material columns, past the 60 pt window. So N1 (tagged 14 times) began on PARGING and was refused, and R1/R2 (tagged 17 and 10 times) were not read, leaving an assumed standard roof. When the window is empty, a name cluster between those two columns is taken. Only ATL_Fourplex_03 changes: 52012 -> 51634, the drawn R1 in place of STD-R.
+  - Left refused, no carbon effect: QC_Fourplex_01/02 and QC_Sixplex F5 (soffit, 25 rows) are never tagged on the plans.
+  - **r8 -> r9 (`out/accuracy_r9.json`, after every fix above, main merged; full suite green; pipeline 53/53, 0 crashes):** A1-A3/BPR median 0.592 -> 0.635, +/-30% 15 -> 15 of 44. Complete A1-A5 0.776 -> 0.810, 20 -> 20. Ours/IFC on the same materials 1.12 -> 1.18, 20 -> 19 of 38. The IFC step up is mostly drawn layers the IFC does not model: QC R1 states 152 mm R-30 rigid over the roof (QC_Fourplex_02 rigid 11.7 -> 42.7 m3 against the IFC's 9.9; QC_ADU_01 1.00 -> 1.26), and BC_ADU_02 (1.23 -> 1.31, out of band) now prices its drawn W2. We follow the drawings. 12 sets moved toward 1, including ATL_Fourplex_02 2.06 -> 1.96, ATL_Sixplex 1.68 -> 1.58 and the BC fourplexes 0.86 -> 0.96/0.91.
+  - **Top open lead, not started (too wide for the freeze):** the footprint is the bounding rectangle, so a jogged plan loses perimeter. ON_Stacked_Townhouse_01 measures 46.0 m (10.7 x 12.3), and the IFC's W1/W2 walls imply ~54 m: exterior wall -30% (-26% on _02). A traced-polygon perimeter would move every region, the AB gate included.
 
 - **26 Nov (late), production speed: footprint clustering no longer pairwise.** A builder upload of a hatched plan set took 5 minutes: `_clusters` and `_without_spurs` compared segments pair by pair, and au-vic-futurehomes-b carries 142k segments of one weight (197M touching pairs). Both now go through shapely (box union + STRtree). Read time: futurehomes-b 304 -> 31 s, futurehomes-a 43 -> 16 s, Riverside 35 -> 28 s. Clusters identical on every page checked; all 53 CMHC sets and every non-holdout global set give the same result as before.
 
