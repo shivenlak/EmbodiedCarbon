@@ -770,6 +770,13 @@
       "density_kg_m3": 30.0,
       "waste_factor": 0.05
     },
+    "CMHC_Insulation, Cellulose": {
+      "default_factor_id": "koot-insul-dense-pack-cellulose",
+      "category": "Insulation",
+      "assembly_class": "insulation",
+      "density_kg_m3": 48.0,
+      "waste_factor": 0.05
+    },
     "CMHC_Exterior Finish Placeholder 01": {
       "default_factor_id": "koot-cladding-vinyl-siding",
       "category": "Cladding",

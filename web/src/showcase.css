@@ -1040,3 +1040,21 @@ a.sc-btn { display: inline-flex; align-items: center; text-decoration: none; col
 .le-libmsg ul { margin: 4px 0 0; padding-left: 18px; color: #fcd38d; }
 .sc-region-note { flex-basis: 100%; color: #fcd38d; font-size: 12px; margin-top: 4px; }
 .sc-complete { margin-top: 4px; pointer-events: auto; width: fit-content; } .complete-line em { font-style: normal; color: var(--dim, #7d8ca3); margin-left: 6px; }
+
+/* ---- what is included: the scope declaration (NRC Table 9), 26 Nov ---- */
+.scope { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgb(255 255 255 / 0.14); }
+.scope-h { margin: 0 0 4px; font: 600 12px/1 var(--mono, monospace); letter-spacing: 0.08em; text-transform: uppercase; color: var(--frost, #a9b8cc); }
+.scope-t { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.scope-t td { padding: 6px 6px 6px 0; vertical-align: top; border-top: 1px solid rgb(255 255 255 / 0.07); }
+.scope-t td.num { text-align: right; white-space: nowrap; font: 500 12.5px/1.3 var(--mono, monospace); padding-right: 0; }
+.scope-code { font: 500 11px/1.5 var(--mono, monospace); color: var(--dim, #7d8ca3); white-space: nowrap; }
+.scope-st { display: inline-block; white-space: nowrap; font: 600 10.5px/1 var(--mono, monospace); letter-spacing: 0.03em; padding: 3px 6px; border-radius: 999px; border: 1px solid currentColor; }
+.scope-st.is-counted { color: #8fd3a8; }
+.scope-st.is-estimated { color: var(--cedar, #e0ab6f); }
+.scope-st.is-open, .scope-st.is-added { color: #9ec5ff; }
+.scope-st.is-inside { color: var(--frost, #a9b8cc); }
+.scope-st.is-missing { color: #f0a08a; }
+.scope-st.is-out { color: var(--dim, #7d8ca3); }
+.scope-np { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--frost, #a9b8cc); }
+.scope-np em { color: var(--dim, #7d8ca3); font-style: normal; }
+@media (max-width: 520px) { .scope-code { display: none; } }

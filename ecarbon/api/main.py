@@ -623,12 +623,22 @@ def _complete(project_id: str):
     )
 
 
+def _complete_dict(project_id: str) -> dict:
+    """The complete estimate with its scope declaration (NRC Table 9)."""
+    from ecarbon.carbon.scope import scope_declaration
+
+    p = _get(project_id)
+    ce = _complete(project_id)
+    return {**ce.to_dict(), "scope": scope_declaration(p.takeoff, p.carbon, ce).to_dict()}
+
+
 @app.get("/projects/{project_id}/complete")
 def get_complete(project_id: str) -> dict:
     """The counted total plus what a whole-building LCA adds (A1-A5): open
     decisions at mid-range, typical rebar, transport and construction losses.
-    Every item is assumed and says how it was calculated."""
-    return _complete(project_id).to_dict()
+    Every item is assumed and says how it was calculated. `scope` walks the
+    NRC guideline's element list and says, for each, what was counted."""
+    return _complete_dict(project_id)
 
 
 @app.get("/projects/{project_id}/lines/{line_id}/calc")
@@ -1059,7 +1069,7 @@ def export_csv(project_id: str) -> PlainTextResponse:
     p = _get(project_id)
     return PlainTextResponse(
         takeoff_csv(p.takeoff, p.carbon, p.geography, header=True, chosen=p.material_edits, spec=_spec(project_id),
-                    complete=_complete(project_id).to_dict()),
+                    complete=_complete_dict(project_id)),
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{project_id}-takeoff.csv"'
@@ -1078,7 +1088,7 @@ def export_report(project_id: str) -> HTMLResponse:
     return HTMLResponse(report_html(
         p.takeoff, p.carbon, get_unspecified(project_id),
         traces=explain_all(p.takeoff, p.carbon, p.material_edits), spec=_spec(project_id),
-        complete=_complete(project_id).to_dict(),
+        complete=_complete_dict(project_id),
     ))
 
 
