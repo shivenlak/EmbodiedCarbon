@@ -668,3 +668,44 @@ def test_a_cavity_fill_with_its_own_depth_is_priced_but_not_added_to_the_depth()
     assert f2.total_thickness_mm == sum(
         lay.thickness_mm for lay in f2.layers if lay.thickness_mm and not lay.in_cavity
     )
+
+
+class TestStudCavityFill:
+    """BC's partitions: a batt beside its studs shares their cavity."""
+
+    def _layers(self, *rows):
+        from ecarbon.extract.assemblies import Layer, _mark_shared_cavities
+
+        layers = [Layer(index=i, material=m, thickness_mm=t) for i, (m, t) in enumerate(rows)]
+        _mark_shared_cavities(layers)
+        return layers
+
+    def test_a_batt_named_for_the_full_cavity_shares_it(self):
+        _, studs, batt, _ = self._layers(
+            ("TYPE X GYPSUM WALL BOARD", 16.0), ('WOOD STUD FRAMING @ 16" C/C', 89.0),
+            ('3 1/2" MW ACOUSTIC BATT', None), ("TYPE X GYPSUM WALL BOARD", 16.0),
+        )
+        assert batt.thickness_mm == 89.0 and batt.shares_cavity_with == studs.index
+        assert "as its name states" in batt.note
+
+    def test_a_shallower_named_batt_is_a_partial_fill(self):
+        """BC P6: '3 1/2" MW ACOUSTIC BATT' in a 2x6 wall is 89 mm, not 140."""
+        _, studs, batt = self._layers(
+            ("PLYWOOD", 13.0), ('2"X6" WOOD STUD FRAMING @ 16" C/C', 140.0),
+            ('3 1/2" MW ACOUSTIC BATT', None),
+        )
+        assert batt.thickness_mm == pytest.approx(88.9, abs=0.1)
+        assert batt.in_cavity and batt.shares_cavity_with == studs.index
+
+
+@needs_data
+def test_a_refer_also_row_does_not_split_studs_from_their_batt():
+    """BC P2 prints 'REFER ALSO TO STRUCTURAL' between its studs and its C/W
+    batt. As a layer it priced the batt over the whole wall at full depth."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, _ = assemblies_for(get_design("BC_Sixplex"))
+    mats = [lay.material for lay in a["P2"].layers]
+    assert not any("REFER ALSO" in m for m in mats)
+    studs, batt = a["P2"].layers[1], a["P2"].layers[2]
+    assert batt.shares_cavity_with == studs.index and not studs.deferred_to

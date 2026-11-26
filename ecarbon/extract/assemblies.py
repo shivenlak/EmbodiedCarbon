@@ -124,6 +124,7 @@ _PLACEHOLDER_RE = re.compile(r"PLACE\s?HOLDER", re.I)
 # describing this one.
 _CW_TAIL_RE = re.compile(r"\s+C/W:?\s*$", re.I)
 _DEFER_RE = re.compile(r"\(?\s*REFER\s+TO\s+(\w+)[^)]*\)?", re.I)
+_REFER_ALSO_RE = re.compile(r"^\(?\s*REFER\s+ALSO\s+TO\s+\w+[^)]*\)?\s*$", re.I)
 # The framing layer and the insulation that fills the gaps between it.
 # Share of a stud cavity the studs and plates take, at 400 mm centres; the
 # fill takes the rest. Also used where framing is carried only as a wall area.
@@ -745,8 +746,21 @@ def _mark_shared_cavities(layers: list[Layer]) -> None:
                 and fill.note is None
                 and not fill.stated_no_thickness
             ):
+                named, _ = thickness_in_name(fill.material)
+                if named and named < frame.thickness_mm - 2.0:
+                    # BC P6's '3 1/2" MW ACOUSTIC BATT' in a 2x6 wall: a partial fill.
+                    fill.thickness_mm, fill.in_cavity = named, True
+                    fill.note = (f"its own stated depth, {named:.0f} mm, inside the "
+                                 f"{frame.thickness_mm:.0f} mm stud cavity")
+                    # Still between the studs, so it takes the fill's share of its depth.
+                    frame.shares_cavity_with, fill.shares_cavity_with = fill.index, frame.index
+                    continue
                 fill.thickness_mm = frame.thickness_mm
-                fill.note = f"depth of the {frame.thickness_mm:.0f} mm stud cavity it fills (no depth stated)"
+                fill.note = (
+                    f"depth of the {frame.thickness_mm:.0f} mm stud cavity it fills, as its name states"
+                    if named and abs(named - frame.thickness_mm) <= 2.0
+                    else f"depth of the {frame.thickness_mm:.0f} mm stud cavity it fills (no depth stated)"
+                )
         if a.thickness_mm is None or b.thickness_mm is None:
             continue
         if abs(a.thickness_mm - b.thickness_mm) > 1.0:
@@ -968,6 +982,11 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 mm, note = parse_thickness(paired) if paired is not None else (None, None)
                 if paired is None and current.layers and _continues(current.layers[-1], text):
                     _join(current.layers[-1], text)
+                    continue
+                if _REFER_ALSO_RE.match(text):
+                    # BC P2's bare "REFER ALSO TO STRUCTURAL" under its studs: a pointer,
+                    # not a layer and not a deferral (the studs are stated here). As a
+                    # layer it split the studs from their C/W batt.
                     continue
                 material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", text)).strip(" ,")
                 if not material:
