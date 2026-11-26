@@ -347,6 +347,207 @@ sets:
     licence: "Province of British Columbia, public download."
     local_only: true
 
+
+  # ---- Canada, non-CMHC (added 25 Nov after the UX session; Canada only) -----
+  # Toronto's own pre-approved designs (not the CMHC catalogue) and Mississauga's
+  # garden suites. Holdout: the four multiplexes, answer key written by Stream B,
+  # scored once. The multiplex PDFs are ~129 MB each (electric variant only).
+  - id: ca-on-toronto-gs-studio-0
+    split: dev
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "studio garden suite (1 storey)"
+    kind: "vector, 11 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/9659-GSH-0.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: ec0fbf30a4899073
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-gs-2bed-0
+    split: dev
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "two-bedroom garden suite"
+    kind: "vector, 13 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/9671-G2H-0.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: 770b683bab1a470e
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-ls-studio-0
+    split: dev
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "studio laneway suite"
+    kind: "vector, 13 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/9602-LSH-0.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: 10aef3d14c3b29c0
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-ls-2bed-0
+    split: dev
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "two-bedroom laneway suite"
+    kind: "vector, 15 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/95ac-L2H-0.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: 562b68068a6e2f98
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-gs-studio-1
+    split: out_of_scope  # same building as -0 plus one sheet; not scored twice
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "studio garden suite, variant 1"
+    kind: "vector, 12 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/9650-GSH-1.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: 9c9a3b1d88e025bd
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-gs-2bed-1
+    split: out_of_scope  # same building as -0 plus one sheet; not scored twice
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "two-bedroom garden suite, variant 1"
+    kind: "vector, 14 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/95ea-G2H-1.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: e0e096fc280702a9
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-ls-studio-1
+    split: out_of_scope  # same building as -0 plus one sheet; not scored twice
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "studio laneway suite, variant 1"
+    kind: "vector, 14 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/962d-LSH-1.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: 62dc4cc344e5bccc
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-ls-2bed-1
+    split: out_of_scope  # same building as -0 plus one sheet; not scored twice
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "two-bedroom laneway suite, variant 1"
+    kind: "vector, 16 pages"
+    url: https://www.toronto.ca/wp-content/uploads/2025/07/9596-L2H-1.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-garden-and-laneway-suite-building-plans/
+    fetch: direct
+    sha256: 4176c93da424dfdf
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-mississauga-gs-studio
+    split: dev
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "studio garden suite, 40 m2 (one PDF per sheet)"
+    kind: "vector, 13 pages"
+    url: https://mississauga.ca/publication/pre-approved-studio-garden-suite-plans/
+    page: https://www.mississauga.ca/services-and-programs/building-and-renovating/building-more-units-on-your-property/pre-approved-garden-suite-plans/
+    fetch: browser
+    sha256: ee039a0547f0d134
+    licence: "City of Mississauga pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-mississauga-gs-1bed
+    split: dev
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "one-bedroom garden suite, 55 m2 (one PDF per sheet)"
+    kind: "vector, 13 pages"
+    url: https://mississauga.ca/publication/pre-approved-one-bedroom-garden-suite-plans/
+    page: https://www.mississauga.ca/services-and-programs/building-and-renovating/building-more-units-on-your-property/pre-approved-garden-suite-plans/
+    fetch: browser
+    sha256: 005216613b2e1dae
+    licence: "City of Mississauga pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-fourplex-narrow
+    split: holdout
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "fourplex, narrow lot (LGA Architectural Partners)"
+    kind: "vector, 43 pages"
+    url: https://www.toronto.ca/ext/digital_comm/pdfs/toronto-building/COT_Multiplex_FOURPLEX_%20Narrow_Comb-Electric.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-multiplex-building-plans/
+    fetch: direct
+    sha256: 71a0f3146b3bf180
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-fourplex-wide
+    split: holdout
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "fourplex, wide lot (LGA Architectural Partners)"
+    kind: "vector, 44 pages"
+    url: https://www.toronto.ca/ext/digital_comm/pdfs/toronto-building/COT_Multiplex_FOURPLEX%20WIDE_Comb-Electric.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-multiplex-building-plans/
+    fetch: direct
+    sha256: 4eb18232b9c31a4e
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-sixplex-narrow
+    split: holdout
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "sixplex, narrow lot (LGA Architectural Partners)"
+    kind: "vector, 43 pages"
+    url: https://www.toronto.ca/ext/digital_comm/pdfs/toronto-building/COT_Multiplex_SIXPLEX%20NARROW_Comb_Electric.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-multiplex-building-plans/
+    fetch: direct
+    sha256: 19ef925f04e8c52e
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
+  - id: ca-on-toronto-sixplex-wide
+    split: holdout
+    country: CA
+    region: CA-ON
+    units: metric
+    type: "sixplex, wide lot (LGA Architectural Partners)"
+    kind: "vector, 44 pages"
+    url: https://www.toronto.ca/ext/digital_comm/pdfs/toronto-building/COT_Multiplex_SIXPLEX%20WIDE_Comb_Electric.pdf
+    page: https://www.toronto.ca/services-payments/building-construction/building-permit/before-you-apply-for-a-building-permit/pre-approved-building-plans/pre-approved-multiplex-building-plans/
+    fetch: direct
+    sha256: 2fe0a25d0b7386cc
+    licence: "City of Toronto pre-approved plans, free download for permit use. Redistribution not granted."
+    local_only: true
+
   # ---- Added 19 Nov via Chrome (sites block scripts) ---------------------------
   - id: us-riverside-adu-1
     split: out_of_scope  # was dev; Canada only (25 Nov UX session)
