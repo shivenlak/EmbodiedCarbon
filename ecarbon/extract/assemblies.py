@@ -943,7 +943,20 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             # thickness keeps the midpoint, because starting there named
             # BC's F2 "FLOOR FINISH w/ UNDERLAY".
             text_ys = sorted({y for y, _, _ in text_cells})
+            steps = sorted(b - a for a, b in zip(text_ys, text_ys[1:], strict=False) if b - a > ROW_DY)
+            pitch = steps[len(steps) // 2] if steps else 0.0
             for i, ty in enumerate(tag_ys[1:]):
+                # Blocks are parted by a blank band (BC: 30-43 pt against a 10 pt row
+                # pitch), and that is the surest split. BC sets W1.3's tag mid-block,
+                # 26 pt under its name, and W1.4's on its second layer, so neither
+                # the midpoint nor the tag's own row finds the name.
+                window = [y for y in text_ys if tag_ys[i] < y <= ty + ROW_DY]
+                gaps = [(b - a, a, b) for a, b in zip(window, window[1:], strict=False)]
+                if pitch and gaps:
+                    gap, a, b = max(gaps)
+                    if gap > 2.5 * pitch:
+                        bounds[i] = (a + b) / 2
+                        continue
                 on_row = [y for y in text_ys if abs(y - ty) <= ROW_DY]
                 if on_row and any(abs(y - ty) <= ROW_DY for y in thicknesses):
                     above = [y for y in text_ys if y < min(on_row) - ROW_DY / 2]
@@ -1040,8 +1053,31 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             # may sit above a table it does not describe, and BC's FW group
             # must not be read as F.
             asm.group_letter = tag_prefix(asm.tag)
+        _split_cw_fill(asm.layers)
         _mark_shared_cavities(asm.layers)
     return [a for a in out if a.layers and a.tag]
+
+
+_CW_FILL_RE = re.compile(r"\s+C/W:?\s+(.*\b(?:INSULATION|BATT|IN-?FILL)\b.*)$", re.I)
+
+
+def _split_cw_fill(layers: list[Layer]) -> None:
+    """Give a fill named on its studs' row a layer of its own.
+
+    BC writes "WOOD STUD FRAMING, SPACING PER STRUCTURAL C/W IN-FILL INSULATION"
+    on one 140 mm row, so the batt was never priced. Only where the stud depth is
+    stated: the fill then takes it as the cavity it fills.
+    """
+    i = 0
+    while i < len(layers):
+        frame = layers[i]
+        m = _CW_FILL_RE.search(frame.material)
+        if m and frame.is_framing and frame.thickness_mm:
+            frame.material = frame.material[: m.start()].strip(" ,")
+            layers.insert(i + 1, Layer(index=0, material=m.group(1).strip()))
+        i += 1
+    for n, layer in enumerate(layers):
+        layer.index = n
 
 
 # A wrapped description line, not a layer: ATL's R1a runs "ENGINEERED WOOD
@@ -1339,6 +1375,10 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                         f"Assembly {asm.tag} on sheet {asm.sheet} {verdict} {reason}. "
                         f"Its materials are not counted."
                     )
+                    continue
+                # SK/MB tag "TYP. PITCHED ROOF ASSEMBLY" and its "... ALTERNATE" both R1;
+                # the typical one is the design, the alternate an option beside it.
+                if asm.tag in found and re.search(r"\bALT(ERNATE)?\b", asm.name, re.I):
                     continue
                 found[asm.tag] = asm
         if not found:

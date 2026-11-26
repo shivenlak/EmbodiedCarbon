@@ -368,12 +368,13 @@ class TestAcrossFirms:
             assert kept[tag].total_thickness_mm == pytest.approx(ifc_mm, abs=1.0)
 
     def test_an_unreliable_parse_is_reported_rather_than_used(self):
-        """BC's exterior wall defeats both strategies, so it is refused and the
-        reason is on the record."""
+        """QC_Rowhouse_01's terrace roof R3 runs past the merge guard, so it is
+        refused and the reason is on the record. (BC_Duplex was the example until
+        its blocks were parted at the blank band and all read.)"""
         from ecarbon.extract.assemblies import assemblies_for
 
-        kept, rejected = assemblies_for(get_design("BC_Duplex"))
-        assert rejected, "BC_Duplex has assemblies that cannot be read reliably"
+        kept, rejected = assemblies_for(get_design("QC_Rowhouse_01"))
+        assert rejected, "QC_Rowhouse_01's R3 cannot be read reliably"
         for message in rejected:
             assert "could not be read reliably" in message
             assert "not counted" in message
@@ -765,3 +766,42 @@ def test_a_wrapped_note_ending_in_a_cross_reference_is_one_row():
     assert len(r1.layers) == 14
     assert r1.layers[-1].material.startswith("WOOD FRAMED/LIGHT GAUGE STEEL WITH GYPSUM BOARD BULKHEAD")
     assert any(layer.thickness_mm == 152.0 for layer in r1.layers)  # R-30 rigid, as stated
+
+
+@needs_data
+def test_bc_blocks_part_at_the_blank_band_not_the_tag():
+    """BC sets W1.3's tag 26 pt under its name and W1.4's on a layer: a midpoint
+    began W1.3 on VAPOUR CONTROL BARRIER and merged W1.4 and W2 into refusals.
+    Each block also lost its last rows (W1.2's gypsum, FW1.1 ended on FW1.2's name)."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, _ = assemblies_for(get_design("BC_Sixplex"))
+    for tag in ("W1.1", "W1.2", "W1.3", "W1.4"):
+        w = a[tag]
+        assert w.name.startswith("2x6 WOOD STUD"), tag
+        assert "GYPSUM" in w.layers[-1].material, tag
+    assert a["W2"].name.startswith("NON- COMBUSTIBLE")
+    assert a["FW1.2"].name == "FOUNDATION WALL"
+    assert a["FW1.1"].layers[-1].material.startswith("CAST-IN-PLACE CONCRETE")
+
+
+@needs_data
+def test_bc_stud_row_complete_with_fill_is_two_layers_sharing_the_cavity():
+    """'WOOD STUD FRAMING ... C/W IN-FILL INSULATION' is the studs and the batts
+    between them: the fill is counted, and the wall is no deeper for it."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    w = assemblies_for(get_design("BC_Sixplex"))[0]["W1.1"]
+    fill = next(x for x in w.layers if x.material == "IN-FILL INSULATION")
+    assert fill.thickness_mm == 140.0
+    assert not any("C/W" in x.material for x in w.layers if x.is_framing)
+
+
+@needs_data
+def test_a_typical_assembly_is_not_replaced_by_its_alternate():
+    """SK/MB tag both 'TYP. PITCHED ROOF ASSEMBLY' and its 'ALTERNATE' R1; the
+    later alternate used to overwrite the design."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    r1 = assemblies_for(get_design("SKMB_ADU_01"))[0]["R1"]
+    assert r1.name == "TYP. PITCHED ROOF ASSEMBLY"
