@@ -121,6 +121,22 @@ def takeoff_csv(
                 ]
                 if complete else []
             ),
+            *(
+                [("# scope declared against", complete["scope"]["source"])]
+                + [
+                    (f"#   {r['code']} {r['element']}",
+                     f"{r['status']}"
+                     + (f"; {r['kg_co2e']:.2f} kgCO2e" + ("" if r["in_total"] else " (complete estimate only)")
+                        if r["kg_co2e"] is not None else "")
+                     + f"; {r['detail']}")
+                    for r in complete["scope"]["rows"]
+                ]
+                + [
+                    (f"#   named, not priced: {n['assembly']} {n['layer']}", n["reason"])
+                    for n in complete["scope"]["not_priced"]
+                ]
+                if complete and complete.get("scope") else []
+            ),
             ("# units", "carbon in kgCO2e; mass in kg (mass); quantities in the unit column"),
             ("# generated", f"{date.today().isoformat()} by ecarbon {_version()}"),
         ):
@@ -293,6 +309,12 @@ def _audit_rows(takeoff: TakeoffResult, traces: dict) -> str:
     return "".join(out)
 
 
+def _scope_kg(r: dict) -> str:
+    if r["kg_co2e"] is None:
+        return ""
+    return f"{r['kg_co2e']:,.0f}" + ("" if r["in_total"] else "*")
+
+
 def report_html(
     takeoff: TakeoffResult, carbon: CarbonResult, decisions=(), traces: dict | None = None,
     spec: dict | None = None, complete: dict | None = None,
@@ -453,6 +475,30 @@ choice closes it.</p>
         "</tbody></table>"
         if complete and complete.get("items") else ""
     )
+    sc = (complete or {}).get("scope")
+    scope_html = (
+        "<h2>What is included</h2>"
+        f"<p class='muted'>Each building element, as {_esc(sc['source'])} lists them, and what this "
+        "estimate does with it. Counted and estimated rows make up the counted total; open decisions and "
+        "additions are in the complete estimate only.</p>"
+        "<table><thead><tr><th>Code</th><th>Element</th><th>Status</th><th>Detail</th>"
+        "<th class='num'>kg CO&#8322;e</th></tr></thead><tbody>"
+        + "".join(
+            f"<tr><td>{_esc(r['code'])}</td><td>{_esc(r['element'])}</td><td>{_esc(r['status'])}</td>"
+            f"<td class='muted'>{_esc(r['detail'])}</td>"
+            f"<td class='num'>{_scope_kg(r)}</td></tr>"
+            for r in sc["rows"]
+        )
+        + "</tbody></table><p class='muted'>* in the complete estimate, not the counted total.</p>"
+        + (
+            "<h3>Named on the drawings, not priced</h3><ul>"
+            + "".join(f"<li>{_esc(n['assembly'])} &middot; {_esc(n['layer'])}: "
+                      f"<span class='muted'>{_esc(n['reason'])}</span></li>" for n in sc["not_priced"])
+            + "</ul>"
+            if sc["not_priced"] else ""
+        )
+        if sc else ""
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -573,7 +619,7 @@ one without restating both to the same modules.</p>
 
 <h2>Factor sources</h2>
 <ul>{factor_html or '<li>No factors were applied.</li>'}</ul>
-{complete_html}{audit_html}{spec_html}
+{complete_html}{scope_html}{audit_html}{spec_html}
 
 <footer>
   Quantities are measured from the vector drawings and labelled

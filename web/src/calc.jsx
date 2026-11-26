@@ -138,8 +138,8 @@ export function CalcSteps({ trace }) {
 
 // Placed beside its number, kept inside the window: below when there is room,
 // above otherwise, never under a panel's scroll edge.
-function place(at) {
-  const W = Math.min(420, window.innerWidth - 32);
+function place(at, width = 420) {
+  const W = Math.min(width, window.innerWidth - 32);
   const left = Math.max(16, Math.min(at.left, window.innerWidth - W - 16));
   const below = window.innerHeight - at.bottom;
   const maxH = Math.max(220, Math.min(560, Math.max(below, at.top) - 24));
@@ -190,7 +190,17 @@ export function CompleteLine() {
       window.removeEventListener("pointerdown", close);
     };
   }, [open]);
-  if (!complete || !complete.items?.length) return null;
+  // ?complete=1 opens it, so the scope table can be reviewed by screenshot.
+  const ready = !!complete?.items?.length;
+  useEffect(() => {
+    if (!ready || !new URLSearchParams(window.location.search).has("complete")) return;
+    const b = ref.current?.querySelector("button");
+    if (b) {
+      const r = b.getBoundingClientRect();
+      setOpen({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+    }
+  }, [ready]);
+  if (!ready) return null;
   return (
     <span className="complete-line" ref={ref}>
       <button
@@ -210,7 +220,7 @@ export function CompleteLine() {
       {open &&
         createPortal(
           <div ref={pop}>
-            <div className="calc-pop" style={place(open)} role="dialog" aria-label="Complete estimate">
+            <div className="calc-pop" style={place(open, 600)} role="dialog" aria-label="Complete estimate">
               <div className="calc-pop-head">
                 <b>Complete estimate, A1–A5</b>
                 <button type="button" className="calc-x" onClick={() => setOpen(null)} aria-label="Close">
@@ -255,10 +265,74 @@ export function CompleteLine() {
                   </div>
                 </li>
               </ol>
+              {complete.scope && <ScopeTable scope={complete.scope} />}
             </div>
           </div>,
           document.body,
         )}
     </span>
+  );
+}
+
+const STATUS_CLASS = {
+  counted: "is-counted",
+  estimated: "is-estimated",
+  "open decision": "is-open",
+  added: "is-added",
+  "counted elsewhere": "is-inside",
+  "not counted": "is-missing",
+  "not included": "is-out",
+};
+
+// What the estimate includes, element by element, as the NRC guideline's
+// Table 9 lists them: the declaration an LCA report makes about its scope.
+export function ScopeTable({ scope }) {
+  const [openNp, setOpenNp] = useState(false);
+  return (
+    <div className="scope">
+      <h4 className="scope-h">What is included</h4>
+      <p className="calc-detail" style={{ marginTop: 0 }}>
+        Every building element in {scope.source}, and what this estimate does with it.
+      </p>
+      <table className="scope-t">
+        <tbody>
+          {scope.rows.map((r) => (
+            <tr key={`${r.code}-${r.element}`} title={r.detail}>
+              <td className="scope-code">{r.code}</td>
+              <td>
+                {r.element}
+                <div className="calc-detail">{r.detail}</div>
+              </td>
+              <td>
+                <span className={`scope-st ${STATUS_CLASS[r.status] || ""}`}>{r.status}</span>
+              </td>
+              <td className="num">
+                {r.kg_co2e == null ? "" : fmt(r.kg_co2e, 0)}
+                {r.kg_co2e != null && !r.in_total ? "*" : ""}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="calc-detail">
+        Figures in <CO2e />. * in the complete estimate, not the counted total.
+      </p>
+      {scope.not_priced?.length > 0 && (
+        <>
+          <button type="button" className="sc-link" onClick={() => setOpenNp((o) => !o)} aria-expanded={openNp}>
+            {openNp ? "Hide" : "Show"} the {scope.not_priced.length} layers the drawings name but no line prices
+          </button>
+          {openNp && (
+            <ul className="scope-np">
+              {scope.not_priced.map((n) => (
+                <li key={`${n.assembly}-${n.layer}`}>
+                  <b>{n.assembly}</b> {n.layer.toLowerCase()} <em>· {n.reason}</em>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
   );
 }
