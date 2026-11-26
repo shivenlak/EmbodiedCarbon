@@ -1708,15 +1708,20 @@ async def upload_project(
     owner = _WORKSPACE.get()
 
     def run(tell) -> dict[str, object]:
-        try:
-            import pymupdf
+        import pymupdf
 
-            with pymupdf.open(pdf) as doc:
-                tell(
-                    "pages",
-                    f"{doc.page_count} pages"
-                    + (f" across {len(blobs)} files" if len(blobs) > 1 else ""),
-                )
+        try:
+            doc = pymupdf.open(pdf)
+        except Exception as exc:  # truncated or not a PDF: never echo the server's path
+            raise HTTPException(422, DAMAGED_PDF) from exc
+        with doc:
+            if doc.needs_pass or doc.is_encrypted:
+                raise HTTPException(422, LOCKED_PDF)
+            tell(
+                "pages",
+                f"{doc.page_count} pages" + (f" across {len(blobs)} files" if len(blobs) > 1 else ""),
+            )
+        try:
             with _BUILD_LOCK:
                 takeoff = build_takeoff(
                     design, facts, trust_stated_gfa=gfa_m2 is not None, progress=tell
@@ -1724,7 +1729,7 @@ async def upload_project(
         except Exception as exc:
             raise HTTPException(
                 422,
-                f"could not read this plan set: {exc}. Nothing partial is stored.",
+                f"could not read this plan set: {_scrub(exc)}. Nothing partial is stored.",
             ) from exc
         from ecarbon.carbon.region import detect
 
@@ -1764,10 +1769,26 @@ async def upload_project(
         except HTTPException as exc:
             job["error"] = exc.detail
         except Exception as exc:  # anything else still ends the job, with its reason
-            job["error"] = f"could not read this plan set: {exc}. Nothing partial is stored."
+            job["error"] = f"could not read this plan set: {_scrub(exc)}. Nothing partial is stored."
 
     threading.Thread(target=work, daemon=True).start()
     return {"job": job_id}
+
+
+LOCKED_PDF = (
+    "This PDF is password-protected. Save a copy without the password "
+    "(Print, then Save as PDF, works) and upload that. Nothing partial is stored."
+)
+DAMAGED_PDF = (
+    "This file is damaged or incomplete, or is not a PDF. Download it again and re-upload. "
+    "Nothing partial is stored."
+)
+_PATH_RE = re.compile(r"""['"]?(?<![\w/.])/(?:[^\s'"/]+/)+[^\s'"]*['"]?""")
+
+
+def _scrub(exc: Exception) -> str:
+    """An error's text without any server file path in it."""
+    return _PATH_RE.sub("the uploaded file", str(exc))
 
 
 # Upload jobs in progress or recently finished. In memory like everything else

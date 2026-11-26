@@ -161,6 +161,36 @@ class TestUploadingAPlanSet:
         assert "Nothing partial is stored" in resp.json()["detail"]
         assert len(client.get("/projects").json()) == len(before)
 
+    def test_a_password_protected_pdf_says_so(self, client):
+        """Builders get sets from architects with a password on them."""
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "A101 FLOOR PLAN")
+        blob = doc.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="o", user_pw="u")
+        resp = client.post("/projects/upload", files={"file": ("locked.pdf", blob, "application/pdf")})
+        assert resp.status_code == 422
+        assert "password-protected" in resp.json()["detail"]
+
+    def test_a_truncated_pdf_never_shows_the_server_path(self, client):
+        """A half-finished download used to echo /private/.../upload-xxxx/plan.pdf."""
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "A101 FLOOR PLAN")
+        blob = doc.tobytes()[:40]
+        resp = client.post("/projects/upload", files={"file": ("cut.pdf", blob, "application/pdf")})
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "/private" not in detail and "/tmp" not in detail and "upload-" not in detail
+        assert "Nothing partial is stored" in detail
+
+    def test_scrub_keeps_fractions_and_drops_paths(self):
+        from ecarbon.api.main import _scrub
+
+        assert _scrub(Exception("open '/var/folders/x/upload-1/plan.pdf' failed")) == "open the uploaded file failed"
+        assert _scrub(Exception('3/4" plywood')) == '3/4" plywood'
+
     @pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
     def test_an_uploaded_set_behaves_exactly_like_a_catalogue_one(self, client):
         from ecarbon.config import get_design
