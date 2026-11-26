@@ -359,3 +359,25 @@ def test_a_refused_main_roof_is_not_priced_as_a_minor_one():
     ids = {ln.id for ln in t.lines}
     assert not any(i.startswith("ln-roof-assembly-r4-") for i in ids)
     assert any(i.startswith("ln-roof-assembly-std-r-") for i in ids)
+
+
+@needs_data
+def test_the_foundation_walls_own_layers_are_counted_over_its_area():
+    # BC's FW1.x and Atlantic's N1 state rigid insulation on the foundation
+    # wall; the concrete is its own line and is not counted twice.
+    from ecarbon.takeoff.builder import build_takeoff
+
+    for key in ("BC_Fourplex_01", "ATL_ADU_01"):
+        t = build_takeoff(get_design(key))
+        fw = [ln for ln in t.lines if ln.element_class.value == "foundation_wall"]
+        assert sum(ln.material == "CMHC_Concrete, CIP" for ln in fw) == 1
+        assert any(ln.material == "CMHC_Insulation, Rigid" and ln.quantity > 0 for ln in fw), key
+
+
+@needs_data
+def test_an_untagged_slab_assembly_still_gives_its_layers():
+    # ATL_ADU_01's F1 "SLAB ON GRADE" carries 76 mm XPS under the slab.
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("ATL_ADU_01"))
+    assert any(ln.id.startswith("ln-slab-on-grade-f1-") and ln.material == "CMHC_Insulation, Rigid" for ln in t.lines)
