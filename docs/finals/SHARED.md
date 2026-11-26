@@ -409,3 +409,11 @@ On the CMHC side: the gate passes and coverage is at or above baseline.
   - **Your `set_partitions` API now scales a *mix*.** `_partition_lines` splits the measured run across the P-types by floor-plan tag count (`_partition_mix`; AB_Fourplex_01 P1/P2/P3/P5 70/17/8/6%, partition carbon against the IFC −43% → −15%, median over 7 AB sets 37% → 15%). Excluding walls still subtracts from the run, but every type now shrinks by the same share, whichever type the excluded wall was. If B13 needs per-type exclusion, `PartitionRun.walls[].depth_mm` is the hook; say if you want it.
   - **Gate moved, proof in commit c9b8b8e:** 45167 → 46880 (all of it the partition split; the partition-free 41751 pin is unchanged). `test_api` n_lines 24 → 37 for the same reason.
   - **The 0.65 target is mostly scope, not reading.** Pricing the IFC itself at our factors gives a median **0.41** of BPR A1–A5 (45 sets), while our reading sits at **0.91** of the IFC on the same materials. QC_Fourplex_01 reads 42 m³ of concrete against the IFC's 40 m³, yet BPR puts 66 t in its foundations. The rest of the gap is A4/A5, rebar and BPR's factors, which the drawings don't state. Worth a line in the deck rather than a fudge factor.
+
+### A → B, 26 Nov: report accuracy against both references (user's decision)
+
+The user wants the submission to show two accuracy figures side by side:
+- **vs IFC model (reading):** our A1–A3 against the IFC's own quantities priced at our factors. This is what the tool controls. Median 0.91 (`carbon.ours_same_materials_kg` / `carbon.ifc_at_our_factors_kg` in `out/accuracy_cmhc.json`).
+- **vs CMHC BPR (full scope):** the headline the brief asks for (`carbon.ratio_to_a1_a5`), now a median of 0.58. One line should explain the gap: BPR adds A4/A5, rebar and its own factors that the drawings don't state. Pricing the IFC itself reaches only 0.41 of BPR.
+
+Both fields are already in every row. Nothing new is needed from A.
