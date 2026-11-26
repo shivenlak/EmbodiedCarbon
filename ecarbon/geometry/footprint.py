@@ -429,14 +429,23 @@ def detect_footprint(
         parts = _clusters([sg for sg in all_segs if sg.width == width], CLUSTER_GAP_MM / s)
         # Only the largest drawing: the main plan outweighs its vignettes, and
         # offering every small cluster let a stair or a unit match some chain.
-        part = max(parts, key=lambda p: sum(sg.length_mm >= MIN_SEGMENT_MM for sg in p))
-        runs = [sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM]
-        candidates = [runs] if len(runs) < len(groups[width]) else []
-        # The same drawing less its free-ended spurs, offered alongside; the
-        # dimension agreement decides between them.
-        trimmed = _without_spurs(runs, part, SPUR_TOUCH_MM / s)
-        if 0 < len(trimmed) < len(runs):
-            candidates.append(trimmed)
+        by_runs = max(parts, key=lambda p: sum(sg.length_mm >= MIN_SEGMENT_MM for sg in p))
+        # A detail vignette can carry more long runs than the plan (Toronto's
+        # studio laneway suite: a grab-bar detail, 31 runs, beside a 25-run
+        # plan), so the drawing of widest extent is offered too.
+        by_extent = max(parts, key=lambda p: math.prod(_extent_m(p, s)))
+        candidates = []
+        for part in [by_runs] + ([by_extent] if by_extent is not by_runs else []):
+            runs = [sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM]
+            if not runs:
+                continue
+            if len(runs) < len(groups[width]):
+                candidates.append(runs)
+            # The same drawing less its free-ended spurs, offered alongside;
+            # the dimension agreement decides between them.
+            trimmed = _without_spurs(runs, part, SPUR_TOUCH_MM / s)
+            if 0 < len(trimmed) < len(runs):
+                candidates.append(trimmed)
         for cand in candidates:
             ranked = rank(width, cand)
             if ranked and (best is None or ranked[0] < best[0]):
