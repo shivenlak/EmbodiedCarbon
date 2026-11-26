@@ -400,3 +400,19 @@ def test_elevations_with_only_a_floor_and_a_roof_feed_the_single_storey_fallback
 
     single = single_storey_fallback(storey_heights_for(get_design("SKMB_ADU_01")))
     assert single is not None and single.assumed
+
+
+def test_a_ground_level_datum_is_read():
+    """NOR_ADU_Municipal_Garage labels its 0.000 m datum GROUND LEVEL, not
+    GROUND FLOOR; missing it read the two-storey garage as one storey."""
+    import pymupdf
+
+    from ecarbon.extract.levels import levels_on_page
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=800, height=800)
+    for y, label, value in ((600, "GROUND LEVEL", '0.000 m   / 0"'), (440, "TOP F/F/ SECOND", "3.224 m")):
+        page.insert_text((250, y), label, fontsize=7)
+        page.insert_text((250, y + 9), value, fontsize=7)
+    got = {(lv.label, lv.elevation_m) for lv in levels_on_page(page)}
+    assert ("GROUND LEVEL", 0.0) in got and Level("GROUND LEVEL", 0.0).is_floor

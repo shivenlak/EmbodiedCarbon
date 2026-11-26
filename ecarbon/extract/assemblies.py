@@ -451,7 +451,14 @@ class Assembly:
                 f"low-rise assembly has; adjacent blocks on the sheet were probably "
                 f"merged"
             )
-        if self.total_thickness_mm > MAX_PLAUSIBLE_DEPTH_MM:
+        # An air space is not built: QC's F2 states its 610 mm crawlspace as an
+        # "INTERMEDIATE AIR SPACE" layer, which alone took a sound read past 800.
+        air = sum(
+            layer.thickness_mm or 0.0
+            for layer in self.layers
+            if "AIR SPACE" in layer.material.upper() and not layer.in_cavity
+        )
+        if self.total_thickness_mm - air > MAX_PLAUSIBLE_DEPTH_MM:
             return (
                 f"built depth {self.total_thickness_mm:.0f} mm, beyond the "
                 f"{MAX_PLAUSIBLE_DEPTH_MM:.0f} mm a low-rise assembly reaches"

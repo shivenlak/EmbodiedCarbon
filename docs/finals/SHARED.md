@@ -444,15 +444,27 @@ All 53 CMHC sets, rules only (vision off), `scripts/run_pipeline.py` against `ou
 | sets below baseline coverage | – | **none** |
 | seconds per design, median | 23.8 | 7.2 |
 
-Accuracy, 44 sets with a BPR figure (`scripts/accuracy.py`; r1 = 25 Nov, r6 = d96e97a):
+Accuracy, 44 sets with a BPR figure (`scripts/accuracy.py`; r1 = 25 Nov, r6 = d96e97a, **r8 = final, PR #69**):
 
-| | r1 | r6 |
-|---|---|---|
-| A1–A3 / BPR A1–A5, median | 0.566 | **0.608** |
-| within ±30% | 11 | **15** |
-| complete A1–A5 / BPR (your figure) | – | **0.776, 20 of 44** |
-| ours / IFC on the same materials, median | 0.79 | **0.96** |
+| | r1 | r6 | **r8 (use this)** |
+|---|---|---|---|
+| A1–A3 / BPR A1–A5, median | 0.566 | 0.608 | **0.592** |
+| within ±30% | 11 | 15 | **15 of 44** |
+| complete A1–A5 / BPR (your figure) | – | 0.776, 20 of 44 | **0.776, 20 of 44** |
+| ours / IFC on the same materials, median (38 sets with an IFC) | 0.91 | 1.13 | **1.12 (IQR 0.86–1.51), 20 of 38 within ±30%** |
 
-- The IFC priced at our factors is a median 0.41 of BPR. So the gap to BPR is scope the drawings don't state (A4/A5, rebar, BPR's factors), not reading. Use "0.96 of the IFC" for reading accuracy and the complete figure for BPR.
+- **Correction (26 Nov late):** this table first said ours/IFC was 0.79 → 0.96. Recomputed from `out/accuracy_r*.json` with `accuracy.py`'s own formula (`carbon_vs_ifc_same_factors`), it is 0.91 → 1.13: we read slightly *more* than the architect's model on the materials both name, not less. The old figures don't reproduce; use the r8 column.
+- r6 → r8 is QC only (crawl-space floor, see the request below): the A1–A3/BPR dip is an assumed slab leaving, and every QC set moves toward its IFC.
+- The IFC priced at our factors is a median 0.35 of BPR (37 sets, r8). So the gap to BPR is scope the drawings don't state (A4/A5, rebar, BPR's factors), not reading. Use "1.12× the IFC, half the sets within 0.86–1.51" for reading accuracy and the complete figure (0.776) for BPR.
+- `web/src/accuracy.json` in git is from 25 Nov (counted 0.54, IFC 0.90): regenerate it with `scripts/accuracy.py` after #69 merges (B15).
 - NOR, image-only, by vision from the cached answers: all 8 sets give a bill at 0.13–0.43 of BPR, every line ASSUMED or INFERRED from an image. $1.51 spent in total; it is not in the 44.
 - Toronto dev sets (non-CMHC, fetched today): 4 of 6 on disk. Coverage 76/76/0/91%; their build-ups and foundation callouts are not text (outlined), so assemblies read 0 by rules. A vision build-up task would be the next step, not done before the freeze.
+
+- **A → B, 26 Nov (after the freeze, user's call): QC's ground floor is framed over a crawl space; two asks in `takeoff/framing.py`.** All 7 QC sets schedule F2 "WOOD FRAMED FLOOR ABOVE CONDITIONED CRAWL SPACE". F2 was read (and on QC_ADU_01 refused, its 610 mm "INTERMEDIATE AIR SPACE" counted as built depth) but never priced, and `framing_lines` assumed a 100 mm slab from the strip footings on 6 of 7. In `builder.py` (A's line building) F2 now prices over the footprint as the ground floor (INFERRED), and an *assumed* `ln-slab-on-grade` is dropped when `inputs.crawl_floor` is set, and `absent_elements` reports the slab absent with F2 as the evidence; a stated slab (QC_ADU_02) stays. Ours/IFC on QC moves toward 1 on every set (QC_ADU_01 1.12 → 1.00, QC_Sixplex 2.08 → 1.94); A1–A3/BPR median 0.608 → 0.592.
+  1. Please move the slab rule into `framing_lines` if you prefer it there: skip the assumed slab when `inputs.crawl_floor is not None`.
+  2. F2's I-joists defer to Structural and get no estimate (gap says so). `framing_lines` estimates only the dominant upper F; could it also estimate `inputs.crawl_floor`'s joists over the footprint?
+
+- **A → B, 26 Nov late: two upload errors a builder will hit (`api/main.py`, yours).** I ran awkward files through the upload path. Blank, scanned and 200-inch pages all come back as "no quantities" with reasons, which is fine. Two cases don't:
+  - **Password-protected PDF** (common when a builder gets a set from an architect): the job says `could not read this plan set: document closed or encrypted.` Suggest: in `run()`, after `pymupdf.open(pdf)`, `if doc.needs_pass: raise HTTPException(422, "This PDF is password-protected. Save a copy without the password (Print → Save as PDF works) and upload that.")`.
+  - **Truncated or corrupt PDF** (a half-finished download): `FileDataError` gives `Failed to open file '/private/.../upload-xxxx/plan.pdf'`. **That puts the server's upload path in front of the user.** Suggest catching `pymupdf.FileDataError` in the same place: "This file is damaged or incomplete; download it again and re-upload."
+  - Both cases are in front of `build_takeoff`, so nothing in A's code sees them first.

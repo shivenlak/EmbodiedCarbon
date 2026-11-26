@@ -195,6 +195,16 @@ class TakeoffInputs:
         # assembly is still the slab, when it is the only one.
         return next(iter(slabs.values())) if len(slabs) == 1 else None
 
+    @property
+    def crawl_floor(self) -> Assembly | None:
+        """The framed ground floor, where the schedule names one over a crawl
+        space (Quebec's F2 "WOOD FRAMED FLOOR ABOVE CONDITIONED CRAWL SPACE")."""
+        return next(
+            (a for t, a in sorted(self.assemblies.items())
+             if t.startswith("F") and not a.is_slab_on_grade and "CRAWL" in a.name.upper()),
+            None,
+        )
+
 
 def _roof_area_note(levels) -> str:
     """The roof-area assumption, with this design's own ridge height when known."""
@@ -1203,6 +1213,12 @@ def absent_elements(inputs: TakeoffInputs) -> dict[ElementClass, str]:
             f"this building has no foundation wall; the footing itself is counted "
             f"separately."
         )
+    crawl = inputs.crawl_floor
+    if crawl is not None and not inputs.spec.slab_thickness_mm:
+        out[ElementClass.SLAB_ON_GRADE] = (
+            f"{crawl.tag} ({crawl.name.title()}) is the ground floor, framed over the "
+            f"crawl space, and no sheet read states a slab beneath it."
+        )
     return out
 
 
@@ -1874,8 +1890,25 @@ def build_takeoff(
         # the slab, handled above, and a slab-on-grade assembly must not be
         # used for a suspended floor -- it would put sub-slab insulation and
         # granular fill into a first-floor ceiling.
+        crawl = inputs.crawl_floor
+        if crawl is not None:
+            built, more = _assembly_lines(
+                crawl,
+                fp.area_m2,
+                ElementClass.FLOOR_ASSEMBLY,
+                confidence=Confidence.INFERRED,
+                area_note=(
+                    f"Area is the {fp.area_m2:.1f} m2 measured footprint: {crawl.tag} is "
+                    f"the ground floor, framed over the crawl space."
+                ),
+            )
+            lines += built
+            gaps += more
+
         upper = max(inputs.heights.n_storeys - 1, 0)
         slab_tags = {t for t, a in inputs.assemblies.items() if a.is_slab_on_grade}
+        if crawl is not None:
+            slab_tags.add(crawl.tag)
         asm = inputs.assembly_for("F", exclude=slab_tags)
         if asm is not None and upper > 0:
             built, more = _assembly_lines(
@@ -1908,6 +1941,14 @@ def build_takeoff(
     lines += std_lines
     gaps += std_gaps
     framed, covered = framing_lines(inputs, lines, std_used)
+    crawl = inputs.crawl_floor if inputs.footprint is not None else None
+    if crawl is not None and any(
+        ln.id == "ln-slab-on-grade" and ln.confidence == Confidence.ASSUMED for ln in framed
+    ):
+        # The ground floor is framed over the crawl space, so a concrete slab
+        # assumed from the strip footings contradicts the drawing; the absent
+        # slab is reported by `absent_elements`.
+        framed = [ln for ln in framed if ln.id != "ln-slab-on-grade"]
     lines += framed
     fw_lines, fw_gaps = _foundation_wall_layers(inputs, lines)
     lines += fw_lines
