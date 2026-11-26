@@ -54,7 +54,13 @@ from ecarbon.extract.assemblies import (
     cmhc_material,
     dominant_tag,
 )
-from ecarbon.extract.levels import Level, StoreyHeights, storey_heights_for
+from ecarbon.extract.levels import (
+    LadderFooting,
+    Level,
+    StoreyHeights,
+    footing_on_ladder,
+    storey_heights_for,
+)
 from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
 from ecarbon.geometry.footprint import REFUSE_PCT, Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
@@ -144,6 +150,8 @@ class TakeoffInputs:
     footprint_uncorroborated: bool = False
     assemblies: dict[str, Assembly] = field(default_factory=dict)
     tag_refs: dict[str, int] = field(default_factory=dict)
+    # Top of footing measured off a datum ladder that prints no elevation for it.
+    ladder_footing: LadderFooting | None = None
     # The same, counted on floor plans only: how the partition run is split by type.
     plan_tag_refs: dict[str, int] = field(default_factory=dict)
     # Sheet number -> page, so a line that cites a sheet points at that sheet's
@@ -425,6 +433,16 @@ def gather(
         )
 
     inputs.spec = foundation_spec_for(design)
+    if inputs.spec.strip_footings and inputs.spec.foundation_wall_height_mm is None:
+        lf = footing_on_ladder(design)
+        # The same range a stated wall height must fall in; BC's 0.6 m crawlspace
+        # footing stays on the frost-depth estimate.
+        if lf and 1.5 <= -lf.elevation_m <= 3.6:
+            inputs.ladder_footing = lf
+            inputs.spec.foundation_wall_height_mm = round(-lf.elevation_m * 1000)
+            inputs.spec.sources.append(
+                f"{lf.sheet_no}: T/O FOOTING drawn at {lf.elevation_m:.2f} m on the datum ladder"
+            )
     # The floor assembly depth is what separates a gross wall height from a
     # thermal one; without it only the gross basis is available.
     inputs.heights = storey_heights_for(design, floor_assembly_mm=333.0)
@@ -1664,6 +1682,19 @@ def _name_masonry_foundation(lines: list[TakeoffLine], inputs: TakeoffInputs) ->
     )
 
 
+def _name_ladder_footing(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
+    """Say the wall height was measured off the datum ladder, not printed."""
+    lf = inputs.ladder_footing
+    wall = next((ln for ln in lines if ln.id == "ln-foundation-wall"), None)
+    if lf is None or wall is None:
+        return
+    wall.assumptions.append(
+        f"The height is measured, not printed: sheet {lf.sheet_no} labels T/O FOOTING on its "
+        f"datum ladder with no elevation, and where it is drawn puts it {-lf.elevation_m:.2f} m "
+        f"below the ground floor. The wall is taken as running from there to the ground floor."
+    )
+
+
 # A standard timber stair: three 38 x 286 mm (2x12) stringers, 38 mm treads
 # 254 mm deep, 914 mm (36") wide. Only the count and risers are read.
 STAIR_WIDTH_M, STAIR_RUN_M, STAIR_TREAD_M, STRINGER_M2 = 0.914, 0.254, 0.038, 0.038 * 0.286
@@ -1867,6 +1898,7 @@ def build_takeoff(
     lines += fw_lines
     gaps += fw_gaps
     _name_masonry_foundation(lines, inputs)
+    _name_ladder_footing(lines, inputs)
     lines += _stair_lines(design)
     for gap in gaps:
         for marker, line_id in covered.items():

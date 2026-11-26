@@ -425,3 +425,18 @@ def test_an_untagged_slab_assembly_still_gives_its_layers():
 
     t = build_takeoff(get_design("ATL_ADU_01"))
     assert any(ln.id.startswith("ln-slab-on-grade-f1-") and ln.material == "CMHC_Insulation, Rigid" for ln in t.lines)
+
+
+@needs_data
+def test_a_footing_drawn_on_the_datum_ladder_sets_the_wall_height_and_says_so():
+    """QC labels T/O FOOTING on its elevations without an elevation; drawn
+    under GROUND FLOOR 0 / SECOND 3 / THIRD 6, it is at -2.44 m (the IFC's)."""
+    from ecarbon.extract.levels import footing_on_ladder
+    from ecarbon.takeoff.builder import build_takeoff
+
+    assert abs(footing_on_ladder(get_design("QC_Sixplex")).elevation_m + 2.438) < 0.01
+    wall = build_takeoff(get_design("QC_Sixplex")).line("ln-foundation-wall")
+    assert "2.44 m" in wall.description
+    assert any("measured, not printed" in a for a in wall.assumptions)
+    # Two dated datums cannot show the ladder is straight, so nothing is measured.
+    assert footing_on_ladder(get_design("QC_ADU_01")) is None

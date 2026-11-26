@@ -611,3 +611,18 @@ class TestInsulationByName:
         from ecarbon.extract.assemblies import Layer, cmhc_material
 
         assert cmhc_material(Layer(index=0, material=name, thickness_mm=51.0)) == "CMHC_Insulation, Mineral Wool Semi-Rigid"
+
+
+@needs_data
+def test_a_cavity_fill_with_its_own_depth_is_priced_but_not_added_to_the_depth():
+    """BC's F2 batt reads "C/W" beside joists that state no depth; the batt's
+    own 5 1/2" is its depth, and it sits inside the joist cavity."""
+    from ecarbon.config import get_design
+    from ecarbon.extract.assemblies import assemblies_for
+
+    f2 = assemblies_for(get_design("BC_Fourplex_02"))[0]["F2"]
+    batt = next(lay for lay in f2.layers if "BATT" in lay.material)
+    assert batt.thickness_mm == 139.7 and batt.in_cavity and batt.quantifiable
+    assert f2.total_thickness_mm == sum(
+        lay.thickness_mm for lay in f2.layers if lay.thickness_mm and not lay.in_cavity
+    )

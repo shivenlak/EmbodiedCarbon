@@ -308,6 +308,9 @@ class Layer:
     is_placeholder: bool = False
     # Index of the layer this one shares a cavity with, if any.
     shares_cavity_with: int | None = None
+    # A "C/W" fill inside a cavity whose depth is not stated: priced at its own
+    # stated depth, but not added to the built depth, which it sits inside.
+    in_cavity: bool = False
     # Set when the thickness cell is there and says VAR, VARIES, N/A or "-":
     # the drawing declining to give a depth, not a depth we failed to read.
     stated_no_thickness: bool = False
@@ -424,7 +427,7 @@ class Assembly:
         seen: set[int] = set()
         total = 0.0
         for layer in self.layers:
-            if layer.thickness_mm is None or layer.index in seen:
+            if layer.thickness_mm is None or layer.index in seen or layer.in_cavity:
                 continue
             total += layer.thickness_mm
             if layer.shares_cavity_with is not None:
@@ -964,7 +967,11 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                         current.layers[-1].deferred_to = defer_match(text)
                     continue
                 defer = _DEFER_RE.search(text)
-                if mm is None and paired is None and not defer:
+                # A "C/W" cell shares the cavity above; where that layer states no
+                # depth either (BC F2's joists), the fill's own "5 1/2"" is the depth.
+                cw_alone = (paired is not None and paired.strip().upper() == "C/W"
+                            and bool(current.layers) and current.layers[-1].thickness_mm is None)
+                if mm is None and (paired is None or cw_alone) and not defer:
                     mm, note = thickness_in_name(material)
                 current.layers.append(
                     Layer(
@@ -974,6 +981,7 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                         note=note,
                         deferred_to=defer.group(1).title() if defer else None,
                         is_placeholder=bool(_PLACEHOLDER_RE.search(text)),
+                        in_cavity=cw_alone and mm is not None,
                         stated_no_thickness=(
                             paired is not None
                             and paired.strip().upper() in _NO_THICKNESS

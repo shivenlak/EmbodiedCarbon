@@ -426,3 +426,7 @@ Demising walls (a schedule name with DEMISING or PARTY: AB/BC/ON/SKMB P tags, AT
 ### A → B, 26 Nov: a CMU factor, please
 
 ON_Fourplex_01's N1 foundation states `190 CONCRETE MASONRY UNITS`, but the store has no masonry factor, so `ln-foundation-wall` prices an assumed 200 mm solid cast-in-place wall. That overstates a hollow-core block wall. **Ask:** a `CMHC_Concrete Masonry Unit` (or generic CMU per m³ or m²) factor in `carbon/seed_factors.json`. A will then read the N1 CMU layer into the foundation line. Until then the line will say what it stands in for.
+
+### A → B, 26 Nov: a measured foundation wall height is not "stated"
+
+QC labels T/O FOOTING on its elevations with no elevation printed. `gather()` now measures it off the datum ladder (`extract/levels.footing_on_ladder`: -2.44 m on QC, the IFC's figure) and sets `spec.foundation_wall_height_mm`, adding `"<sheet>: T/O FOOTING drawn at -2.44 m on the datum ladder"` to `spec.sources`. `framing.py`'s wall note then says "the stated foundation wall height (2439 mm)". The line's assumptions already say "measured, not printed", but the basis note should say so too, e.g. by checking `inputs.ladder_footing` (a new `TakeoffInputs` field). QC_Sixplex: wall 17.3 -> 29.7 m3, total 87.5 -> 90.9 t.

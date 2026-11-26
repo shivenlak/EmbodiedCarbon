@@ -532,3 +532,72 @@ def _from_wall_heights(design, sheets, result: StoreyHeights) -> None:
             return
     finally:
         doc.close()
+
+
+_FOOTING_LABEL_RE = re.compile(r"^(?:T/O|TOP\s+OF)\s*(?:FOOTINGS?|FTG\.?)$", re.I)
+
+
+@dataclass
+class LadderFooting:
+    elevation_m: float
+    page: int
+    sheet_no: str | None
+    bbox: tuple[float, float, float, float]
+
+
+def footing_on_ladder(design) -> LadderFooting | None:
+    """The top of footing, measured off a datum ladder that labels it but
+    prints no elevation against it.
+
+    QC's elevations draw "T/O FOOTING" in the same column as GROUND FLOOR
+    0.000 m, SECOND 3.000 m and THIRD 6.000 m, so its height follows from where
+    it is drawn: -2.44 m on all six QC_Sixplex ladders, the IFC's T/O FOOTING
+    exactly. Needs three dated datums on one straight line (within 20 mm).
+    """
+    import statistics
+
+    from ecarbon.intake import inventory
+    from ecarbon.intake.textrepair import repair
+    from ecarbon.models import SheetType
+
+    sheets, _, _ = inventory(design.drawings_pdf)
+    found: list[LadderFooting] = []
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for s in sheets:
+            if s.sheet_type not in (SheetType.ELEVATION, SheetType.SECTION) or not s.readable:
+                continue
+            page = doc[s.page]
+            spans = [
+                (tuple(sp["bbox"]), repair(sp["text"].strip())[0])
+                for b in page.get_text("dict", flags=TEXT_DICT)["blocks"]
+                for ln in b.get("lines", []) if tuple(ln.get("dir", (1, 0))) == (1.0, 0.0)
+                for sp in ln["spans"] if sp["text"].strip()
+            ]
+            for fb, ft in spans:
+                if not _FOOTING_LABEL_RE.match(ft):
+                    continue
+                col = [(b[1], _elevation_m(t)) for b, t in spans if abs(b[0] - fb[0]) <= 3]
+                pts = sorted((y, e) for y, e in col if e is not None)
+                labels = [y for y, e in col if e is None]
+                if len(pts) < 3:
+                    continue
+                slopes = [(e2 - e1) / (y2 - y1) for i, (y1, e1) in enumerate(pts)
+                          for y2, e2 in pts[i + 1:] if y2 != y1]
+                m = statistics.median(slopes)
+                c = statistics.median(e - m * y for y, e in pts)
+                on_line = sum(abs(e - (m * y + c)) <= 0.02 for y, e in pts)
+                if m >= 0 or on_line < 3:
+                    continue
+                # Each elevation is printed a fixed offset under its own label.
+                offs = [y - max(ly for ly in labels if ly < y - 1) for y, _ in pts
+                        if any(ly < y - 1 for ly in labels)]
+                off = statistics.median(offs) if offs else 0.0
+                found.append(LadderFooting(round(m * (fb[1] + off) + c, 3), s.page, s.sheet_no, fb))
+    finally:
+        doc.close()
+    if not found:
+        return None
+    # Every ladder must agree, or none is used.
+    els = [f.elevation_m for f in found]
+    return found[0] if max(els) - min(els) <= 0.05 else None
