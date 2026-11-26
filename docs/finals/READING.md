@@ -37,6 +37,13 @@ The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; tra
     - ATL: rotated schedules read; a ridge datum is no longer a storey; a refused main roof is no longer priced as a minor deck.
     - **Scope finding:** the IFC priced at our factors is a median 0.41 of BPR; our reading is 0.91 of the IFC. The rest of the gap to 0.65 is A4/A5, rebar and BPR's factors, which the drawings don't state.
     - Still open: NOR vision fixtures; stairs and party walls; ON floor depth; BC W1.3/W1.4 and ATL R1a/R2a refused (merged blocks); ON N1 CMU wall priced as CIP.
+  - *26 Nov overnight, second batch (r3 → r6): A1–A3/BPR median 0.581 → 0.608, within ±30% 15 → 15 of 44 (r4 14, r5 12, see below). B's complete A1–A5 figure: median 0.776, 20 of 44 within ±30%. Like-for-like vs the IFC: median 0.96. Full suite green; gate unchanged.*
+    - Party walls: demising walls (AB P3, ATL W6) price as `party_wall` inside the partition prefix, and the assumed partition area splits by tag. Stairs: counted off the plans (riser labels and UP arrows), priced ASSUMED as a standard timber stair.
+    - Wrapped schedule rows join the layer above (ATL R1a/R2a, W4, P6 now read; "too many layers" refusals 36 → 8).
+    - BC F2 reads: a stray material row above the name no longer names the block. Its "C/W" batt takes its own stated depth, as do 63 such fills (BC/ON acoustic batts, SK/MB in-fill); they are priced but not added to the built depth. r5's dip came from F2 reading without its batt.
+    - QC: T/O FOOTING is measured off the datum ladder (−2.44 m, the IFC's), so the foundation wall is 2.44 m, not a 1.42 m frost wall; it says "measured, not printed".
+    - CMU: ON N1 says it is priced as cast concrete and overstates; a CMU factor is asked of B.
+    - Open: floor area split by F tag (BC F1 between units vs F2; done by tag count it would spread soffits and balconies over floor area, so not done); QC stairs have no riser labels; ATL_Stacked_Townhouse_01 runs 1.43, from stated XPS layers rather than a double count; NOR (below) is not in the 44.
 - [ ] **A9. Builder material list (C10). Thu.** *Update 25 Nov: B landed the CSV/XLSX parser (`carbon/user_factors.py`), so skip that part; only the optional EPD-PDF reading below remains, and only if A8 is done.*
   - `intake/materials.py` `read_material_list(path)` reads CSV/XLSX.
   - Headers are tolerant (case, spaces, units in brackets).
@@ -190,7 +197,7 @@ Landmark delivers each project as separate PDFs: Floor Layout, Roof Layout, Buil
 
 ## A5. Image-only sets (Tue 24)
 
-- [ ] *(25 Nov: done for NOR_Fourplex_Municipal, NOR_ADU_Municipal and Citrus Heights; about $0.25 a set now, see Findings. Earlier note: about $0.90 a set, mostly title-block reads, so the other 7 NOR sets wait for a decision on spend. See Findings.)* Run vision on the 8 NOR CMHC sets with no text, and on any image-only sets in the dev corpus. **Target:** "nothing read" becomes a bill with every line `INFERRED` and traced. Record before/after.
+- [x] *(26 Nov overnight: all 8 NOR sets with a BPR figure now carry cached answers, $1.51 spent of the $2 cap, logged per call to `~/.cache/ecarbon/vision_usage_26nov.jsonl`, with `ECARBON_VISION_BUDGET_USD` as a hard stop. NOR_Sixplex_Tanked needed the validator to accept "26899" over "88'-3\"". From the cache, A1–A3/BPR is 0.13–0.43 (median 0.30), every line ASSUMED or INFERRED from an image; NOR is reported apart from the 44.)* *(25 Nov: done for NOR_Fourplex_Municipal, NOR_ADU_Municipal and Citrus Heights; about $0.25 a set now, see Findings. Earlier note: about $0.90 a set, mostly title-block reads, so the other 7 NOR sets wait for a decision on spend. See Findings.)* Run vision on the 8 NOR CMHC sets with no text, and on any image-only sets in the dev corpus. **Target:** "nothing read" becomes a bill with every line `INFERRED` and traced. Record before/after.
 - [x] Make sure these sets still say plainly that the values were read from an image. *(25 Nov: each line's note carries "read from an image; not verifiable against text", the assumption names the sheet, and the "No readable floor plan / section" gaps say what AI read instead, as WARNING.)*
 
 ## A6. Hardening and numbers (Wed 25, freeze at end of day)
