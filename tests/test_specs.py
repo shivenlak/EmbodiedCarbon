@@ -584,3 +584,12 @@ class TestStructuralScheduleTables:
 
     def test_a_thickened_edge_without_a_beam_stays(self):
         assert parse_foundation_spec({"S001": "THICKENED EDGE SLAB ON GRADE"}).thickened_edge
+
+
+def test_ontarios_specification_sheet_states_the_slab():
+    # Toronto's suites, A6: the slab is stated only in the OBC specification.
+    from ecarbon.extract.specs import parse_foundation_spec
+
+    spec = parse_foundation_spec({"A6": 'CONCRETE FLOOR SLABS x INTERIOR SLAB 25MPA CONCRETE, MINIMUM 3" (75MM) THICK OVER R10 RIGID INSULATION'})
+    assert spec.slab_thickness_mm == 75
+    assert parse_foundation_spec({"A6": "102mm (4') SLAB: 2.4 kPa"}).slab_thickness_mm is None

@@ -97,6 +97,8 @@ TYPE_RULES: tuple[tuple[tuple[str, ...], SheetType], ...] = (
     (("SCHEDULE", "MATRIX"), SheetType.SCHEDULE_OTHER),
 )
 
+_COMBINED_FLOOR_RE = re.compile(r"\bFLOOR\b(?:[^A-Z]|\s|AND)*(?:AND|&|,).*\bPLANS\b|\bPLANS\b.*\bFLOOR\b.*(?:AND|&|,)")
+
 # Mechanical and electrical sheets borrow architectural words ("M100 FOUNDATION
 # PLAN"), so discipline overrides the title for those two.
 _MEP_OVERRIDE = {Discipline.MECHANICAL: SheetType.MECHANICAL, Discipline.ELECTRICAL: SheetType.ELECTRICAL}
@@ -166,6 +168,11 @@ def sheet_type_of(title: str | None, discipline: Discipline = Discipline.UNKNOWN
     up = re.sub(r"\s+", " ", title.upper())
 
     matched = SheetType.UNKNOWN
+    # One sheet, several plans: Toronto's suites title theirs "FOUNDATION,
+    # FLOOR AND ROOF PLANS". The floor plan is the one the footprint, walls
+    # and openings come from, so it names the sheet; "ROOF PLANS" alone would.
+    if _COMBINED_FLOOR_RE.search(up):
+        return SheetType.FLOOR_PLAN
     for needles, kind in TYPE_RULES:
         if any(n in up for n in needles):
             matched = kind
@@ -238,6 +245,30 @@ def type_from_file_name(name: str) -> SheetType:
     if ("FOUNDATION" in up or "FOOTING" in up) and "PLAN" not in up:
         up += " PLAN"
     return sheet_type_of(up)
+
+
+_SHORT_NO_RE = re.compile(r"^[A-Z]{1,2}\d{1,2}(?:-\d{1,2})?$")
+
+
+def _short_sheet_no(spans: list[Span]) -> str | None:
+    """A short sheet number ("A2", "A5-2") set as large as the title beside it.
+
+    Short codes are refused as sheet numbers elsewhere, because grid bubbles
+    and callouts look the same; one in the title block's own large type, as
+    on Toronto's suites, is the sheet number.
+    """
+    sizes = sorted(s.size for s in spans)
+    if not sizes:
+        return None
+    median = sizes[len(sizes) // 2]
+    big = [s for s in spans if _SHORT_NO_RE.match(s.text.strip()) and s.size >= 2.5 * median]
+    if len(big) != 1:
+        return None
+    no = big[0]
+    if not any(t is not no and abs(t.size - no.size) <= 0.1 * no.size and not _SHORT_NO_RE.match(t.text.strip())
+               for t in spans):
+        return None
+    return no.text.strip()
 
 
 def _largest_title(spans: list[Span]) -> str | None:
@@ -316,7 +347,11 @@ def from_title_block(
 
     cands = [s for s in spans if SHEET_NO_RE.match(s.text.upper())]
     if not cands:
-        return None, _largest_title(spans)
+        title = _largest_title(spans)
+        no = _short_sheet_no(spans)
+        if no and title:
+            title = re.sub(rf"\s*\b{re.escape(no)}\b\s*", " ", title).strip() or title
+        return no, title
     num = max(cands, key=lambda s: s.size)
     # Guard: a sheet number is set much larger than the cross-reference bubbles
     # that share its shape (10 pt and 8 pt on these sets).

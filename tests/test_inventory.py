@@ -477,3 +477,34 @@ class TestSheetTruth:
         claimed = [s for s in sheets if s.readable and s.toolchain is not Toolchain.RASTER]
         hits = [s for s in claimed if s.sheet_no and s.sheet_no.upper() in truth]
         assert len(hits) / len(claimed) > 0.85
+
+
+class TestTorontoSuites:
+    """Toronto's pre-approved suites (25 Nov): one combined plan sheet, and
+    short sheet numbers set as large as the title."""
+
+    @pytest.mark.parametrize("title", ["FOUNDATION, FLOOR AND ROOF PLANS", "FLOOR AND ROOF PLANS", "BASEMENT & MAIN FLOOR PLANS"])
+    def test_a_combined_plan_sheet_is_the_floor_plan(self, title):
+        from ecarbon.intake.classify import sheet_type_of
+
+        assert sheet_type_of(title) is SheetType.FLOOR_PLAN
+
+    @pytest.mark.parametrize("title,want", [("ROOF PLAN", SheetType.ROOF_PLAN), ("FOUNDATION PLAN", SheetType.FOUNDATION_PLAN), ("ROOF FRAMING PLAN", SheetType.FRAMING_PLAN)])
+    def test_single_plans_keep_their_type(self, title, want):
+        from ecarbon.intake.classify import sheet_type_of
+
+        assert sheet_type_of(title) is want
+
+    def test_a_short_number_in_title_type_is_the_sheet_number(self):
+        import pymupdf
+
+        from ecarbon.intake.classify import from_title_block
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=1224, height=792)
+        page.insert_text((1100, 700), "A2", fontsize=32)
+        page.insert_text((900, 600), "FLOOR PLAN", fontsize=32)
+        for y in range(100, 500, 40):
+            page.insert_text((100, y), "general note body text", fontsize=10)
+        page.insert_text((300, 300), "B4", fontsize=10)  # a grid bubble stays a bubble
+        assert from_title_block(page) == ("A2", "FLOOR PLAN")

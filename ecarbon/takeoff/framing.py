@@ -667,6 +667,63 @@ class AssumedSingleStorey(StoreyHeights):
         return []
 
 
+# Floor to floor below the top storey, where none is stated: the 9 ft plate
+# plus a ~300 mm floor.
+STANDARD_FLOOR_TO_FLOOR_M = 3.05
+
+
+class NoDatumSingleStorey(StoreyHeights):
+    """Storeys counted from the floor plans, at a standard height, where no
+    section states any level. (Named for its first case, one storey.)"""
+
+    assumed = True
+
+    def __init__(self, floor_assembly_mm=None, n: int = 1):
+        self._hs = [STANDARD_FLOOR_TO_FLOOR_M] * (n - 1) + [SINGLE_STOREY_PLATE_M]
+        floors = [Level("ASSUMED FLOOR", round(sum(self._hs[:i]), 3)) for i in range(n)]
+        super().__init__(
+            levels=floors,
+            floor_assembly_mm=floor_assembly_mm,
+            sources=[],
+            notes=[
+                f"No section states a level, and the set draws {n} floor plan"
+                f"{'s' if n > 1 else ''}, so {n} storey{'s' if n > 1 else ''} at a standard "
+                + (f"{STANDARD_FLOOR_TO_FLOOR_M:.2f} m floor to floor and a " if n > 1 else "")
+                + f"{SINGLE_STOREY_PLATE_M:.2f} m (9 ft) top plate "
+                f"{'are' if n > 1 else 'is'} assumed; replace with the heights on the section."
+            ],
+        )
+
+    def storey_heights_m(self) -> list[float]:
+        return list(self._hs)
+
+    @property
+    def missing(self) -> list[str]:
+        return []
+
+
+_UPPER = {"SECOND": 2, "2ND": 2, "THIRD": 3, "3RD": 3}
+_UNCOUNTABLE_RE = re.compile(r"(?i)\b(UPPER|LOFT|BASEMENT|MEZZANINE|LOWER|FOURTH|4TH)\b")
+
+
+def no_datum_single_storey(heights, sheets, footprint):
+    """Storeys counted from the floor plans, with no level anywhere: the count
+    is the drawings' own claim, the heights are not. Only when every plan names
+    a distinct level (one ground plan, then SECOND, THIRD), else None."""
+    if footprint is None or heights is None or heights.levels or heights.storey_heights_m():
+        return None
+    plans = [s for s in sheets if getattr(s.sheet_type, "value", s.sheet_type) == "floor_plan"]
+    if not plans or len(plans) > 3 or any(_UNCOUNTABLE_RE.search(p.title or "") for p in plans):
+        return None
+    levels = []
+    for p in plans:
+        up = (p.title or "").upper()
+        levels.append(next((n for w, n in _UPPER.items() if re.search(rf"\b{w}\b", up)), 1))
+    if sorted(levels) != list(range(1, len(plans) + 1)):
+        return None
+    return NoDatumSingleStorey(heights.floor_assembly_mm, n=len(plans))
+
+
 def single_storey_fallback(heights):
     """Heights for a one-floor set whose sections give only floor and ridge."""
     if heights is None or heights.storey_heights_m():

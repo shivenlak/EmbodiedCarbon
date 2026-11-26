@@ -77,6 +77,7 @@ from ecarbon.models import (
 from ecarbon.takeoff.framing import (
     framing_lines,
     mark_assumed_heights,
+    no_datum_single_storey,
     single_storey_fallback,
     standard_assembly_lines,
     standard_code,
@@ -410,6 +411,11 @@ def gather(
         inputs.heights = StatedStoreyHeights(overrides.storey_heights_m, floor_assembly_mm=333.0)
     elif not inputs.heights.storey_heights_m():
         _vision_levels(design, sheets, inputs)
+    # No level on any section and one floor plan: one storey, height assumed.
+    if not inputs.heights.storey_heights_m():
+        nodatum = no_datum_single_storey(inputs.heights, sheets, inputs.footprint)
+        if nodatum is not None:
+            inputs.heights = nodatum
 
     if inputs.footprint is None:
         gaps.append(
