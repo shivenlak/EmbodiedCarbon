@@ -147,3 +147,27 @@ def test_leaving_partition_walls_out_on_the_plan_reprices_and_says_so():
     back = c.post(f"/projects/{pid}/partitions", json={"excluded": []}, headers=me).json()
     assert back["total_kg_co2e"] == pytest.approx(base)
     assert c.post(f"/projects/{pid}/partitions", json={"excluded": ["p0-w999"]}, headers=me).status_code == 404
+
+
+def test_the_complete_estimate_adds_labelled_items_to_an_unchanged_count(client):
+    carbon = client.get("/projects/demo/carbon").json()
+    c = client.get("/projects/demo/complete").json()
+    assert c["counted_kg_co2e"] == pytest.approx(carbon["total_kg_co2e"])
+    assert c["modules"] == "A1-A5"
+    assert c["total_kg_co2e"] == pytest.approx(c["counted_kg_co2e"] + sum(i["kg_co2e"] for i in c["items"]), abs=0.5)
+    assert c["low_kg_co2e"] <= c["total_kg_co2e"] <= c["high_kg_co2e"]
+    for i in c["items"]:
+        assert i["basis"] and i["source"] and i["low_kg_co2e"] <= i["kg_co2e"] <= i["high_kg_co2e"]
+    assert {"a4", "a5"} <= {i["key"] for i in c["items"]}
+
+
+def test_floor_finish_is_an_open_decision_priced_from_the_kootenay_guide():
+    from ecarbon.carbon.store import LocalSnapshotProvider
+    from ecarbon.carbon.unspecified import FLOORING, _factors_by_category, floor_finish_choice
+    from ecarbon.fixtures import example_takeoff
+
+    t = example_takeoff()
+    t.project.gfa_m2 = 100.0
+    ch = floor_finish_choice(t, _factors_by_category(LocalSnapshotProvider()))
+    assert ch is not None and ch.category == FLOORING
+    assert ch.low_kg_co2e == pytest.approx(685.0) and ch.high_kg_co2e == pytest.approx(2050.0)

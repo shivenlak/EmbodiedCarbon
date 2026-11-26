@@ -82,9 +82,15 @@ def test_override_does_not_mutate_the_extracted_value(client):
 def test_substitutions_are_ranked_by_computed_impact(client):
     subs = client.get("/projects/demo/substitutions").json()
     assert subs, "at least the concrete mix swap should be offered"
-    assert subs == sorted(subs, key=lambda s: s["delta_kg_co2e"])
+    # The builder's own library first (UX session, 25 Nov), then the store's
+    # swaps; each group ranked by computed impact, biggest saving first.
+    own = [s for s in subs if s["to_material"].endswith("(from your library)")]
+    store = [s for s in subs if not s["to_material"].endswith("(from your library)")]
+    assert subs == own + store
+    assert own == sorted(own, key=lambda s: s["delta_kg_co2e"])
+    assert store == sorted(store, key=lambda s: s["delta_kg_co2e"])
     # Lower-carbon mix must reduce, not increase.
-    assert subs[0]["delta_kg_co2e"] < 0
+    assert store[0]["delta_kg_co2e"] < 0
 
 
 def test_a_project_compared_with_itself_moves_nothing(client):

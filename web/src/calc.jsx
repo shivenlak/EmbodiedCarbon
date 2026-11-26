@@ -169,3 +169,96 @@ export function CalcPopover({ lineId, onClose, at }) {
     </div>
   );
 }
+
+// The complete estimate (A1–A5) under the counted total: what a whole-building
+// LCA adds, each item assumed and saying how it was calculated.
+export function CompleteLine() {
+  const { complete } = useContext(CalcContext);
+  const [open, setOpen] = useState(null);
+  const ref = useRef(null);
+  const pop = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => {
+      const inside = (el) => el && el.contains(e.target);
+      if (e.key === "Escape" || (e.type === "pointerdown" && !inside(ref.current) && !inside(pop.current))) setOpen(null);
+    };
+    window.addEventListener("keydown", close);
+    window.addEventListener("pointerdown", close);
+    return () => {
+      window.removeEventListener("keydown", close);
+      window.removeEventListener("pointerdown", close);
+    };
+  }, [open]);
+  if (!complete || !complete.items?.length) return null;
+  return (
+    <span className="complete-line" ref={ref}>
+      <button
+        type="button"
+        className="calc-btn"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setOpen((o) => (o ? null : { left: r.left, right: r.right, top: r.top, bottom: r.bottom }));
+        }}
+        aria-expanded={!!open}
+      >
+        Complete estimate, A1–A5: <b>{fmt(complete.total_kg_co2e, 0)}</b> <CO2e />
+      </button>{" "}
+      <em>
+        range {fmt(complete.low_kg_co2e, 0)}–{fmt(complete.high_kg_co2e, 0)}
+      </em>
+      {open &&
+        createPortal(
+          <div ref={pop}>
+            <div className="calc-pop" style={place(open)} role="dialog" aria-label="Complete estimate">
+              <div className="calc-pop-head">
+                <b>Complete estimate, A1–A5</b>
+                <button type="button" className="calc-x" onClick={() => setOpen(null)} aria-label="Close">
+                  ×
+                </button>
+              </div>
+              <p className="calc-detail" style={{ marginTop: 0 }}>
+                The counted total is what the drawings state (A1–A3). A whole-building LCA, such as CMHC's
+                reports, also carries what the drawings leave open and what happens between factory and site.
+                Each addition below is assumed and says how it was calculated.
+              </p>
+              <ol className="calc-steps">
+                <li>
+                  <div className="calc-row">
+                    <span className="calc-label">Counted from the drawings (A1–A3)</span>
+                    <span className="calc-val">
+                      {fmt(complete.counted_kg_co2e, 0)} <CO2e />
+                    </span>
+                  </div>
+                </li>
+                {complete.items.map((i) => (
+                  <li key={i.key}>
+                    <div className="calc-row">
+                      <span className="calc-label">+ {i.label}</span>
+                      <span className="calc-val">
+                        {fmt(i.kg_co2e, 0)} <CO2e />
+                      </span>
+                    </div>
+                    <div className="calc-detail">{i.basis}</div>
+                    <div className="calc-source">Source: {i.source}</div>
+                  </li>
+                ))}
+                <li className="calc-result">
+                  <div className="calc-row">
+                    <span className="calc-label">Complete estimate</span>
+                    <span className="calc-val">
+                      {fmt(complete.total_kg_co2e, 0)} <CO2e />
+                    </span>
+                  </div>
+                  <div className="calc-detail">
+                    range {fmt(complete.low_kg_co2e, 0)}–{fmt(complete.high_kg_co2e, 0)} kgCO₂e
+                  </div>
+                </li>
+              </ol>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </span>
+  );
+}
