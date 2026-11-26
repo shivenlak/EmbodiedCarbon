@@ -775,6 +775,7 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             name_in_thickness = thick_x is not None and any(
                 abs(x - thick_x) < COL_TOL
                 and len(_WORDY_RE.findall(t)) >= 2
+                and len(t.split()) >= 2  # SKMB_ADU_02 wraps "SELF-ADHERED" there
                 and not _looks_like_thickness(t)
                 for _, x, t in cells
             )
@@ -1272,7 +1273,7 @@ def cmhc_material(layer: Layer) -> str | None:
     return None
 
 
-def assembly_tags_used(design) -> dict[str, int]:
+def assembly_tags_used(design, plans_only: bool = False) -> dict[str, int]:
     """How often each assembly tag is referenced on the drawings.
 
     The schedule lists every assembly the catalogue offers, but a given design
@@ -1280,6 +1281,12 @@ def assembly_tags_used(design) -> dict[str, int]:
     the plans reference W2 sixty-eight times and W1 once. Reference count is
     therefore how the applicable assembly is chosen, rather than taking the
     first one listed.
+
+    `plans_only` counts floor plans alone, one plan per storey (a sheet number
+    ending in a lowercase letter is an alternative plan). Sections and details
+    repeat a demising wall's tag far more than its share of the walls: on the
+    Alberta models plan-only partition shares sit within about 10 points of
+    the IFC's area by type, all-sheet shares up to 40 points off.
     """
     import collections
 
@@ -1299,6 +1306,10 @@ def assembly_tags_used(design) -> dict[str, int]:
     try:
         for s in sheets:
             if s.sheet_type not in wanted or not s.readable:
+                continue
+            if plans_only and (
+                s.sheet_type is not SheetType.FLOOR_PLAN or re.search(r"\d[a-z]$", s.sheet_no or "")
+            ):
                 continue
             for block in doc[s.page].get_text("dict", flags=TEXT_DICT)["blocks"]:
                 for line in block.get("lines", []):

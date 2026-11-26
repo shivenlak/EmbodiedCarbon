@@ -239,9 +239,13 @@ class TestAlbertaQuantities:
         # studs took it too. P1 has no cavity fill, so its 89 mm studs were
         # priced as solid timber over the whole partition: 2,497 now 375.
         # 38,075 before the joist and truss estimates (+426), 38,501 before the
-        # steel-stud estimate (+6,666, see above).
-        assert carbon.total_kg_co2e == pytest.approx(45167, rel=0.02)
-        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(147.6, rel=0.02)
+        # steel-stud estimate (+6,666, see above). 45,167 until the partition
+        # run was split across P1/P2/P3/P5 by floor-plan tag count (70/17/8/6%)
+        # instead of priced all as P1, which has no cavity fill: +1,713. Against
+        # the IFC's wall area by type at our factors this partition carbon went
+        # from -43% to -15%; median over the seven Alberta sets 37% -> 15%.
+        assert carbon.total_kg_co2e == pytest.approx(46880, rel=0.02)
+        assert carbon.intensity_kg_co2e_per_m2 == pytest.approx(153.2, rel=0.02)
 
     def test_deferred_framing_is_estimated_and_says_so(self, takeoff):
         """I-joists and trusses the assemblies defer to the structure are

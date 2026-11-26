@@ -527,3 +527,23 @@ class TestThicknessInTheName:
         from ecarbon.extract.assemblies import thickness_in_name
 
         assert thickness_in_name(material) == (None, None)
+
+
+@needs_data
+class TestLayoutsThatReadNothing:
+    def test_a_rotated_schedule_keeps_its_columns(self):
+        """ATL_ADU_01's A001 is stored turned 90 degrees. Columns were taken
+        from each span's end rather than its start, scattered over 50 pt, and
+        no assembly read: the whole bill stood on standards."""
+        from ecarbon.extract.assemblies import assemblies_for
+
+        tags, _ = assemblies_for(get_design("ATL_ADU_01"))
+        assert {"W2", "R1", "P1"} <= set(tags)
+
+    def test_a_one_word_wrap_in_the_thickness_column_is_not_a_name(self):
+        """SKMB_ADU_02 wraps "SELF-ADHERED" into the thickness column, which
+        read as NOR's name-in-thickness layout and dropped F1-F3."""
+        from ecarbon.extract.assemblies import assemblies_for
+
+        tags, _ = assemblies_for(get_design("SKMB_ADU_02"))
+        assert {"F1", "F2"} <= set(tags)

@@ -561,3 +561,26 @@ def test_no_structural_sheet_reads_the_whole_foundation_elsewhere(monkeypatch):
     monkeypatch.setattr(specs, "structural_texts", lambda design, structural=True: texts[structural])
     spec = specs.foundation_spec_for(None)
     assert spec.footing_width_mm == 610 and spec.foundation_wall_mm == 254.0
+
+
+class TestStructuralScheduleTables:
+    """SK/MB S101 states the slab and grade beam as schedule tables."""
+
+    S101 = (
+        "CONCRETE BEAM SCHEDULE\nMARK\nWIDTH\nDEPTH\nREINFORCING\nGB1\n203\n915\n"
+        "2-20M CONT TOP AND BOTTOM\nSLAB SCHEDULE\nMARK\nTHICKNESS\nREINFORCING\n"
+        "DESCRIPTION\nBOTTOM BARS\nTOP BARS\nS1\n152\n15M @ 305 O.C.\nS2\n127\n"
+    )
+
+    def test_slab_and_beam_read_from_the_tables(self):
+        spec = parse_foundation_spec({"S101": self.S101})
+        assert spec.slab_thickness_mm == 152.0
+        assert (spec.grade_beam_width_mm, spec.grade_beam_depth_mm) == (203.0, 915.0)
+        assert "slab schedule S1" in spec.sources[0]
+
+    def test_a_scheduled_grade_beam_replaces_the_boilerplate_thickened_edge(self):
+        spec = parse_foundation_spec({"S001": "THICKENED EDGE SLAB ON GRADE", "S101": self.S101})
+        assert not spec.thickened_edge and spec.system == "grade_beam"
+
+    def test_a_thickened_edge_without_a_beam_stays(self):
+        assert parse_foundation_spec({"S001": "THICKENED EDGE SLAB ON GRADE"}).thickened_edge

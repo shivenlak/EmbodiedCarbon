@@ -445,6 +445,11 @@ def storey_heights_for(design, floor_assembly_mm: float | None = None) -> Storey
     result.levels = outvote_strays(result.levels)
 
     if not result.storey_heights_m():
+        # SKMB_ADU_02 has no architectural section; its elevations carry the
+        # same datum ladder (T/O CONCRETE 0 m, T/O SF SECOND 2.744 m).
+        _from_elevations(doc_path=design.drawings_pdf, sheets=sheets, result=result)
+
+    if not result.storey_heights_m():
         _from_wall_heights(design, sheets, result)
 
     hs = result.storey_heights_m()
@@ -454,6 +459,33 @@ def storey_heights_for(design, floor_assembly_mm: float | None = None) -> Storey
             "no plate datum above it"
         )
     return result
+
+
+def _from_elevations(doc_path, sheets, result: StoreyHeights) -> None:
+    """The datum ladder off the elevation sheets, only where no section gave one."""
+    from ecarbon.models import SheetType
+
+    found: list[Level] = []
+    sources: list[str] = []
+    doc = pymupdf.open(doc_path)
+    try:
+        for s in sheets:
+            if s.sheet_type is not SheetType.ELEVATION or not s.readable:
+                continue
+            levels = levels_on_page(doc[s.page], s.sheet_no)
+            if levels:
+                found.extend(levels)
+                sources.append(
+                    f"{s.sheet_no} (elevation): "
+                    + ", ".join(f"{lv.label} {lv.elevation_m}m" for lv in levels[:6])
+                )
+    finally:
+        doc.close()
+    trial = StoreyHeights(levels=outvote_strays(found), floor_assembly_mm=result.floor_assembly_mm)
+    if trial.storey_heights_m():
+        result.levels = trial.levels
+        result.sources.extend(sources)
+        result.notes.append("level datums read off the elevations; the set has no section that states them")
 
 
 def _from_wall_heights(design, sheets, result: StoreyHeights) -> None:
