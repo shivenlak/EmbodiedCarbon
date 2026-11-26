@@ -162,9 +162,10 @@ _CAVITY_FILL_RE = re.compile(r"CAVITY\s+(IN-?FILL|FILL)|BATT|IN-?FILL\s+INSULATI
 # 1794.3/1866.4.
 COL_TOL = 14.0
 # How far a name column may sit from its own DESCRIPTION header. Wide enough
-# for Atlantic's 34 pt offset, narrow enough to exclude the performance column,
-# which is 190 pt out on every layout measured.
-NAME_COLUMN_WINDOW = 50.0
+# for Atlantic's offsets (34 pt, and 53 pt on ATL_Fourplex_01 Option1, whose 50 pt
+# window refused all nine walls), narrow enough to exclude the performance
+# column, which is 190 pt out on every layout measured.
+NAME_COLUMN_WINDOW = 60.0
 # Sanity bounds on a parsed assembly. A low-rise wall, roof or floor runs to a
 # dozen layers and a few hundred millimetres; well past that means the parse
 # merged blocks rather than that the building is unusual.

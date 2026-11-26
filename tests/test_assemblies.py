@@ -736,3 +736,18 @@ def test_non_combustible_sheathing_is_not_plywood():
     assert mat("NON-COMBUSTIBLE EXTERIOR SHEATHING") == "CMHC_Gypsum Board"
     assert mat("EXTERIOR GRADE PLYWOOD SHEATHING") == "CMHC_Plywood"
     assert mat("EXTERIOR SHEATHING") == "CMHC_Plywood"
+
+
+@needs_data
+def test_a_name_column_53pt_from_its_header_is_still_the_name():
+    """ATL_Fourplex_01 Option1 sets its wall names 53 pt from DESCRIPTION, against
+    Option2's 48; a 50 pt window took each first layer as the name and refused
+    all nine walls, W2 among them, which the plans tag 17 times."""
+    from ecarbon.config import discover
+    from ecarbon.extract.assemblies import assemblies_for
+
+    d = next(d for d in discover() if d.key.startswith("ATL_Fourplex_01") and d.key.endswith("Option1"))
+    a, _ = assemblies_for(d)
+    assert a["W2"].name == "EXTERIOR ENVELOPE WALL NON COMBUSTIBLE"
+    assert a["W1"].layers[0].thickness_mm == 19.0  # the cladding, no longer the name
+    assert len(a["W5"].layers) == 9  # no longer carrying W4's last three rows
