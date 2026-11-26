@@ -1346,16 +1346,27 @@ _MATERIAL_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"METAL\s+(STUD|Z-?GIRT|FRAMING)|FURRING\s+CHANNEL", re.I), "CMHC_Metal Framing"),
     (re.compile(r"GYPSUM", re.I), "CMHC_Gypsum Board"),
     (re.compile(r"PLYWOOD|EXTERIOR\s+SHEATHING|OSB", re.I), "CMHC_Plywood"),
+    # A subfloor or roof deck named only as sheathing: Atlantic's floors say
+    # "T&G SHEATHING", 16 mm, and it was dropped. A sheathing *membrane* is a
+    # sheet, not a panel, so it is excluded.
+    (re.compile(r"^(?!.*MEMBRANE).*(\bT\s*&\s*G\b.*SHEATHING|SUBFLOOR|\bSHEATHING\b)", re.I), "CMHC_Plywood"),
+    (re.compile(r"CELLULOSE", re.I), "CMHC_Insulation, Cellulose"),
     (re.compile(r"CAVITY\s+(IN-?FILL|FILL)|BATT|ACOUSTIC", re.I), "CMHC_Insulation, Mineral Wool Semi-Rigid"),
     # Mineral wool before rigid: "SEMI-RIGID INSULATION" is mineral wool board,
-    # and read as rigid it was priced as XPS at several times the carbon.
-    (re.compile(r"SEMI-?\s*RIGID|MINERAL\s+WOOL|ROCK\s*WOOL|STONE\s*WOOL", re.I), "CMHC_Insulation, Mineral Wool Semi-Rigid"),
+    # and read as rigid it was priced as XPS at several times the carbon. The
+    # National Building Code's own words, "ROCK OR SLAG FIBRE INSULATION", are
+    # mineral wool too, and were dropped on every set that used them.
+    (re.compile(r"SEMI-?\s*RIGID|MINERAL\s+WOOL|ROCK\s*WOOL|STONE\s*WOOL|ROCK\s+OR\s+SLAG|SLAG\s+(FIBRE|FIBER|WOOL)", re.I),
+     "CMHC_Insulation, Mineral Wool Semi-Rigid"),
     # Foam boards by name: Atlantic writes "EXTRUDED POLYSTYRENE INSULATION",
     # never "RIGID", and was silently dropped.
     (re.compile(r"RIGID\s+INSULATION|EXTRUDED\s+POLYSTYRENE|EXPANDED\s+POLYSTYRENE|\bXPS\b|\bEPS\b|POLYISO", re.I),
      "CMHC_Insulation, Rigid"),
     (re.compile(r"CONCRETE|GRADE\s+BEAM|SLAB", re.I), "CMHC_Concrete, CIP"),
-    (re.compile(r"WOOD\s+(STUD|STRAPPING|FURRING|FRAMING)|TRUSS|JOIST|LUMBER", re.I), "CMHC_Wood Framing"),
+    (re.compile(r"WOOD\s+(STUD|STRAPPING|FURRING|FRAMING)|TRUSS|JOIST|LUMBER|WOOD\s+DECKING", re.I), "CMHC_Wood Framing"),
+    # After framing: "WOOD STUD FRAMING ... C/W IN-FILL INSULATION" is the
+    # studs; "11\" IN-FILL INSULATION" on its own is the batt.
+    (re.compile(r"IN-?\s*FILL\s+INSULATION", re.I), "CMHC_Insulation, Mineral Wool Semi-Rigid"),
 ]
 
 

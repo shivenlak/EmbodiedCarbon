@@ -171,3 +171,29 @@ def test_floor_finish_is_an_open_decision_priced_from_the_kootenay_guide():
     ch = floor_finish_choice(t, _factors_by_category(LocalSnapshotProvider()))
     assert ch is not None and ch.category == FLOORING
     assert ch.low_kg_co2e == pytest.approx(685.0) and ch.high_kg_co2e == pytest.approx(2050.0)
+
+
+def test_the_scope_declaration_walks_every_element_and_adds_up(client):
+    """An LCA states which elements it includes (NRC guideline, Table 9). Every
+    counted kgCO2e sits in exactly one row, and what is not included says why."""
+    c = client.get("/projects/demo/complete").json()
+    total = client.get("/projects/demo/carbon").json()["total_kg_co2e"]
+    sc = c["scope"]
+    assert "Table 9" in sc["source"]
+    codes = {r["code"] for r in sc["rows"]}
+    assert {"A1010", "A4010", "B1010", "B1020", "B2010", "B2020", "C1010", "D"} <= codes
+    in_total = sum(r["kg_co2e"] for r in sc["rows"] if r["in_total"])
+    assert in_total == pytest.approx(total, abs=1.0)
+    added = sum(r["kg_co2e"] for r in sc["rows"] if not r["in_total"] and r["kg_co2e"] is not None)
+    assert total + added == pytest.approx(c["total_kg_co2e"], abs=1.0)
+    for r in sc["rows"]:
+        assert r["status"] and r["detail"]
+    # Membranes the drawings name are listed, never silently dropped.
+    assert all(n["reason"] for n in sc["not_priced"])
+
+
+def test_the_csv_and_report_carry_the_scope(client):
+    csv = client.get("/projects/demo/export.csv").text
+    assert "# scope declared against" in csv and "#   D Services" in csv
+    html = client.get("/projects/demo/report.html").text
+    assert "What is included" in html

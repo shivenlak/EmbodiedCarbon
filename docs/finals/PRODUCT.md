@@ -60,6 +60,11 @@ See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the sc
   - URL and EPD number per Canadian factor (values unchanged).
   - Waste shown as an explicit step (1.00 default).
   - Region picker limited to Canadian provinces.
+- [x] **B16. Completeness, as an LCA practitioner would declare it. Thu 26.** (user, 26 Nov: "show the judges we take all the materials and quantities into calculation")
+  - `ecarbon/carbon/scope.py`: walks the NRC guideline's Appendix B Table 9 (UniFormat) over the takeoff. Each element is counted / estimated / open decision / added / not counted / not included, with its kgCO2e and the reason. The counted rows sum to the counted total.
+  - The layers the drawings name that no line prices (membranes, underlays, resilient channels) are listed with a reason, from the takeoff's own gaps; a sized layer with no factor now raises an INFO gap instead of vanishing.
+  - In `/complete` (`scope`), the CSV header block, the report ("What is included"), and the complete-estimate popover (`?complete=1` opens it).
+  - Named layers now priced: "ROCK OR SLAG FIBRE" and stand-alone "IN-FILL" insulation (mineral wool), cellulose (Kootenay factor), Atlantic's "T&G SHEATHING" subfloor, wood decking. 15 CMHC sets rise 1–16% (BC roof in-fill, ATL subfloor); Alberta unchanged.
 - [ ] **B15. Accuracy and submission. Thu night → Fri.**
   - Refresh accuracy.json after A8; a "how to audit this number" walkthrough.
   - `docs/benchmark.md`, `docs/FINALS.md`, `docs/ARCHITECTURE.md` flowchart.

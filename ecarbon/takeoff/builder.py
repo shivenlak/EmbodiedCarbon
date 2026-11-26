@@ -1056,6 +1056,18 @@ def _assembly_lines(
         framing = layer if layer.is_framing or layer.shares_cavity_with is None else asm.layers[layer.shares_cavity_with]
         fraction = framing.framing_share
         volume = layer.volume_m3(area_m2, fraction)
+        if volume is not None and material is None and not layer.is_placeholder and volume > 0:
+            # Named and sized, but nothing in the factor store is this
+            # material: said, so the scope declaration can list it.
+            gaps.append(Gap(
+                code=GapCode.ASSEMBLY_SCHEDULE_MISSING,
+                severity=GapSeverity.INFO,
+                message=(
+                    f"{asm.tag} layer {layer.index + 1} '{layer.material}', "
+                    f"{layer.thickness_mm:.0f} mm, is a material the factor store holds no "
+                    f"factor for, so it is not counted"
+                ),
+            ))
         if volume is None or material is None:
             continue
 

@@ -618,6 +618,34 @@ class TestInsulationByName:
 
         assert cmhc_material(Layer(index=0, material=name, thickness_mm=51.0)) == "CMHC_Insulation, Mineral Wool Semi-Rigid"
 
+    @pytest.mark.parametrize("name, want", [
+        # The National Building Code's words for mineral wool (Atlantic partitions).
+        ("ROCK OR SLAG FIBRE INSULATION BETWEEN STUDS", "CMHC_Insulation, Mineral Wool Semi-Rigid"),
+        ('11" IN-FILL INSULATION', "CMHC_Insulation, Mineral Wool Semi-Rigid"),
+        ("CELLULOSE INSULATION TO R-60", "CMHC_Insulation, Cellulose"),
+        # Atlantic's subfloor, named only as sheathing.
+        ("T&G SHEATHING", "CMHC_Plywood"),
+        ("PRESSURE TREATED WOOD DECKING ON ADJUSTABLE PEDESTALS", "CMHC_Wood Framing"),
+        # The studs, not the batt beside them.
+        ("WOOD STUD FRAMING, SPACING PER STRUCTURAL C/W IN-FILL INSULATION", "CMHC_Wood Framing"),
+        ("EXTERIOR GYPSUM SHEATHING, TYPE X", "CMHC_Gypsum Board"),
+    ])
+    def test_named_layers_are_priced(self, name, want):
+        from ecarbon.extract.assemblies import Layer, cmhc_material
+
+        assert cmhc_material(Layer(index=0, material=name, thickness_mm=16.0)) == want
+
+    def test_a_sheathing_membrane_is_not_a_panel(self):
+        from ecarbon.extract.assemblies import Layer, cmhc_material
+
+        assert cmhc_material(Layer(index=0, material="SHEATHING MEMBRANE", thickness_mm=1.0)) is None
+
+    def test_cellulose_has_a_factor(self):
+        from ecarbon.carbon.store import LocalSnapshotProvider
+
+        f = LocalSnapshotProvider().find_by_material("CMHC_Insulation, Cellulose")
+        assert f is not None and f.factor_id == "koot-insul-dense-pack-cellulose"
+
 
 @needs_data
 def test_a_cavity_fill_with_its_own_depth_is_priced_but_not_added_to_the_depth():
