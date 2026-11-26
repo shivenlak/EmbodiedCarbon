@@ -721,6 +721,14 @@ def learn_columns(
         c
         for c in scored
         if c[0] not in {thick_x, mat_x} and abs(c[0] - desc_x) < NAME_COLUMN_WINDOW
+    ] or [
+        # ATL_Fourplex_03's short N table: two names at 538, between the thickness
+        # (502) and material (574) columns, 91 pt from its header. Only consulted
+        # when the window holds nothing, so a table that found a name is unchanged.
+        c
+        for c in scored
+        if thick_x is not None and mat_x is not None and thick_x < c[0] < mat_x
+        and c[3] >= 0.5 and abs(c[0] - desc_x) < 2 * NAME_COLUMN_WINDOW
     ]
     name_x = (
         max(name_pool, key=lambda c: (c[1], -abs(c[0] - desc_x)))[0] if name_pool else None

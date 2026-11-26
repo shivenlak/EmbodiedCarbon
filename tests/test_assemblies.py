@@ -805,3 +805,16 @@ def test_a_typical_assembly_is_not_replaced_by_its_alternate():
 
     r1 = assemblies_for(get_design("SKMB_ADU_01"))[0]["R1"]
     assert r1.name == "TYP. PITCHED ROOF ASSEMBLY"
+
+
+@needs_data
+def test_a_name_between_the_thickness_and_material_columns_is_still_the_name():
+    """ATL_Fourplex_03's N table puts 'FOUNDATION' 91 pt from its header, past the
+    window, so N1 (tagged 14 times) began on PARGING and was refused, and R1/R2
+    were not read at all: the roof was an assumed standard one."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, rejected = assemblies_for(get_design("ATL_Fourplex_03"))
+    assert a["N1"].name == "FOUNDATION"
+    assert any(x.thickness_mm == 419.0 for x in a["R1"].layers)  # cellulose to R-60
+    assert not any(" N1 " in m for m in rejected)
