@@ -349,16 +349,26 @@ def test_a_family_tag_uses_its_first_scheduled_variant_and_says_so():
     assert any("plans tag W1" in g.message and "W1.1, the first" in g.message for g in t.gaps)
 
 
-@needs_data
 def test_a_refused_main_roof_is_not_priced_as_a_minor_one():
-    """ATL_Fourplex_01 Option 2 tags R2a 13 times and the R4 deck 3; R2a is
-    refused, so the roof is the assumed standard, not R4 over the footprint."""
+    """ATL_Fourplex_01 Option 2 tags R2a 13 times and the R4 deck 3. Were R2a
+    refused, R4 must not be priced over the whole footprint."""
+    from ecarbon.extract.assemblies import Assembly
+    from ecarbon.takeoff.builder import TakeoffInputs
+
+    deck = Assembly(tag="R4", name="DECK", layers=[])
+    inputs = TakeoffInputs(assemblies={"R4": deck}, tag_refs={"R2a": 13, "R4": 3})
+    assert inputs.assembly_for("R") is None
+    inputs.tag_refs = {"R2a": 2, "R4": 3}
+    assert inputs.assembly_for("R") is deck
+
+
+@needs_data
+def test_atl_prices_its_main_roof_not_the_deck():
     from ecarbon.takeoff.builder import build_takeoff
 
-    t = build_takeoff(get_design("ATL_Fourplex_01_Technical_Design_Package_Option2"))
-    ids = {ln.id for ln in t.lines}
+    ids = {ln.id for ln in build_takeoff(get_design("ATL_Fourplex_01_Technical_Design_Package_Option2")).lines}
+    assert any(i.startswith("ln-roof-assembly-r2a-") for i in ids)
     assert not any(i.startswith("ln-roof-assembly-r4-") for i in ids)
-    assert any(i.startswith("ln-roof-assembly-std-r-") for i in ids)
 
 
 @needs_data

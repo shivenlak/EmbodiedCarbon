@@ -570,3 +570,17 @@ def test_a_blank_cavity_fill_takes_the_stud_depth_beside_it():
     w1 = assemblies_for(get_design("SKMB_ADU_01"))[0]["W1"]
     fill = next(lay for lay in w1.layers if "INFILL" in lay.material.upper())
     assert fill.thickness_mm == 140.0 and "no depth stated" in fill.note
+
+
+@needs_data
+def test_a_wrapped_description_line_joins_the_layer_above():
+    """ATL's R1a wraps four of its layers over two to four rows each; read row
+    by row it had 16 layers and was refused as merged blocks."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    r1a = assemblies_for(get_design("ATL_Fourplex_01_Technical_Design_Package_Option2"))[0]["R1a"]
+    names = [lay.material.upper() for lay in r1a.layers]
+    assert len(names) == 12
+    assert any("W/ ICE AND WATER SHIELD" in n and "AIR BARRIER" in n for n in names)
+    wood = next(lay for lay in r1a.layers if lay.material.upper().startswith("ENGINEERED WOOD"))
+    assert wood.deferred_to == "Structural"

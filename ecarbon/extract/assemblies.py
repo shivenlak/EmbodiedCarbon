@@ -945,6 +945,9 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 # simply not stated, which is a gap rather than a reason to drop
                 # the material from the build-up.
                 mm, note = parse_thickness(paired) if paired is not None else (None, None)
+                if paired is None and current.layers and _continues(current.layers[-1], text):
+                    _join(current.layers[-1], text)
+                    continue
                 material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", text)).strip(" ,")
                 if not material:
                     # The whole cell was a cross-reference, e.g. F1's bare
@@ -984,6 +987,32 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             asm.group_letter = tag_prefix(asm.tag)
         _mark_shared_cavities(asm.layers)
     return [a for a in out if a.layers and a.tag]
+
+
+# A wrapped description line, not a layer: ATL's R1a runs "ENGINEERED WOOD
+# STRUCTURE REFER TO / STRUCTURAL. MINIMUM TRUSS DEPTHS TO BE / COORDINATED ...
+# / DEPTHS." over four rows, which read as 16 layers and refused the roof.
+_CONT_END_RE = re.compile(r"(\b(TO|OF|AND|OR|WITH|FOR|BE|THE|IN|AT|ON|BETWEEN)|W/|[,&-])$", re.I)
+_CONT_START_RE = re.compile(r"^(W/|C/W|AT|AND|OR|WITH|TO|FOR|OF|IN|ON|BE)(?=\s|$)|^\d+\s*X\s*\d+", re.I)
+
+
+def _continues(prev: Layer, text: str) -> bool:
+    """Whether a row with no thickness cell is the layer above, wrapped."""
+    t = text.strip()
+    return bool(
+        _CONT_END_RE.search(prev.material.strip())
+        or _CONT_START_RE.match(t)
+        or re.fullmatch(r"[A-Z][A-Z-]+\.", t, re.I)
+    )
+
+
+def _join(prev: Layer, text: str) -> None:
+    merged = f"{prev.material} {text.strip()}"
+    defer = _DEFER_RE.search(merged)
+    if defer and not prev.deferred_to:
+        prev.deferred_to = defer.group(1).title()
+    prev.material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", merged)).strip(" ,")
+    prev.is_placeholder = prev.is_placeholder or bool(_PLACEHOLDER_RE.search(text))
 
 
 def _attach_tags(assemblies: list[Assembly], tags: list[tuple[float, float, str]]) -> None:
