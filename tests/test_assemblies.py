@@ -510,6 +510,7 @@ class TestThicknessInTheName:
             ('11 1/4" UNFACED FIBERGLASS BATT INSULATION', 285.8),
             ("150mm RIGID INSULATION", 150.0),
             ('5/8" TYPE X GYPSUM BOARD', 15.9),
+            ('MIN 3/4" PLYWOOD SHEATHING (REF ALSO STRUC)', 19.0),  # BC W1.1
         ],
     )
     def test_a_leading_depth_is_read(self, material, mm):
@@ -519,6 +520,11 @@ class TestThicknessInTheName:
         assert got == pytest.approx(mm, abs=0.1)
         assert "material description" in note
 
+    def test_a_stated_minimum_says_so(self):
+        from ecarbon.extract.assemblies import thickness_in_name
+
+        assert "minimum" in thickness_in_name('MIN 3/4" PLYWOOD SHEATHING')[1]
+
     @pytest.mark.parametrize(
         "material",
         [
@@ -527,6 +533,8 @@ class TestThicknessInTheName:
             "2-PLY SBS ROOFING MEMBRANE",
             'DESIGN THICKNESS OF FLOOR FINISH 1 1/8"',  # not leading
             "2x10 JOISTS",
+            'MIN 16" O.C. STUDS',  # a minimum spacing is still a spacing
+            "MINERAL WOOL BATT",
         ],
     )
     def test_anything_else_is_not(self, material):

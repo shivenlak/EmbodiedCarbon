@@ -278,7 +278,7 @@ def parse_thickness(text: str) -> tuple[float | None, str | None]:
 # INSULATION', '150mm RIGID INSULATION'. Only a leading dimension counts, and
 # not one followed by a spacing ('16" O.C.', '@ 400'), which is a pitch.
 _LEADING_DIM_RE = re.compile(
-    r"^\s*(?P<v>\d+(?:\.\d+)?\s*mm|(?:\d+\s+)?\d+(?:/\d+)?\s*(?:\"|\u201d))(?!\s*(?:O\.?\s*C|C/C|@))",
+    r"^\s*(?P<min>MIN(?:IMUM)?\.?\s+)?(?P<v>\d+(?:\.\d+)?\s*mm|(?:\d+\s+)?\d+(?:/\d+)?\s*(?:\"|\u201d))(?!\s*(?:O\.?\s*C|C/C|@))",
     re.I,
 )
 
@@ -291,6 +291,10 @@ def thickness_in_name(material: str) -> tuple[float | None, str | None]:
     mm, _ = parse_thickness(m.group("v"))
     if mm is None or not (3.0 <= mm <= 400.0):
         return None, None
+    if m.group("min"):
+        # BC W1.1 'MIN 3/4" PLYWOOD SHEATHING (REF ALSO STRUC)': a stated floor, priced as stated.
+        return mm, ("minimum thickness read from the material description; the schedule's "
+                    "thickness cell is empty, and a thicker panel would add to it")
     return mm, "thickness read from the material description; the schedule's thickness cell is empty"
 
 
