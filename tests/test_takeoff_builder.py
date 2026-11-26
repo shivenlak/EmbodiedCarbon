@@ -373,3 +373,15 @@ def test_demising_walls_are_party_walls_inside_the_partition_run():
                  if ln.element_class.value == "party_wall"]
         assert party and all(ln.id.startswith(PARTITION_LINE_PREFIX) for ln in party)
         assert any(ln.id.startswith(f"{PARTITION_LINE_PREFIX}-{tag}-") for ln in party)
+
+
+@needs_data
+def test_stairs_are_counted_off_the_plans_and_say_how():
+    """AB_Fourplex_01's plans label each flight on both floors (4 riser labels,
+    1 UP arrow); its IFC has 2 flights."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    st = build_takeoff(get_design("AB_Fourplex_01")).line("ln-stairs")
+    assert st.element_class.value == "stair" and st.confidence.value == "assumed"
+    assert "2 flight(s) of 16 risers" in st.description
+    assert "riser label" in st.basis.note

@@ -38,6 +38,7 @@ above it and is taken from the storey below (RESEARCH S20).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -1575,6 +1576,51 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
     return built, more
 
 
+# A standard timber stair: three 38 x 286 mm (2x12) stringers, 38 mm treads
+# 254 mm deep, 914 mm (36") wide. Only the count and risers are read.
+STAIR_WIDTH_M, STAIR_RUN_M, STAIR_TREAD_M, STRINGER_M2 = 0.914, 0.254, 0.038, 0.038 * 0.286
+
+
+def _stair_lines(design) -> list[TakeoffLine]:
+    """Stair flights counted off the floor plans, priced as a standard timber stair."""
+    from ecarbon.extract.stairs import stairs_on_plans
+
+    try:
+        st = stairs_on_plans(design)
+    except Exception:
+        return []
+    if st is None:
+        return []
+    n = st.risers
+    stringer = math.hypot((n - 1) * STAIR_RUN_M, n * st.rise_mm / 1000)
+    per = 3 * STRINGER_M2 * stringer + (n - 1) * STAIR_WIDTH_M * STAIR_RUN_M * STAIR_TREAD_M
+    return [TakeoffLine(
+        id="ln-stairs",
+        element_class=ElementClass.STAIR,
+        quantity=round(per * st.flights, 3),
+        unit=Unit.M3,
+        confidence=Confidence.ASSUMED,
+        material="CMHC_Wood Framing",
+        description=f"Stairs, estimated: {st.flights} flight(s) of {n} risers @ {st.rise_mm:.0f} mm",
+        basis=Basis(
+            sources=[BasisSource.DEFAULT_RULE],
+            note=(
+                f"Flights counted off the floor plans: {st.up_marks} UP arrow(s) and "
+                f"{st.riser_labels} riser label(s), each flight labelled on the floor it leaves "
+                f"and the one it reaches, so the larger of the arrows and half the labels. "
+                f"Risers per flight are the median stated."
+            ),
+        ),
+        assumptions=[
+            "Assumed standard: three 38 x 286 mm (2x12) stringers, 38 mm treads 254 mm deep, "
+            "914 mm wide, all timber; a concrete or steel stair would be far heavier.",
+            "On the CMHC models this count matched the IFC's flights or fell short, never "
+            "over (AB_Rowhouse_01 reads 1 of 4); landings, handrails and guards are not counted.",
+        ],
+        provenance=Provenance(page=st.page, sheet_no=st.sheet_no, detail="stair riser label", bbox=st.bbox),
+    )]
+
+
 def build_takeoff(
     design,
     project: ProjectFacts | None = None,
@@ -1729,6 +1775,7 @@ def build_takeoff(
     gaps += std_gaps
     framed, covered = framing_lines(inputs, lines, std_used)
     lines += framed
+    lines += _stair_lines(design)
     for gap in gaps:
         for marker, line_id in covered.items():
             if marker in gap.message and gap.message.startswith("Foundation:"):
