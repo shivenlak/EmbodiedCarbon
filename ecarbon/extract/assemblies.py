@@ -377,6 +377,27 @@ class Layer:
         return round(min(38 / spacing + FRAMING_FRACTION - 38 / 400, 1.0), 4)
 
     @property
+    def framing_basis(self) -> str:
+        """How `framing_share` was reached, in words a reviewer can check
+        against the drawing (UX session: "disclose the framing spacing")."""
+        share = self.framing_share
+        m = _STUD_SPACING_RE.search(self.material)
+        extras = FRAMING_FRACTION - 38 / 400
+        if not m:
+            return (
+                f"no spacing stated on the schedule, so 400 mm centres are assumed: 38 mm members "
+                f"are {38 / 400:.1%} of the area, plus {extras:.1%} for plates, blocking and headers, "
+                f"{share:.0%} timber in all"
+            )
+        said = m.group(0).strip()
+        if abs(share - FRAMING_FRACTION) < 1e-9:
+            return (f"'{said}' as stated (400 mm centres): 38 mm members are {38 / 400:.1%}, plus "
+                    f"{extras:.1%} for plates, blocking and headers, {share:.0%} timber in all")
+        spacing = (38 / (share - extras)) if share < 1 else 38
+        return (f"'{said}' as stated (about {spacing:.0f} mm centres): 38 mm members are "
+                f"{38 / spacing:.1%}, plus {extras:.1%} for plates, blocking and headers, {share:.0%} timber in all")
+
+    @property
     def is_framing(self) -> bool:
         return bool(_FRAMING_RE.search(self.material))
 

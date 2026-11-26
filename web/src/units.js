@@ -21,14 +21,10 @@ export const UnitsContext = createContext({ system: "metric", setSystem: () => {
 
 const STORE_KEY = "ec-units";
 
-// The viewer's own choice, if they made one; null otherwise.
+// The units follow the region (user, 26 Nov: no m/ft toggle in the top bar):
+// metres for Canada, feet for a US project. An old stored choice is ignored.
 export function savedSystem() {
-  try {
-    const v = localStorage.getItem(STORE_KEY);
-    return v === "metric" || v === "imperial" ? v : null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 export function saveSystem(system) {
   try {

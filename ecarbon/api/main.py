@@ -82,6 +82,11 @@ class Project:
     scenario: dict = field(default_factory=lambda: {"swaps": {}, "picks": {}})
     # Partition walls the user excluded on the plan (wall ids, see /partitions).
     excluded_walls: set = field(default_factory=set)
+    # Plan edits beyond leaving a wall out (UX session, 26 Nov: "select,
+    # deselect, reclassify, measure anything"): a measured wall reclassified
+    # (wall id -> "partition" | "exterior"), and walls drawn on a sheet.
+    wall_classes: dict = field(default_factory=dict)
+    added_walls: list = field(default_factory=list)
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
@@ -297,6 +302,8 @@ def _own(project_id: str) -> Project:
             library_files=list(p.library_files),
             scenario={"swaps": dict(p.scenario["swaps"]), "picks": dict(p.scenario["picks"])},
             excluded_walls=set(p.excluded_walls),
+            wall_classes=dict(p.wall_classes),
+            added_walls=[dict(w) for w in p.added_walls],
         )
         _FORKS[key] = fork
     return fork
@@ -484,6 +491,21 @@ class Substitution(BaseModel):
     # The factor to apply, so a swap can be applied to the line itself
     # (POST /lines/{id} with factor_id) and carried into the exports.
     to_factor_id: str | None = None
+    # Where the suggestion comes from, said plainly (UX session: "how did you
+    # decide on those substitutions?"). "library": the builder's own list;
+    # "curated": a fixed, hand-picked like-for-like swap in the factor store.
+    # No model chooses them.
+    origin: str = "curated"
+    why: str = ""
+    # The replacement's own source and region, so "can I buy this here?" has
+    # an answer: CA / CA-BC is a Canadian factor; anything else is not.
+    to_source: str = ""
+    to_geography: str | None = None
+    # True when the replacement is already in the builder's uploaded list.
+    on_roster: bool = False
+    # Whether the builder has uploaded a list at all: "new to your list" only
+    # means something when there is one.
+    roster_known: bool = False
 
 
 # -- endpoints -------------------------------------------------------------
@@ -630,6 +652,16 @@ def _complete_dict(project_id: str) -> dict:
     p = _get(project_id)
     ce = _complete(project_id)
     return {**ce.to_dict(), "scope": scope_declaration(p.takeoff, p.carbon, ce).to_dict()}
+
+
+@app.get("/projects/{project_id}/buildup/{element_class}")
+def get_buildup(project_id: str, element_class: str) -> dict:
+    """One element's build-up: every drawn layer in schedule order, priced
+    ones with their line and kgCO2e, the rest with why they carry none."""
+    from ecarbon.carbon.scope import buildup
+
+    p = _get(project_id)
+    return buildup(p.takeoff, p.carbon, element_class)
 
 
 @app.get("/projects/{project_id}/complete")
@@ -878,61 +910,219 @@ def _partition_lines(p) -> list:
     ]
 
 
-@app.get("/projects/{project_id}/partitions")
-def get_partitions(project_id: str) -> dict:
+WALL_CLASSES = ("partition", "exterior")
+# A wall drawn on a plan is one storey high unless the sections say otherwise.
+_FALLBACK_STOREY_M = 2.7
+
+
+def _storey_height(project_id: str) -> tuple[float, str]:
+    try:
+        m = get_massing(project_id)
+        hs = [h for h in (m.storey_heights_m if m else []) if h and h > 0]
+    except Exception:
+        hs = []
+    if hs:
+        hs = sorted(hs)
+        return hs[len(hs) // 2], "the median storey height read from the sections"
+    return _FALLBACK_STOREY_M, f"{_FALLBACK_STOREY_M} m assumed: no storey height was read"
+
+
+def _page_scale(project_id: str, page: int) -> float | None:
+    """Real mm per PDF point for one page: stated by the user, else read."""
+    p = _get(project_id)
+    stated = dict(getattr(p.overrides, "scale_mm_per_pt", {}) or {})
+    if page in stated:
+        return stated[page]
+    for s in p.takeoff.sheets:
+        if s.page == page and getattr(s, "scale", None):
+            return s.scale
+    import pymupdf
+
+    from ecarbon.geometry.scale import calibrate
+
+    design = _design_for_any(project_id, p)
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        est = calibrate(doc[page])
+        return est.mm_per_pt if est.mm_per_pt and est.is_standard else None
+    except Exception:
+        return None
+    finally:
+        doc.close()
+
+
+def _plan_state(project_id: str) -> dict:
     p = _get(project_id)
     w = _walls(project_id)
-    excluded = p.excluded_walls
     lengths = {wall["id"]: wall["length_m"] for pg in w["pages"] for wall in pg["walls"]}
-    counted = sum(v for k, v in lengths.items() if k not in excluded)
+    excluded = p.excluded_walls
+    cls = p.wall_classes
+
+    def counted(c):
+        own = sum(v for k, v in lengths.items() if k not in excluded and cls.get(k, "partition") == c)
+        return own + sum(a["length_m"] for a in p.added_walls if a["as"] == c)
+
     return {
         "pages": [
-            {**pg, "walls": [{**wall, "excluded": wall["id"] in excluded} for wall in pg["walls"]]}
+            {**pg, "walls": [
+                {**wall, "excluded": wall["id"] in excluded, "as": cls.get(wall["id"], "partition")}
+                for wall in pg["walls"]
+            ]}
             for pg in w["pages"]
         ],
+        "added": list(p.added_walls),
         "n_walls": len(lengths),
         "n_counted": sum(1 for k in lengths if k not in excluded),
         "total_m": w["total_m"],
-        "counted_m": round(counted, 2),
+        "counted_m": round(counted("partition"), 2),
+        "exterior_added_m": round(counted("exterior"), 2),
         "editable": bool(lengths) and bool(_partition_lines(p)),
+        "classes": list(WALL_CLASSES),
     }
+
+
+@app.get("/projects/{project_id}/partitions")
+def get_partitions(project_id: str) -> dict:
+    return _plan_state(project_id)
+
+
+@app.get("/projects/{project_id}/plan")
+def get_plan(project_id: str) -> dict:
+    """Everything the plan editor needs: measured walls with their class and
+    whether they count, the walls drawn by the user, and the storey height a
+    drawn wall is given."""
+    h, why = _storey_height(project_id)
+    return {**_plan_state(project_id), "storey_height_m": h, "storey_height_basis": why}
+
+
+@app.get("/projects/{project_id}/pages/{page}/scale")
+def get_page_scale(project_id: str, page: int) -> dict:
+    mm = _page_scale(project_id, page)
+    return {"page": page, "mm_per_pt": mm,
+            "note": None if mm else "no scale could be read on this sheet: set one with 'Help it read this'"}
 
 
 class WallChoice(BaseModel):
     excluded: list[str] = Field(default_factory=list, description="wall ids to leave out")
 
 
+class DrawnWall(BaseModel):
+    page: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    as_: str = Field("partition", alias="as")
+    id: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class PlanEdits(BaseModel):
+    excluded: list[str] = Field(default_factory=list)
+    classes: dict[str, str] = Field(default_factory=dict, description="wall id -> partition | exterior")
+    added: list[DrawnWall] = Field(default_factory=list)
+
+
+_PLAN_NOTE = "stated: plan edits"
+
+
+def _apply_plan(project_id: str, p) -> None:
+    """Rescale the measured partition lines and the exterior wall lines to the
+    walls the user counts, reclassified and drew. Every changed line says so."""
+    w = _walls(project_id)
+    lengths = {wall["id"]: wall["length_m"] for pg in w["pages"] for wall in pg["walls"]}
+    cls = p.wall_classes
+    total = sum(lengths.values())
+    part_kept = sum(v for k, v in lengths.items() if k not in p.excluded_walls and cls.get(k, "partition") == "partition")
+    part_added = sum(a["length_m"] for a in p.added_walls if a["as"] == "partition")
+    ext_from_walls = sum(v for k, v in lengths.items() if k not in p.excluded_walls and cls.get(k) == "exterior")
+    ext_added = sum(a["length_m"] for a in p.added_walls if a["as"] == "exterior")
+    h, h_why = _storey_height(project_id)
+
+    def mark(ln, value, note):
+        mine = (ln.override_note or "").startswith((_PLAN_NOTE, _WALL_NOTE))
+        if ln.user_override is not None and not mine:
+            return  # a quantity the user typed wins over the plan
+        if value is None:
+            if mine:
+                ln.user_override, ln.override_note = None, None
+            return
+        ln.user_override, ln.override_note = round(value, 4), note
+
+    plines = _partition_lines(p)
+    changed = bool(p.excluded_walls) or any(v != "partition" for v in cls.values()) or part_added
+    share = (part_kept + part_added) / total if total else None
+    for ln in plines:
+        if not changed or share is None:
+            mark(ln, None, "")
+            continue
+        mark(ln, ln.quantity * share,
+             f"{_PLAN_NOTE}: {len(p.excluded_walls)} of {len(lengths)} walls left out, "
+             f"{sum(1 for v in cls.values() if v == 'exterior')} reclassified as exterior, "
+             f"{part_added:.1f} m drawn; {part_kept + part_added:.1f} of {total:.1f} m counted, "
+             f"so {ln.quantity:g} x {share:.3f}")
+
+    ext_m = ext_from_walls + ext_added
+    area_line = next((ln for ln in p.takeoff.lines if ln.id == "ln-exterior-wall"), None)
+    ext_lines = [ln for ln in p.takeoff.lines if ln.element_class.value == "exterior_wall"]
+    base_area = area_line.quantity if area_line is not None else None
+    for ln in ext_lines:
+        if not ext_m or not base_area:
+            mark(ln, None, "")
+            continue
+        grow = (base_area + ext_m * h) / base_area
+        mark(ln, ln.quantity * grow,
+             f"{_PLAN_NOTE}: {ext_m:.1f} m of wall counted as exterior on the plan "
+             f"({ext_from_walls:.1f} m reclassified, {ext_added:.1f} m drawn) x {h:.2f} m high "
+             f"({h_why}) adds {ext_m * h:.1f} m2 to {base_area:.1f} m2, so {ln.quantity:g} x {grow:.3f}")
+    p.recompute()
+
+
 @app.post("/projects/{project_id}/partitions", response_model=CarbonResult)
 def set_partitions(project_id: str, body: WallChoice) -> CarbonResult:
-    """Leave walls out (or put them back): every measured partition line is
-    scaled by the share of the measured length still counted, and says so."""
+    """Leave walls out (or put them back); kept for the wall toggle."""
     p = _own(project_id)
     w = _walls(project_id)
     lengths = {wall["id"]: wall["length_m"] for pg in w["pages"] for wall in pg["walls"]}
     unknown = [x for x in body.excluded if x not in lengths]
     if unknown:
         raise HTTPException(404, f"no partition wall {unknown[0]!r}")
-    lines = _partition_lines(p)
-    if not lines:
+    if not _partition_lines(p):
         raise HTTPException(409, "the partitions here are estimated from the floor area, not measured wall by wall")
     p.excluded_walls = set(body.excluded)
-    total = sum(lengths.values()) or 1.0
-    kept = total - sum(lengths[x] for x in p.excluded_walls)
-    share = kept / total
-    for ln in lines:
-        mine = (ln.override_note or "").startswith(_WALL_NOTE)
-        if not p.excluded_walls:
-            if mine:
-                ln.user_override, ln.override_note = None, None
-            continue
-        if ln.user_override is not None and not mine:
-            continue  # a quantity the user typed wins over the wall count
-        ln.user_override = round(ln.quantity * share, 4)
-        ln.override_note = (
-            f"{_WALL_NOTE}: {len(p.excluded_walls)} of {len(lengths)} walls left out, "
-            f"{kept:.1f} of {total:.1f} m counted, so {ln.quantity:g} x {share:.3f}"
-        )
-    p.recompute()
+    _apply_plan(project_id, p)
+    return p.carbon
+
+
+@app.post("/projects/{project_id}/plan", response_model=CarbonResult)
+def set_plan(project_id: str, body: PlanEdits) -> CarbonResult:
+    """The whole plan edit at once: walls left out, walls reclassified, walls
+    drawn. A drawn wall's length is its two clicks at the sheet's scale."""
+    p = _own(project_id)
+    w = _walls(project_id)
+    lengths = {wall["id"]: wall["length_m"] for pg in w["pages"] for wall in pg["walls"]}
+    for wid in [*body.excluded, *body.classes]:
+        if wid not in lengths:
+            raise HTTPException(404, f"no measured wall {wid!r}")
+    bad = [c for c in body.classes.values() if c not in WALL_CLASSES]
+    bad += [a.as_ for a in body.added if a.as_ not in WALL_CLASSES]
+    if bad:
+        raise HTTPException(422, f"a wall is a partition or exterior, not {bad[0]!r}")
+    added = []
+    for i, a in enumerate(body.added):
+        mm = _page_scale(project_id, a.page)
+        if not mm:
+            raise HTTPException(422, f"page {a.page + 1} has no scale, so a drawn wall has no length; set one first")
+        length = ((a.x1 - a.x0) ** 2 + (a.y1 - a.y0) ** 2) ** 0.5 * mm / 1000
+        added.append({"id": a.id or f"u{i + 1}", "page": a.page, "x0": a.x0, "y0": a.y0, "x1": a.x1,
+                      "y1": a.y1, "as": a.as_, "length_m": round(length, 3)})
+    if not _partition_lines(p) and (body.excluded or any(a["as"] == "partition" for a in added)):
+        raise HTTPException(409, "the partitions here are estimated from the floor area, not measured wall by wall")
+    p.excluded_walls = set(body.excluded)
+    p.wall_classes = {k: v for k, v in body.classes.items() if v != "partition"}
+    p.added_walls = added
+    _apply_plan(project_id, p)
     return p.carbon
 
 
@@ -961,6 +1151,12 @@ async def upload_materials(project_id: str, file: UploadFile = File(...)) -> dic
     if added:
         p.library_files.append(file.filename or "materials.csv")
     return {"added": [f.name for f in added], "errors": errors}
+
+
+def _on_roster(p, name: str) -> bool:
+    """Whether a material is already on the builder's uploaded list, by name."""
+    key = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+    return any(key and key == re.sub(r"[^a-z0-9]+", " ", f.name.lower()).strip() for f in p.user_factors.values())
 
 
 @app.get("/projects/{project_id}/substitutions", response_model=list[Substitution])
@@ -1003,6 +1199,13 @@ def get_substitutions(project_id: str) -> list[Substitution]:
                     from_material=src.name,
                     to_material=dst.name,
                     to_factor_id=dst.factor_id,
+                    origin="curated",
+                    why=(f"Curated like-for-like swap '{swap['swap_id']}' in the factor store: "
+                         f"{swap.get('description') or swap['title']} Both factors are published "
+                         f"records; the saving is the line's quantity x the difference in factor."),
+                    to_source=dst.source,
+                    to_geography=dst.geography,
+                    on_roster=_on_roster(p, dst.name),
                     delta_kg_co2e=round(delta, 1),
                     pct_of_total=round(100 * delta / p.carbon.total_kg_co2e, 1)
                     if p.carbon.total_kg_co2e
@@ -1033,11 +1236,19 @@ def get_substitutions(project_id: str) -> list[Substitution]:
                 from_material=cl.factor.name,
                 to_material=f"{dst.name} (from your library)",
                 to_factor_id=dst.factor_id,
+                origin="library",
+                why=(f"From your uploaded materials list ({', '.join(p.library_files) or 'entered by you'}): "
+                     f"same category and unit as the line's current material."),
+                to_source=dst.source,
+                to_geography=dst.geography,
+                on_roster=True,
                 delta_kg_co2e=round(delta, 1),
                 pct_of_total=round(100 * delta / p.carbon.total_kg_co2e, 1) if p.carbon.total_kg_co2e else 0.0,
             ))
     out.sort(key=lambda s: s.delta_kg_co2e)  # biggest saving first
     own.sort(key=lambda s: s.delta_kg_co2e)
+    for sub in (*own, *out):
+        sub.roster_known = bool(p.user_factors)
     return own + out
 
 
@@ -1453,6 +1664,10 @@ def _region_out(p: Project) -> RegionOut:
     for code in sorted(_CA_PROVINCES, key=lambda c: _CA_PROVINCES[c]):
         geo = f"CA-{code}"
         options.append(RegionOption(geography=geo, label=label_of(geo), n_factors=national + geos.get(geo, 0)))
+    # Outside Canada is offered, and said to be indicative (user, 26 Nov:
+    # "what is your region: Canada, US, etc.").
+    options.append(RegionOption(geography="US", label="United States (indicative)",
+                                n_factors=national + geos.get("US", 0)))
     outside = bool(p.geography) and not p.geography.upper().startswith("CA")
     return RegionOut(
         geography=p.geography, label=label_of(p.geography), source=p.region_source, options=options,
@@ -1708,15 +1923,20 @@ async def upload_project(
     owner = _WORKSPACE.get()
 
     def run(tell) -> dict[str, object]:
-        try:
-            import pymupdf
+        import pymupdf
 
-            with pymupdf.open(pdf) as doc:
-                tell(
-                    "pages",
-                    f"{doc.page_count} pages"
-                    + (f" across {len(blobs)} files" if len(blobs) > 1 else ""),
-                )
+        try:
+            doc = pymupdf.open(pdf)
+        except Exception as exc:  # truncated or not a PDF: never echo the server's path
+            raise HTTPException(422, DAMAGED_PDF) from exc
+        with doc:
+            if doc.needs_pass or doc.is_encrypted:
+                raise HTTPException(422, LOCKED_PDF)
+            tell(
+                "pages",
+                f"{doc.page_count} pages" + (f" across {len(blobs)} files" if len(blobs) > 1 else ""),
+            )
+        try:
             with _BUILD_LOCK:
                 takeoff = build_takeoff(
                     design, facts, trust_stated_gfa=gfa_m2 is not None, progress=tell
@@ -1724,7 +1944,7 @@ async def upload_project(
         except Exception as exc:
             raise HTTPException(
                 422,
-                f"could not read this plan set: {exc}. Nothing partial is stored.",
+                f"could not read this plan set: {_scrub(exc)}. Nothing partial is stored.",
             ) from exc
         from ecarbon.carbon.region import detect
 
@@ -1764,10 +1984,26 @@ async def upload_project(
         except HTTPException as exc:
             job["error"] = exc.detail
         except Exception as exc:  # anything else still ends the job, with its reason
-            job["error"] = f"could not read this plan set: {exc}. Nothing partial is stored."
+            job["error"] = f"could not read this plan set: {_scrub(exc)}. Nothing partial is stored."
 
     threading.Thread(target=work, daemon=True).start()
     return {"job": job_id}
+
+
+LOCKED_PDF = (
+    "This PDF is password-protected. Save a copy without the password "
+    "(Print, then Save as PDF, works) and upload that. Nothing partial is stored."
+)
+DAMAGED_PDF = (
+    "This file is damaged or incomplete, or is not a PDF. Download it again and re-upload. "
+    "Nothing partial is stored."
+)
+_PATH_RE = re.compile(r"""['"]?(?<![\w/.])/(?:[^\s'"/]+/)+[^\s'"]*['"]?""")
+
+
+def _scrub(exc: Exception) -> str:
+    """An error's text without any server file path in it."""
+    return _PATH_RE.sub("the uploaded file", str(exc))
 
 
 # Upload jobs in progress or recently finished. In memory like everything else

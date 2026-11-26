@@ -1085,12 +1085,12 @@ def _assembly_lines(
                 f"'{partner.material}', so it takes {share:.0%} of it rather than the "
                 f"full depth; counting both at full depth would put "
                 f"{2 * layer.thickness_mm:.0f} mm of material in a "
-                f"{layer.thickness_mm:.0f} mm space."
+                f"{layer.thickness_mm:.0f} mm space. Framing: {framing.framing_basis}."
             )
         elif layer.is_framing:
             notes.append(
-                f"Studs at centres take {fraction:.0%} of the "
-                f"{layer.thickness_mm:.0f} mm depth; the rest of the cavity is empty."
+                f"Studs take {fraction:.0%} of the {layer.thickness_mm:.0f} mm depth; the rest "
+                f"of the cavity is empty. Framing: {layer.framing_basis}."
             )
 
         out.append(
