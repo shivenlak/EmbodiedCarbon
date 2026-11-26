@@ -137,11 +137,15 @@ class TestRegionEndpoint:
         them = {"x-ecarbon-session": _sign("region-them")}
         r = c.get(f"/projects/{self.PID}/region", headers=me).json()
         assert r["geography"] is None and r["source"] == "default"
-        assert any(o["geography"] == "US" for o in r["options"])
+        # Canada only (UX session, 25 Nov): the picker lists the provinces.
+        assert any(o["geography"] == "CA-BC" for o in r["options"])
+        assert not any((o["geography"] or "").startswith("US") for o in r["options"])
+        assert r["note"] is None
         base = c.get(f"/projects/{self.PID}/carbon", headers=them).json()["total_kg_co2e"]
 
         r = c.post(f"/projects/{self.PID}/region", json={"geography": "US"}, headers=me).json()
         assert r["geography"] == "US" and r["source"] == "chosen"
+        assert "outside Canada" in r["note"]
         assert c.get(f"/projects/{self.PID}/carbon", headers=me).json()["total_kg_co2e"] > base
         assert c.get(f"/projects/{self.PID}/carbon", headers=them).json()["total_kg_co2e"] == base
 

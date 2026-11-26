@@ -26,7 +26,7 @@ Tick each box in the PR that lands it.
 
 See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the schedule.
 
-- [x] **B9. Calculation trace (C8). The top priority; Wed night → Thu am.** Landed 25 Nov: `carbon/calc_trace.py`, `GET /calc`, CSV columns and header, popover on every line's kgCO₂e. Report audit table still to do.
+- [x] **B9. Calculation trace (C8). The top priority; Wed night → Thu am.** Landed 25 Nov: `carbon/calc_trace.py`, `GET /calc`, CSV columns and header, popover on every line's kgCO₂e. Report audit table landed too.
   - **`carbon/calc_trace.py`.** Steps per line:
     1. the quantity read (basis, sheet)
     2. the effective quantity (override and note)
@@ -45,7 +45,7 @@ See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the sc
   - Replace about 12 ambiguous "kg" and about 15 unit-less numbers.
   - The same wording in the CSV and report.
   - The footer names the factor set actually used.
-- [x] **B11. Edit everything (C9). Thu.** Landed 25 Nov: material (any factor), thickness and quantity per line; line editor drawer with live calculation. Decisions not yet saved server-side.
+- [x] **B11. Edit everything (C9). Thu.** Landed 25 Nov: material (any factor), thickness and quantity per line; line editor drawer with live calculation. "Your spec" (swaps and choices) is saved server-side (`/scenario`) and exported to the CSV and report.
   - Material, factor, thickness and quantity edits per line, replayed after rebuilds.
   - Swaps and decisions are saved server-side (`POST /swaps`, `POST /decisions`) and exported.
   - A line editor drawer, with the calculation re-rendered live; undo and "reset all".
@@ -53,10 +53,10 @@ See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the sc
   - An "Add a material" form: name, declared unit, GWP, density, source / EPD, valid-to.
   - A library CSV/XLSX upload, both in the upload dialog and in "Your spec", with a template download.
   - Suggestions are ranked from the library first.
-- [ ] **B13. Clickable plan set (needs C7). Thu pm.**
+- [x] **B13. Clickable plan set. Thu pm.** Landed 25 Nov without waiting for C7: `/partitions` derives per-wall ids and lengths in the API from the measured runs (each kept rect is one wall, its length apportioned so a sheet's walls sum to the run). Click a wall on the plan to leave it out or put it back; measured partition lines scale and say so.
   - The partition walls are clickable on the sheet; a click toggles the wall, which posts `excluded_walls`, which recomputes the line.
   - A counter of walls and metres counted.
-- [ ] **B14. Canadian factor sources. Thu eve.**
+- [ ] **B14. Canadian factor sources. Thu eve.** Partly landed 25 Nov: region picker is Canadian provinces only, with an outside-Canada note. Factor URLs still to do (only from verified sources).
   - URL and EPD number per Canadian factor (values unchanged).
   - Waste shown as an explicit step (1.00 default).
   - Region picker limited to Canadian provinces.

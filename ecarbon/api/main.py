@@ -76,6 +76,12 @@ class Project:
     material_edits: dict = field(default_factory=dict)
     user_factors: dict = field(default_factory=dict)
     library_files: list = field(default_factory=list)
+    # "Your spec": swaps tried (line id -> material) and choices made for the
+    # placeholders (decision key -> factor id). A what-if beside the counted
+    # total, kept here so it survives a reload and goes into the exports.
+    scenario: dict = field(default_factory=lambda: {"swaps": {}, "picks": {}})
+    # Partition walls the user excluded on the plan (wall ids, see /partitions).
+    excluded_walls: set = field(default_factory=set)
     carbon: CarbonResult = field(init=False)
 
     def __post_init__(self) -> None:
@@ -289,6 +295,8 @@ def _own(project_id: str) -> Project:
             material_edits=dict(p.material_edits),
             user_factors=dict(p.user_factors),
             library_files=list(p.library_files),
+            scenario={"swaps": dict(p.scenario["swaps"]), "picks": dict(p.scenario["picks"])},
+            excluded_walls=set(p.excluded_walls),
         )
         _FORKS[key] = fork
     return fork
@@ -720,6 +728,173 @@ def add_material(project_id: str, body: NewMaterial) -> dict:
     return {"factor_id": f.factor_id, "name": f.name}
 
 
+class Scenario(BaseModel):
+    swaps: dict[str, str] = Field(default_factory=dict, description="line id -> material swapped to")
+    picks: dict[str, str] = Field(default_factory=dict, description="'<tag>-<category>' -> factor id")
+
+
+def _spec(project_id: str) -> dict:
+    """The user's specification, priced: every swap and choice with its delta."""
+    p = _get(project_id)
+    sc = p.scenario
+    rows = []
+    for sw in get_substitutions(project_id):
+        if sc["swaps"].get(sw.line_id) == sw.to_material:
+            rows.append({
+                "kind": "swap", "ref": sw.line_id, "from": sw.from_material,
+                "to": sw.to_material, "delta_kg_co2e": sw.delta_kg_co2e,
+            })
+    for c in get_unspecified(project_id):
+        fid = sc["picks"].get(f"{c.assembly_tag}-{c.category}")
+        o = next((o for o in c.options if o.factor_id == fid), None)
+        if o:
+            rows.append({
+                "kind": "choice", "ref": f"{c.assembly_tag} {c.category}",
+                "from": f"placeholder ({c.drawing_says})", "to": o.name,
+                "delta_kg_co2e": o.kg_co2e,
+            })
+    base = p.carbon.total_kg_co2e
+    return {
+        "swaps": sc["swaps"], "picks": sc["picks"], "rows": rows,
+        "counted_kg_co2e": base,
+        "spec_kg_co2e": round(base + sum(r["delta_kg_co2e"] for r in rows), 2),
+    }
+
+
+@app.get("/projects/{project_id}/scenario")
+def get_scenario(project_id: str) -> dict:
+    return _spec(project_id)
+
+
+@app.post("/projects/{project_id}/scenario")
+def set_scenario(project_id: str, body: Scenario) -> dict:
+    p = _own(project_id)
+    p.scenario = {"swaps": dict(body.swaps), "picks": dict(body.picks)}
+    return _spec(project_id)
+
+
+# -- partitions on the plan, one wall at a time (UX session, 25 Nov) ---------
+
+_WALLS: dict[str, dict] = {}
+_WALL_NOTE = "stated: partition walls excluded on the plan"
+
+
+def _walls(project_id: str) -> dict:
+    """Every measured partition wall with an id, its rectangle and its length.
+
+    Each rectangle the measurement kept is one wall. Its length is its share
+    of the run measured on that sheet, by the rectangle's long side, so the
+    walls of a sheet sum exactly to the length the bill used.
+    """
+    if project_id in _WALLS:
+        return _WALLS[project_id]
+    import pymupdf
+
+    from ecarbon.geometry.partitions import partitions_for
+
+    p = _get(project_id)
+    design = getattr(p, "design", None) or _catalogue().get(project_id)
+    out = {"pages": [], "total_m": 0.0}
+    if design is None:
+        return out
+    try:
+        measured = partitions_for(design)
+    except Exception:
+        measured = None
+    if measured is None or not measured.runs:
+        _WALLS[project_id] = out
+        return out
+    doc = pymupdf.open(design.drawings_pdf)
+    try:
+        for run in measured.runs:
+            longs = [max(r[2] - r[0], r[3] - r[1]) for r in run.rects]
+            tot = sum(longs) or 1.0
+            order = sorted(range(len(run.rects)), key=lambda i: (round(run.rects[i][1]), run.rects[i][0]))
+            page = doc[run.page]
+            out["pages"].append({
+                "page": run.page, "sheet_no": run.sheet,
+                "page_width": page.rect.width, "page_height": page.rect.height,
+                "length_m": run.length_m,
+                "walls": [
+                    {"id": f"p{run.page}-w{n}", "rect": list(run.rects[i]),
+                     "length_m": round(run.length_m * longs[i] / tot, 3)}
+                    for n, i in enumerate(order)
+                ],
+            })
+    finally:
+        doc.close()
+    out["total_m"] = round(sum(pg["length_m"] for pg in out["pages"]), 2)
+    _WALLS[project_id] = out
+    return out
+
+
+def _partition_lines(p) -> list:
+    """The partition lines a wall exclusion scales: the measured ones only. A
+    partition area assumed from the floor area has no walls to exclude."""
+    return [
+        ln for ln in p.takeoff.lines
+        if ln.id.startswith("ln-interior-partition") and ln.confidence.value != "assumed"
+    ]
+
+
+@app.get("/projects/{project_id}/partitions")
+def get_partitions(project_id: str) -> dict:
+    p = _get(project_id)
+    w = _walls(project_id)
+    excluded = p.excluded_walls
+    lengths = {wall["id"]: wall["length_m"] for pg in w["pages"] for wall in pg["walls"]}
+    counted = sum(v for k, v in lengths.items() if k not in excluded)
+    return {
+        "pages": [
+            {**pg, "walls": [{**wall, "excluded": wall["id"] in excluded} for wall in pg["walls"]]}
+            for pg in w["pages"]
+        ],
+        "n_walls": len(lengths),
+        "n_counted": sum(1 for k in lengths if k not in excluded),
+        "total_m": w["total_m"],
+        "counted_m": round(counted, 2),
+        "editable": bool(lengths) and bool(_partition_lines(p)),
+    }
+
+
+class WallChoice(BaseModel):
+    excluded: list[str] = Field(default_factory=list, description="wall ids to leave out")
+
+
+@app.post("/projects/{project_id}/partitions", response_model=CarbonResult)
+def set_partitions(project_id: str, body: WallChoice) -> CarbonResult:
+    """Leave walls out (or put them back): every measured partition line is
+    scaled by the share of the measured length still counted, and says so."""
+    p = _own(project_id)
+    w = _walls(project_id)
+    lengths = {wall["id"]: wall["length_m"] for pg in w["pages"] for wall in pg["walls"]}
+    unknown = [x for x in body.excluded if x not in lengths]
+    if unknown:
+        raise HTTPException(404, f"no partition wall {unknown[0]!r}")
+    lines = _partition_lines(p)
+    if not lines:
+        raise HTTPException(409, "the partitions here are estimated from the floor area, not measured wall by wall")
+    p.excluded_walls = set(body.excluded)
+    total = sum(lengths.values()) or 1.0
+    kept = total - sum(lengths[x] for x in p.excluded_walls)
+    share = kept / total
+    for ln in lines:
+        mine = (ln.override_note or "").startswith(_WALL_NOTE)
+        if not p.excluded_walls:
+            if mine:
+                ln.user_override, ln.override_note = None, None
+            continue
+        if ln.user_override is not None and not mine:
+            continue  # a quantity the user typed wins over the wall count
+        ln.user_override = round(ln.quantity * share, 4)
+        ln.override_note = (
+            f"{_WALL_NOTE}: {len(p.excluded_walls)} of {len(lengths)} walls left out, "
+            f"{kept:.1f} of {total:.1f} m counted, so {ln.quantity:g} x {share:.3f}"
+        )
+    p.recompute()
+    return p.carbon
+
+
 @app.get("/materials/template.csv", response_class=PlainTextResponse)
 def material_template() -> PlainTextResponse:
     from ecarbon.carbon.user_factors import template_csv
@@ -852,7 +1027,7 @@ def export_csv(project_id: str) -> PlainTextResponse:
 
     p = _get(project_id)
     return PlainTextResponse(
-        takeoff_csv(p.takeoff, p.carbon, p.geography, header=True, chosen=p.material_edits),
+        takeoff_csv(p.takeoff, p.carbon, p.geography, header=True, chosen=p.material_edits, spec=_spec(project_id)),
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{project_id}-takeoff.csv"'
@@ -866,7 +1041,12 @@ def export_report(project_id: str) -> HTMLResponse:
     from ecarbon.report import report_html
 
     p = _get(project_id)
-    return HTMLResponse(report_html(p.takeoff, p.carbon, get_unspecified(project_id)))
+    from ecarbon.carbon.calc_trace import explain_all
+
+    return HTMLResponse(report_html(
+        p.takeoff, p.carbon, get_unspecified(project_id),
+        traces=explain_all(p.takeoff, p.carbon, p.material_edits), spec=_spec(project_id),
+    ))
 
 
 # -- click-to-trace --------------------------------------------------------
@@ -1208,6 +1388,9 @@ class RegionOut(BaseModel):
     label: str
     source: str = Field(description="chosen | title block | jurisdiction | default")
     options: list[RegionOption]
+    # Set when the project is outside Canada: the factors are validated for
+    # Canada only (UX session, 25 Nov), so a figure elsewhere says so.
+    note: str | None = None
 
 
 class SetRegion(BaseModel):
@@ -1217,15 +1400,24 @@ class SetRegion(BaseModel):
 def _region_out(p: Project) -> RegionOut:
     from collections import Counter
 
-    from ecarbon.carbon.region import COUNTRIES, label_of
+    from ecarbon.carbon.region import _CA_PROVINCES, label_of
 
-    per_country = Counter(f.geography.split("-")[0].upper() for f in _FACTORS.list_factors())
-    options = [RegionOption(geography=None, label=label_of(None), n_factors=per_country.get("CA", 0))]
-    for code, n in sorted(per_country.items()):
-        if code != "CA" and code in COUNTRIES:
-            options.append(RegionOption(geography=code, label=label_of(code), n_factors=n))
+    # Canada only, by province: a province's own factors where the store has
+    # them (concrete in AB, plywood and OSB in BC), Canada's otherwise.
+    geos = Counter((f.geography or "").upper() for f in _FACTORS.list_factors())
+    national = geos.get("CA", 0)
+    options = [RegionOption(geography=None, label=label_of(None), n_factors=national)]
+    for code in sorted(_CA_PROVINCES, key=lambda c: _CA_PROVINCES[c]):
+        geo = f"CA-{code}"
+        options.append(RegionOption(geography=geo, label=label_of(geo), n_factors=national + geos.get(geo, 0)))
+    outside = bool(p.geography) and not p.geography.upper().startswith("CA")
     return RegionOut(
-        geography=p.geography, label=label_of(p.geography), source=p.region_source, options=options
+        geography=p.geography, label=label_of(p.geography), source=p.region_source, options=options,
+        note=(
+            f"{label_of(p.geography)} is outside Canada. The factors and method are validated "
+            f"for Canada only; treat this figure as indicative."
+            if outside else None
+        ),
     )
 
 
