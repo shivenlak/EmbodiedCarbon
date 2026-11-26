@@ -63,7 +63,9 @@ _NOT_A_FLOOR_RE = re.compile(r"(?i)\b(GRADE|FOOTING|U/S|UNDERSIDE|DATUM|CEILING)
 # structural one; it counts as a floor only as the 0 datum itself.
 _TOS_RE = re.compile(r"(?i)\bT\.\s*O\.\s*S\b")
 # Labels that are the top of the structure rather than a floor.
-_ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE)\b")
+# RIDGE: ATL_Stacked_Townhouse_01 reads "TOP OF RIDGE FROM MAIN FLOOR" whole once
+# rotated text is read in order, and FLOOR made the ridge a fourth storey.
+_ROOF_RE = re.compile(r"(?i)\b(TOP\s+OF\s+ROOF|ROOF|TRUSS|PLATE|RIDGE)\b")
 # The top of the wall: a one-storey house's wall height, with no floor above.
 # The top of the wall: a plate datum, or the underside of the roof framing
 # that bears on it (NOR's single-storey sections: "U/S ROOF FRAMING EL 2.505").
@@ -482,7 +484,10 @@ def _from_elevations(doc_path, sheets, result: StoreyHeights) -> None:
     finally:
         doc.close()
     trial = StoreyHeights(levels=outvote_strays(found), floor_assembly_mm=result.floor_assembly_mm)
-    if trial.storey_heights_m():
+    # With no section level at all, a floor and a roof off the elevations still
+    # let the single-storey fallback stand an assumed plate under the stated
+    # ridge (SKMB_ADU_01: T/O CONCRETE and MIDPOINT OF ROOF SLOPE only).
+    if trial.storey_heights_m() or (not result.levels and trial.floors and any(lv.is_roof for lv in trial.levels)):
         result.levels = trial.levels
         result.sources.extend(sources)
         result.notes.append("level datums read off the elevations; the set has no section that states them")

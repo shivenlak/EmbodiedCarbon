@@ -167,6 +167,11 @@ class TakeoffInputs:
     def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
         """The assembly of one group that this design actually uses."""
         tag = dominant_tag(self.tag_refs, letter, set(self.assemblies), exclude)
+        # The group's most-referenced tag was refused: a minor assembly must not
+        # stand in for it (ATL_Fourplex_01 would price its R2a roof as the R4 deck).
+        top = dominant_tag(self.tag_refs, letter, set(self.tag_refs), exclude)
+        if tag and self.tag_refs[top] > self.tag_refs[tag] and top not in self.assemblies:
+            return None
         return self.assemblies.get(tag) if tag else None
 
     @property
@@ -375,6 +380,21 @@ def gather(
         for tag, asm in inputs.assemblies.items():
             if asm.from_legend:  # no tag on the plans to count; the legend is the reference
                 inputs.tag_refs.setdefault(tag, 1)
+        # BC plans tag the family ("W1", 21 times) while the schedule defines
+        # only its variants (W1.1-W1.3, one per energy step). The family's
+        # references go to its first variant, and the choice is said.
+        for refs in (inputs.tag_refs, inputs.plan_tag_refs):
+            for fam in list(refs):
+                variants = sorted(t for t in inputs.assemblies if t.startswith(fam + "."))
+                if fam in inputs.assemblies or not variants:
+                    continue
+                refs[variants[0]] = refs.get(variants[0], 0) + refs.pop(fam)
+                if refs is inputs.tag_refs:
+                    rejected.append(
+                        f"The plans tag {fam} but the schedule defines only its variants "
+                        f"({', '.join(variants)}); {variants[0]}, the first, is used for it. "
+                        f"Choose another if the project builds a different variant."
+                    )
         for message in rejected:
             gaps.append(
                 Gap(

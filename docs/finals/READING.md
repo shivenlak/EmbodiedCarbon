@@ -30,6 +30,13 @@ The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; tra
   - **NOR:** a vision pass with recorded fixtures, so CI never calls the API.
   - **Stairs and party walls:** add them as inferred where drawn, or list them explicitly as not counted.
   - **Target:** median A1–A3 / BPR A1–A5 at least **0.65**, and at least **20 of 44** sets within ±30%. The gate is unchanged.
+  - *26 Nov, first batch (r1 → r3, `out/accuracy_r*.json`): median 0.566 → 0.581, within ±30% 11 → 15 of 44. All tests pass; the gate moved 45167 → 46880 kg from the partition split by tag (proof in c9b8b8e).*
+    - SK/MB: structural slab/grade-beam schedules; SKMB_ADU_02 floors (0.195 → 0.631); a blank cavity fill takes its stud depth.
+    - ON: glyph-ID sheets decode with their own shift, so the insulation layers read (ON_Fourplex_01 0.319 → 0.464).
+    - BC: blocks split between tags; plan family tags (W1) map to the first scheduled variant and say so; joists price as framing (BC_Sixplex 0.367 → 0.533).
+    - ATL: rotated schedules read; a ridge datum is no longer a storey; a refused main roof is no longer priced as a minor deck.
+    - **Scope finding:** the IFC priced at our factors is a median 0.41 of BPR; our reading is 0.91 of the IFC. The rest of the gap to 0.65 is A4/A5, rebar and BPR's factors, which the drawings don't state.
+    - Still open: NOR vision fixtures; stairs and party walls; ON floor depth; BC W1.3/W1.4 and ATL R1a/R2a refused (merged blocks); ON N1 CMU wall priced as CIP.
 - [ ] **A9. Builder material list (C10). Thu.** *Update 25 Nov: B landed the CSV/XLSX parser (`carbon/user_factors.py`), so skip that part; only the optional EPD-PDF reading below remains, and only if A8 is done.*
   - `intake/materials.py` `read_material_list(path)` reads CSV/XLSX.
   - Headers are tolerant (case, spaces, units in brackets).

@@ -135,7 +135,12 @@ _STUD_SPACING_RE = re.compile(
 _CONCRETE_RE = re.compile(r"\bCONCRETE\b", re.I)
 STEEL_RE = re.compile(r"\b(METAL|STEEL)\b", re.I)
 
-_FRAMING_RE = re.compile(r"\b(STUD|JOIST|TRUSS|RAFTER)\s+FRAMING\b|\bFRAMING\b", re.I)
+# JOISTS/TRUSSES/RAFTERS alone: BC's "PRE-ENG WOOD JOISTS OR TRUSSES" 302 mm was
+# priced as solid timber (42 m3 on BC_Sixplex). Catalogue-wide only BC's R/S
+# layers match this and not the line above.
+_FRAMING_RE = re.compile(
+    r"\b(STUD|JOIST|TRUSS|RAFTER)\s+FRAMING\b|\bFRAMING\b|\b(JOISTS|TRUSSES|RAFTERS)\b", re.I
+)
 # A layer the schedule states is intermittent rather than continuous:
 # "WOOD STRAPPING @ 400mm O/C  (38mm WIDE MINIMUM)". Its thickness is the
 # depth of the gap it creates, not a solid sheet of material.
@@ -557,6 +562,7 @@ def defer_match(text: str) -> str | None:
 # Glyph-ID shifts to try on a dimension cell the global repair declines.
 # 0x1D explains every affected sheet in the catalogue; the rest are a sweep.
 _CELL_SHIFTS = (0x1D, 0x1F, 0x1E, 0x20)
+_WORD3_RE = re.compile(r"[A-Z]{3,}")
 
 
 def repair_schedule_cell(text: str) -> str:
@@ -589,6 +595,18 @@ def repair_schedule_cell(text: str) -> str:
             chr(o + by) if 0 < (o := ord(c)) < 0x80 else c for c in text
         )
         if parse_thickness(cand)[0] is not None or _TAG_RE.match(cand):
+            return cand
+        # A material cell under the sheet's own shift reads as words, and
+        # carries no thickness. Without this the loop moved on to +2, where
+        # `RIGID INSULATION 1 (R-12.0` became `TKIKF"KPUWNCVKQP"3"*T/3402` and
+        # its `3"` passed as a thickness: six sets' insulation priced nothing.
+        words = _WORD3_RE.findall(cand)
+        if (
+            by == _CELL_SHIFTS[0]
+            and len(words) >= 2
+            and all(set(w) & set("AEIOUY") for w in words)
+            and not any(ord(c) < 0x20 for c in cand)
+        ):
             return cand
     return text
 
@@ -699,6 +717,21 @@ def _mark_shared_cavities(layers: list[Layer]) -> None:
     separate thicknesses of wall.
     """
     for a, b in zip(layers, layers[1:], strict=False):
+        # SK/MB print the stud depth once and leave the fill's cell blank
+        # (`5 1/2"/140mm WOOD STUD FRAMING` then `STUD CAVITY INFILL
+        # INSULATION`). The fill is that cavity, so it takes the stated depth,
+        # and says so. A stated VAR is a different claim and stays unread.
+        for frame, fill in ((a, b), (b, a)):
+            if (
+                frame.is_framing
+                and fill.is_cavity_fill
+                and frame.thickness_mm
+                and fill.thickness_mm is None
+                and fill.note is None
+                and not fill.stated_no_thickness
+            ):
+                fill.thickness_mm = frame.thickness_mm
+                fill.note = f"depth of the {frame.thickness_mm:.0f} mm stud cavity it fills (no depth stated)"
         if a.thickness_mm is None or b.thickness_mm is None:
             continue
         if abs(a.thickness_mm - b.thickness_mm) > 1.0:
@@ -869,6 +902,20 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             # error than a fabricated one.
             tag_ys = sorted(ty for ty, _, _ in tags)
             bounds = [(a + b) / 2 for a, b in zip(tag_ys, tag_ys[1:], strict=False)]
+            # Where the tag's row holds a layer (it has a thickness), BC set
+            # the tag level with the first layer and the name is the text row
+            # just above it, so the block starts there. A midpoint instead cut
+            # BC_Sixplex's W1.1 after its fill and began "W1.2" on VAPOUR
+            # CONTROL BARRIER. Only that case moves: a tag row without a
+            # thickness keeps the midpoint, because starting there named
+            # BC's F2 "FLOOR FINISH w/ UNDERLAY".
+            text_ys = sorted({y for y, _, _ in text_cells})
+            for i, ty in enumerate(tag_ys[1:]):
+                on_row = [y for y in text_ys if abs(y - ty) <= ROW_DY]
+                if on_row and any(abs(y - ty) <= ROW_DY for y in thicknesses):
+                    above = [y for y in text_ys if y < min(on_row) - ROW_DY / 2]
+                    if above and above[-1] > tag_ys[i]:
+                        bounds[i] = above[-1] - 0.1
             for y, _x, text in text_cells:
                 blocks.setdefault(sum(1 for b in bounds if y > b), []).append((y, text))
 
