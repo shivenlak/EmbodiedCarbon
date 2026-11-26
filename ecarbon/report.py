@@ -89,6 +89,7 @@ def takeoff_csv(
     geography: str | None = None,
     header: bool = False,
     chosen: dict | None = None,
+    spec: dict | None = None,
 ) -> str:
     """The bill of quantities as CSV, with provenance and the calculation per line.
 
@@ -166,6 +167,15 @@ def takeoff_csv(
                 (c.missing_reason if c and c.missing_reason else ""),
             ]
         )
+    if spec and spec.get("rows"):
+        # The user's what-if, beside the counted total and never inside it.
+        writer.writerow([])
+        writer.writerow(["# your specification: swaps and choices, not in the counted total above"])
+        writer.writerow(["kind", "line_or_assembly", "from", "to", "delta_kgCO2e"])
+        for r in spec["rows"]:
+            writer.writerow([r["kind"], r["ref"], r["from"], r["to"], f"{r['delta_kg_co2e']:.2f}"])
+        writer.writerow(["# counted total kgCO2e", f"{spec['counted_kg_co2e']:.2f}"])
+        writer.writerow(["# your specification total kgCO2e", f"{spec['spec_kg_co2e']:.2f}"])
     return buf.getvalue()
 
 
@@ -255,7 +265,29 @@ def _rows(takeoff: TakeoffResult, carbon: CarbonResult) -> str:
     return "".join(out)
 
 
-def report_html(takeoff: TakeoffResult, carbon: CarbonResult, decisions=()) -> str:
+def _audit_rows(takeoff: TakeoffResult, traces: dict) -> str:
+    """Every counted line's calculation, one row each: what an auditor checks."""
+    out = []
+    for line in takeoff.lines:
+        tr = traces.get(line.id)
+        if tr is None or not tr.counted:
+            continue
+        factor = next((s for s in tr.steps if s.label.startswith("Carbon factor")), None)
+        out.append(
+            "<tr>"
+            f"<td>{_prose(line.description)}<div class='muted'>{_esc(line.provenance.sheet_no or '')}"
+            f"{' &middot; you chose the material' if tr.material_chosen else ''}</div></td>"
+            f"<td class='mono'>{_prose(tr.formula)}</td>"
+            f"<td class='muted'>{_esc(factor.source if factor else '')}</td>"
+            "</tr>"
+        )
+    return "".join(out)
+
+
+def report_html(
+    takeoff: TakeoffResult, carbon: CarbonResult, decisions=(), traces: dict | None = None,
+    spec: dict | None = None,
+) -> str:
     """A printable report. Scope and limits come before the total.
 
     `decisions` are the open choices (cladding, roofing) the drawings leave as
@@ -372,6 +404,29 @@ choice closes it.</p>
         for src, attr in factors
     )
 
+    audit_html = (
+        "<h2>Audit trail: how each figure was calculated</h2>"
+        "<p class='muted'>Quantity &times; conversion (density or thickness) &times; waste "
+        "(none applied) &times; factor = kg CO&#8322;e. Carbon is kg CO&#8322;e throughout; "
+        "plain mass is written kg (mass).</p>"
+        "<table><thead><tr><th>Line</th><th>Calculation</th><th>Factor source</th></tr></thead>"
+        f"<tbody>{_audit_rows(takeoff, traces)}</tbody></table>"
+        if traces else ""
+    )
+    spec_html = (
+        "<h2>Your specification</h2>"
+        "<p class='muted'>Swaps and choices made in the app, beside the counted total and "
+        "not inside it.</p><table><thead><tr><th>Change</th><th>From</th><th>To</th>"
+        "<th class='num'>&Delta; kg CO&#8322;e</th></tr></thead><tbody>"
+        + "".join(
+            f"<tr><td>{_esc(r['kind'])}: {_esc(r['ref'])}</td><td>{_esc(r['from'])}</td>"
+            f"<td>{_esc(r['to'])}</td><td class='num'>{r['delta_kg_co2e']:+,.0f}</td></tr>"
+            for r in spec["rows"]
+        )
+        + f"</tbody></table><p>Counted {spec['counted_kg_co2e']:,.0f} kg CO&#8322;e; with your "
+        f"specification {spec['spec_kg_co2e']:,.0f} kg CO&#8322;e.</p>"
+        if spec and spec.get("rows") else ""
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -393,6 +448,7 @@ choice closes it.</p>
   .num {{ font-family:"IBM Plex Mono",ui-monospace,monospace; text-align:right;
           white-space:nowrap; }}
   .muted {{ color:var(--graphite); }}
+  .mono {{ font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }}
   header {{ border-bottom:2px solid var(--ink); padding-bottom:14px; }}
   .facts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
             gap:10px 18px; margin-top:14px; }}
@@ -491,6 +547,7 @@ one without restating both to the same modules.</p>
 
 <h2>Factor sources</h2>
 <ul>{factor_html or '<li>No factors were applied.</li>'}</ul>
+{audit_html}{spec_html}
 
 <footer>
   Quantities are measured from the vector drawings and labelled

@@ -101,3 +101,49 @@ def test_a_thickness_edit_scales_the_layer_volume():
     assert _drawn_thickness_mm(layer) == 140
     area = SimpleNamespace(unit=SimpleNamespace(value="m2"), description="Exterior wall, 140 mm studs")
     assert _drawn_thickness_mm(area) is None  # only a layer volume scales with thickness
+
+
+def test_your_spec_is_kept_and_exported(client):
+    swaps = client.get("/projects/demo/substitutions").json()
+    if not swaps:
+        pytest.skip("the fixture offers no swap")
+    sw = swaps[0]
+    spec = client.post("/projects/demo/scenario", json={"swaps": {sw["line_id"]: sw["to_material"]}, "picks": {}}).json()
+    assert spec["rows"][0]["delta_kg_co2e"] == pytest.approx(sw["delta_kg_co2e"])
+    assert spec["spec_kg_co2e"] == pytest.approx(spec["counted_kg_co2e"] + sw["delta_kg_co2e"], abs=0.01)
+    assert client.get("/projects/demo/scenario").json()["swaps"] == {sw["line_id"]: sw["to_material"]}
+    text = client.get("/projects/demo/export.csv").text
+    assert "# your specification total kgCO2e" in text
+    page = client.get("/projects/demo/report.html").text
+    assert "Your specification" in page and "Audit trail" in page
+
+
+try:
+    from ecarbon.config import discover
+
+    _HAVE_DATA = len(discover()) >= 52
+except Exception:
+    _HAVE_DATA = False
+
+
+@pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+def test_leaving_partition_walls_out_on_the_plan_reprices_and_says_so():
+    from ecarbon.api.main import _sign
+
+    c = TestClient(app)
+    me = {"x-ecarbon-session": _sign("walls-me")}
+    pid = "AB_Fourplex_01_Technical_Design_Package"
+    w = c.get(f"/projects/{pid}/partitions", headers=me).json()
+    assert w["editable"] and w["n_walls"] > 10
+    for pg in w["pages"]:  # each sheet's walls sum to the length the bill used
+        assert sum(x["length_m"] for x in pg["walls"]) == pytest.approx(pg["length_m"], abs=0.05)
+    base = c.get(f"/projects/{pid}/carbon", headers=me).json()["total_kg_co2e"]
+    out = [w["pages"][0]["walls"][0]["id"]]
+    after = c.post(f"/projects/{pid}/partitions", json={"excluded": out}, headers=me).json()
+    assert after["total_kg_co2e"] < base
+    line = next(x for x in c.get(f"/projects/{pid}/takeoff", headers=me).json()["lines"]
+                if x["id"].startswith("ln-interior-partition") and x["user_override"] is not None)
+    assert "1 of" in line["override_note"] and "walls left out" in line["override_note"]
+    back = c.post(f"/projects/{pid}/partitions", json={"excluded": []}, headers=me).json()
+    assert back["total_kg_co2e"] == pytest.approx(base)
+    assert c.post(f"/projects/{pid}/partitions", json={"excluded": ["p0-w999"]}, headers=me).status_code == 404

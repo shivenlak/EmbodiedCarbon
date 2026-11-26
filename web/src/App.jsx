@@ -15,6 +15,7 @@ import {
   Suspense,
   lazy,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -22,6 +23,7 @@ import {
 } from "react";
 import { canHelp, modeFor } from "./HelpRead.jsx";
 import { CalcContext, CalcButton, Carbon, CO2e } from "./calc.jsx";
+import LineEditor from "./LineEditor.jsx";
 import { UnitsContext, defaultSystem, saveSystem, savedSystem, useUnits } from "./units.js";
 
 // Same origin in a build, because the service serves this bundle itself.
@@ -605,6 +607,19 @@ function NoticeBody({ text }) {
 // assumed, with and without a factor -- and the rest is one press away.
 const BILL_PREVIEW = 8;
 
+// "Edit" on a bill row: the same editor as the parts list.
+function EditLine({ line, result }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="link-btn bill-edit" onClick={() => setOpen(true)} title="Change the material, thickness or quantity">
+        Edit
+      </button>
+      {open && <LineEditor line={line} carbonLine={result} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
 function BillOfQuantities({
   takeoff,
   carbon,
@@ -797,6 +812,7 @@ function BillOfQuantities({
                     onTrace={onTrace}
                     lineId={line.id}
                   />
+                  <EditLine line={line} result={result} />
                 </td>
 
                 <td className="r">
@@ -1165,7 +1181,39 @@ function SheetView({ view, page, children, ...rest }) {
   );
 }
 
+// Partition walls on the plan, each one clickable to leave out or put back
+// (UX session, 25 Nov: "if a partition was left out, click it to include it").
+function useWalls(trace) {
+  const { api, afterEdit } = useContext(CalcContext);
+  const [walls, setWalls] = useState(null);
+  const lineId = trace?.lineId;
+  const projectId = trace?.projectId;
+  const isPartition = !!lineId && lineId.startsWith(PARTITION_PREFIX);
+  useEffect(() => {
+    setWalls(null);
+    if (!isPartition || !projectId) return undefined;
+    let live = true;
+    api.get(`/projects/${projectId}/partitions`).then((w) => live && setWalls(w)).catch(() => null);
+    return () => {
+      live = false;
+    };
+  }, [isPartition, projectId, lineId, api]);
+  const setExcluded = async (ids) => {
+    const next = await api.post(`/projects/${projectId}/partitions`, { excluded: ids });
+    setWalls(await api.get(`/projects/${projectId}/partitions`));
+    await afterEdit(next);
+  };
+  const toggle = (id) => {
+    const out = new Set(walls.pages.flatMap((pg) => pg.walls.filter((w) => w.excluded).map((w) => w.id)));
+    if (out.has(id)) out.delete(id);
+    else out.add(id);
+    return setExcluded([...out]);
+  };
+  return walls?.editable ? { walls, toggle, reset: () => setExcluded([]) } : null;
+}
+
 function TracePanel({ trace, onClose }) {
+  const wallEdit = useWalls(trace);
   const [page, setPage] = useState(0);
   const [whole, setWhole] = useState(false);
   const [spot, setSpot] = useState(0);
@@ -1296,6 +1344,20 @@ function TracePanel({ trace, onClose }) {
               )}
             </div>
             <p className="trace-note">{region.note || kind.blurb}</p>
+            {wallEdit && (
+              <div className="wall-bar">
+                <span>
+                  <b>{wallEdit.walls.n_counted}</b> of {wallEdit.walls.n_walls} walls counted ·{" "}
+                  {dec(wallEdit.walls.counted_m, 1)} of {dec(wallEdit.walls.total_m, 1)} m
+                </span>
+                <span className="muted">Click a wall to leave it out, or to put it back.</span>
+                {wallEdit.walls.n_counted < wallEdit.walls.n_walls && (
+                  <button type="button" className="bill-edit" onClick={wallEdit.reset}>
+                    Put every wall back
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="trace-body">
               {view ? (
@@ -1322,7 +1384,28 @@ function TracePanel({ trace, onClose }) {
                     width={region.page_width}
                     height={region.page_height}
                   />
-                  {(region.rects || []).map((r, i) => {
+                  {wallEdit &&
+                    (wallEdit.walls.pages.find((pg) => pg.page === region.page)?.walls || []).map((w) => {
+                      const [x0, y0, x1, y1] = w.rect;
+                      const pad = Math.max(stroke * 2, 2);
+                      return (
+                        <g
+                          key={w.id}
+                          className={`wall-hit${w.excluded ? " is-out" : ""}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={!w.excluded}
+                          aria-label={`Partition wall, ${dec(w.length_m, 2)} m, ${w.excluded ? "left out" : "counted"}`}
+                          onClick={() => wallEdit.toggle(w.id)}
+                          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), wallEdit.toggle(w.id))}
+                        >
+                          <title>{`${dec(w.length_m, 2)} m · ${w.excluded ? "left out: click to count it" : "counted: click to leave it out"}`}</title>
+                          <rect x={x0 - pad} y={y0 - pad} width={x1 - x0 + 2 * pad} height={y1 - y0 + 2 * pad} />
+                          {w.excluded && <line x1={x0} y1={y0} x2={x1} y2={y1} strokeWidth={stroke} />}
+                        </g>
+                      );
+                    })}
+                  {!wallEdit && (region.rects || []).map((r, i) => {
                     const w = r[2] - r[0];
                     const h = r[3] - r[1];
                     const perimeter = 2 * (w + h);
@@ -2236,6 +2319,28 @@ export default function App() {
     },
     [projectId],
   );
+  // "Your spec" is kept on the server, so it survives a reload and goes into
+  // the CSV and the report. The screen updates at once; the save follows.
+  const keepScenario = useCallback(
+    (next) => {
+      setScenario((sc) => {
+        const value = typeof next === "function" ? next(sc) : next;
+        if (projectId) postJSON(`/projects/${projectId}/scenario`, value).catch(() => null);
+        return value;
+      });
+    },
+    [projectId],
+  );
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let live = true;
+    getJSON(`/projects/${projectId}/scenario`)
+      .then((sc) => live && sc && setScenario({ swaps: sc.swaps || {}, picks: sc.picks || {} }))
+      .catch(() => null);
+    return () => {
+      live = false;
+    };
+  }, [projectId]);
   const calcCtx = useMemo(
     () => ({
       calc,
@@ -2426,7 +2531,7 @@ export default function App() {
           swaps={swaps}
           decisions={decisions}
           scenario={scenario}
-          onScenario={setScenario}
+          onScenario={keepScenario}
           onTrace={showTrace}
           onOverride={override}
           coverage={coverage}

@@ -16,7 +16,7 @@ Tick each box in the PR that lands it.
 
 The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; traceable and editable. Your part is the reading that makes the Canadian numbers right, plus two small contracts B needs.
 
-- [ ] **A7. Per-wall partitions (C7). Wed night; it blocks B13, so do it first.**
+- [ ] **A7. Per-wall partitions (C7).** *Update 25 Nov: no longer blocking. B derives per-wall ids in the API from `PartitionRun.rects`; do this only if a per-wall length from the geometry itself would be more exact, and keep the `p{page}-w{n}` ids.*
   - In `geometry/partitions.py`, every `PartitionRun` gets `walls: list[Wall(id, rect, length_m, depth_mm)]`.
   - IDs are stable `p{page}-w{n}`, sorted by position.
   - Test: the walls' lengths sum to `length_m` on all Alberta sets.

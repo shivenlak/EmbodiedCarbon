@@ -838,18 +838,18 @@ export default function Showcase({
                 <span>change</span>
                 <select
                   aria-label="Whose carbon factors to use"
-                  value={region.geography?.split("-")[0] || ""}
+                  value={region.options.some((o) => o.geography === region.geography) ? region.geography || "" : ""}
                   onChange={(e) => onRegion(e.target.value || null)}
                 >
                   {region.options.map((o) => (
                     <option key={o.geography || "default"} value={o.geography || ""}>
                       {o.label}
-                      {o.geography ? ` (${o.n_factors} local factors)` : ""}
                     </option>
                   ))}
                 </select>
               </label>
             )}
+            {region.note && <span className="sc-region-note">{region.note}</span>}
           </div>
         )}
         {scenarioActive && (

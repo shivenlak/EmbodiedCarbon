@@ -1678,3 +1678,14 @@ table.boq tbody tr { transition: opacity 180ms var(--ease), background 130ms var
 .upload-library-pick { position: relative; flex: 1 1 260px; display: grid; gap: 2px; padding: 10px 14px; border: 1px dashed var(--rule-strong, rgb(255 255 255 / 0.2)); border-radius: 12px; cursor: pointer; }
 .upload-library-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .upload-library-pick b { font-weight: 500; font-size: 13.5px; }
+.bill-edit { margin-left: 8px; padding: 2px 4px; font: inherit; font-size: 12px; color: var(--primary, #9db9ff); background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.bill-edit:focus-visible { outline: 2px solid var(--primary, #9db9ff); outline-offset: 2px; }
+
+/* Partition walls on the plan: click to leave out, click to put back. */
+.wall-bar { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: var(--s2) var(--s5) 0; font-size: 13px; }
+.wall-hit { cursor: pointer; }
+.wall-hit rect { fill: rgb(79 214 162 / 0.16); stroke: #2fb985; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.wall-hit:hover rect, .wall-hit:focus-visible rect { fill: rgb(79 214 162 / 0.36); stroke-width: 2.4; }
+.wall-hit:focus { outline: none; }
+.wall-hit.is-out rect { fill: rgb(239 68 68 / 0.14); stroke: #ef4444; stroke-dasharray: 4 3; }
+.wall-hit.is-out line { stroke: #ef4444; vector-effect: non-scaling-stroke; stroke-width: 2; }
