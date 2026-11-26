@@ -398,6 +398,17 @@ def test_stairs_are_counted_off_the_plans_and_say_how():
 
 
 @needs_data
+def test_a_multi_storey_set_with_no_labelled_stair_says_so():
+    """QC labels no riser count or UP arrow, so no stair is counted, and the
+    takeoff says why instead of staying silent."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("QC_Fourplex_01"))
+    assert all(ln.id != "ln-stairs" for ln in t.lines)
+    assert any(g.message.startswith("Stairs: 2 storeys read") for g in t.gaps)
+
+
+@needs_data
 def test_a_stated_block_foundation_says_it_is_priced_as_cast_concrete():
     from ecarbon.takeoff.builder import build_takeoff
 

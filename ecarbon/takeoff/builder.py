@@ -1955,7 +1955,19 @@ def build_takeoff(
     gaps += fw_gaps
     _name_masonry_foundation(lines, inputs)
     _name_ladder_footing(lines, inputs)
-    lines += _stair_lines(design)
+    stairs = _stair_lines(design)
+    lines += stairs
+    n_storeys = len(inputs.heights.storey_heights_m())
+    if not stairs and n_storeys > 1:
+        # Two storeys need a stair; say why none is counted rather than staying silent.
+        gaps.append(Gap(
+            code=GapCode.SECTION_DETAIL_MISSING,
+            severity=GapSeverity.INFO,
+            message=(
+                f"Stairs: {n_storeys} storeys read, but no floor plan labels a stair flight "
+                f"(no riser label such as '14 RISERS @ 190mm' and no UP arrow), so no stair is counted."
+            ),
+        ))
     for gap in gaps:
         for marker, line_id in covered.items():
             if marker in gap.message and gap.message.startswith("Foundation:"):
