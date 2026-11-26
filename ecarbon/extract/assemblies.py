@@ -1053,11 +1053,14 @@ _CONT_START_RE = re.compile(r"^(W/|C/W|AT|AND|OR|WITH|TO|FOR|OF|IN|ON|BE)(?=\s|$
 
 def _continues(prev: Layer, text: str) -> bool:
     """Whether a row with no thickness cell is the layer above, wrapped."""
-    t = text.strip()
+    # Judged without a trailing cross-reference: QC's "DUCTS. REFER TO MECHANICAL."
+    # ends a wrapped bulkhead note, and as its own row pushed R1 past the layer cap.
+    t = _DEFER_RE.sub("", text).strip(" ,")
     return bool(
         _CONT_END_RE.search(prev.material.strip())
         or _CONT_START_RE.match(t)
         or re.fullmatch(r"[A-Z][A-Z-]+\.", t, re.I)
+        or (re.search(r"\bGYPSUM$", prev.material.strip(), re.I) and re.match(r"BOARD\b", t, re.I))
     )
 
 

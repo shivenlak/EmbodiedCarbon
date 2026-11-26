@@ -751,3 +751,17 @@ def test_a_name_column_53pt_from_its_header_is_still_the_name():
     assert a["W2"].name == "EXTERIOR ENVELOPE WALL NON COMBUSTIBLE"
     assert a["W1"].layers[0].thickness_mm == 19.0  # the cladding, no longer the name
     assert len(a["W5"].layers) == 9  # no longer carrying W4's last three rows
+
+
+@needs_data
+def test_a_wrapped_note_ending_in_a_cross_reference_is_one_row():
+    """QC R1's bulkhead note wraps over three rows, the last 'DUCTS. REFER TO
+    MECHANICAL.'; as three layers they took R1 to 16, past the merge guard, and
+    the stated roof was replaced by an assumed standard one."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, _ = assemblies_for(get_design("QC_ADU_01"))
+    r1 = a["R1"]
+    assert len(r1.layers) == 14
+    assert r1.layers[-1].material.startswith("WOOD FRAMED/LIGHT GAUGE STEEL WITH GYPSUM BOARD BULKHEAD")
+    assert any(layer.thickness_mm == 152.0 for layer in r1.layers)  # R-30 rigid, as stated
