@@ -1219,6 +1219,15 @@ def absent_elements(inputs: TakeoffInputs) -> dict[ElementClass, str]:
             f"{crawl.tag} ({crawl.name.title()}) is the ground floor, framed over the "
             f"crawl space, and no sheet read states a slab beneath it."
         )
+    # A one-storey ADU on a slab has no floor between storeys; five were called
+    # PARTIAL for it, and none of their reference models has one either.
+    elif crawl is None and len(inputs.heights.storey_heights_m()) == 1 and (
+        inputs.spec.slab_thickness_mm or "slab" in system
+    ):
+        out[ElementClass.FLOOR_ASSEMBLY] = (
+            "One storey is read on the sections, standing on the slab on grade, so "
+            "there is no framed floor between storeys to count."
+        )
     return out
 
 

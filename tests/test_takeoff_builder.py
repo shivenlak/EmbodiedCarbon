@@ -478,3 +478,14 @@ def test_a_missing_foundation_plan_does_not_deny_a_measured_slab():
     gap = next(g for g in t.gaps if g.message.startswith("No readable foundation plan"))
     assert "cannot be produced" not in gap.message
     assert gap.severity is GapSeverity.WARNING and "ln-slab-on-grade" in gap.affects
+
+
+@needs_data
+def test_a_one_storey_slab_building_has_no_floor_assembly_rather_than_a_missing_one():
+    """ON_ADU_01 is one storey on a slab (its IFC models no framed floor); it
+    was called a PARTIAL total for lacking a floor assembly."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("ON_ADU_01"))
+    assert not any("covers roughly" in g.message for g in t.gaps)
+    assert any("no framed floor between storeys" in g.message for g in t.gaps)
