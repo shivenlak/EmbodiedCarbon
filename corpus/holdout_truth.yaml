@@ -231,3 +231,66 @@ au-vic-futurehomes-d:
   doors: null
   slab_mm: null
   notes: "design intent set; A867 sections carry no datums"
+
+# ==== Canada (added 25 Nov, after the UX session; Canada only) ===============
+# Toronto's own pre-approved multiplexes (LGA Architectural Partners), electric
+# variant. Written by Stream B before any reading rule was tuned on Canadian
+# non-CMHC sets; scored once after the freeze. STREAM A: DO NOT OPEN.
+#
+# One template across the four: A001 assemblies, A002 door and window types,
+# A011 site plan with per-floor areas, A100-A103 basement to third floor plans,
+# A300-A302 sections. Datums on every section: basement -2.840, main 0.000,
+# second 2.840, third 5.690, roof 8.145 (parapets 8.529 / 8.800).
+# storeys counts the floor datums, basement included, as the scorer does.
+# windows / doors: instances tagged on the four floor plans (W?## / D?##),
+# skylights excluded; interior doors included.
+# Structural plans (S-101..S-302) are images with no text; slab thickness is
+# "refer to structural" on A001, so slab_mm is null.
+
+ca-on-toronto-fourplex-narrow:
+  footprint_m: [5.500, 17.000]   # A101 overall 5500 x 17000 (16711 wall to wall + bay)
+  footprint_area_m2: 94.7        # A011 building coverage
+  storeys: 4                     # basement + 3 ("3 STOREY FOURPLEX", A011)
+  storey_heights_m: [2.840, 2.840, 2.850, 2.455]
+  windows: 19                    # A100 4, A101 5, A102 6, A103 4
+  doors: 43
+  slab_mm: null
+  exterior_wall: "W1 2x6 wood stud 140 mm, R-24 batt, plywood, 64 mm mineral wool CI, vented cladding; W2 rated non-combustible 152 mm metal stud at the side yards (A001)"
+  gfa_m2: 308                    # A011, sum of the four floors' net areas
+  notes: "A101 main floor; A300 sections; A002 types; A011 areas"
+
+ca-on-toronto-fourplex-wide:
+  footprint_m: [6.529, 17.000]   # A101 6529 x 17000 (16354 wall to wall)
+  footprint_area_m2: 109.7       # A011 main floor gross
+  storeys: 4
+  storey_heights_m: [2.840, 2.840, 2.850, 2.455]
+  windows: 36                    # A100 8, A101 11, A102 9, A103 8
+  doors: 57
+  slab_mm: null
+  exterior_wall: "W1 / W2 as fourplex-narrow (A001)"
+  gfa_m2: 417.8
+  notes: "same template as fourplex-narrow, wider lot"
+
+ca-on-toronto-sixplex-narrow:
+  footprint_m: [5.792, 19.000]   # A101 5792 x 19000 (18706 wall to wall)
+  footprint_area_m2: 111.6       # A011 main floor gross
+  storeys: 4
+  storey_heights_m: [2.840, 2.840, 2.850, 2.455]
+  windows: 24                    # A100 5, A101 5, A102 8, A103 6
+  doors: 61
+  slab_mm: null
+  exterior_wall: "W1 / W2 as fourplex-narrow (A001)"
+  gfa_m2: 423.1
+  notes: "3 STOREY SIXPLEX (A011)"
+
+ca-on-toronto-sixplex-wide:
+  footprint_m: [8.098, 17.000]   # A101 8098 x 17000
+  footprint_area_m2: 137.6       # A011 building coverage
+  storeys: 4
+  storey_heights_m: [2.840, 2.840, 2.850, 2.455]
+  windows: 32                    # A100 6, A101 12, A102 7, A103 7
+  doors: 67
+  slab_mm: null
+  exterior_wall: "W1 / W2 as fourplex-narrow (A001)"
+  gfa_m2: 508.2
+  notes: "3 STOREY SIXPLEX (A011)"
