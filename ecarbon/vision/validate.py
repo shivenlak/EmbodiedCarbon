@@ -114,7 +114,12 @@ def _value(task: Task, field: str, quote: str) -> float | str | None:
     if task is Task.SCALE:
         return parse_scale_text(quote)
     if task is Task.FOOTPRINT:
-        return parse_dimension(quote)[0]
+        # NOR stacks the two units, "26899" over "88'-3\"": each line must parse
+        # and agree with the others, or the quote is refused.
+        vals = [parse_dimension(ln)[0] for ln in quote.splitlines() if ln.strip()]
+        if not vals or None in vals or max(vals) - min(vals) > max(25.0, 0.005 * max(vals)):
+            return None
+        return vals[0]
     if task is Task.LEVELS:
         from ecarbon.extract.levels import _LEVEL_LABEL_RE, _elevation_m
 

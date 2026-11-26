@@ -272,6 +272,13 @@ def test_an_el_prefixed_elevation_parses():
     assert _value(Task.LEVELS, "elevation", "ELEV. 0.000 m") == 0.0
 
 
+def test_a_dimension_stated_in_both_units_parses_only_when_they_agree():
+    from ecarbon.vision.validate import _value
+
+    assert _value(Task.FOOTPRINT, "width", "26899\n88'-3\"") == 26899.0
+    assert _value(Task.FOOTPRINT, "width", "26899\n78'-3\"") is None
+
+
 def test_cache_mode_replays_saved_claude_answers_and_never_calls(tmp_path, monkeypatch):
     monkeypatch.setenv("ECARBON_VISION_CACHE", str(tmp_path))
     monkeypatch.setenv("ECARBON_VISION", "cache")
