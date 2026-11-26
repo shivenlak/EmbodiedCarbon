@@ -440,3 +440,17 @@ def test_a_footing_drawn_on_the_datum_ladder_sets_the_wall_height_and_says_so():
     assert any("measured, not printed" in a for a in wall.assumptions)
     # Two dated datums cannot show the ladder is straight, so nothing is measured.
     assert footing_on_ladder(get_design("QC_ADU_01")) is None
+
+
+@needs_data
+def test_a_floor_over_a_crawl_space_is_the_ground_floor_not_a_slab():
+    """Quebec's F2 is framed over a conditioned crawl space: it is priced over
+    the footprint, and no concrete slab is assumed beneath it."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("QC_ADU_01"))
+    assert any(ln.assembly_tag == "F2" and ln.element_class == ElementClass.FLOOR_ASSEMBLY for ln in t.lines)
+    assert not any(ln.id == "ln-slab-on-grade" for ln in t.lines)
+    assert any(
+        g.message.startswith("No slab on grade is counted. F2") for g in t.gaps
+    )

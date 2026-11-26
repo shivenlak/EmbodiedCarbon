@@ -382,3 +382,29 @@ def test_a_grid_stub_hanging_off_the_outline_is_trimmed():
     stub = Segment(30, 50, 80, 50, 110, 0.7)  # down to a grid bubble
     kept = _without_spurs(box + [stub], box + [stub], 1.0)
     assert stub not in kept and len(kept) == 4
+
+
+def test_a_busier_detail_vignette_does_not_hide_the_plan():
+    """Toronto's studio laneway suite draws a grab-bar detail beside the plan
+    in the wall stroke, with more long runs than the plan itself."""
+    import pymupdf
+
+    from ecarbon.geometry.footprint import detect_footprint
+    from ecarbon.geometry.scale import ScaleEstimate, ScaleSource
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=1000, height=1000)
+    corners = [(100, 100), (300, 100), (300, 200), (100, 200), (100, 100)]
+    for (x0, y0), (x1, y1) in zip(corners, corners[1:], strict=False):
+        for i in range(4):
+            page.draw_line(
+                (x0 + (x1 - x0) * i / 4, y0 + (y1 - y0) * i / 4),
+                (x0 + (x1 - x0) * (i + 1) / 4, y0 + (y1 - y0) * (i + 1) / 4),
+                width=1.4,
+            )
+    for i in range(25):  # the vignette: 25 runs to the plan's 16
+        page.draw_line((700, 700 + 2 * i), (740, 700 + 2 * i), width=1.4)
+    page.insert_text((300, 200 + 40), "16'-8\"", fontsize=8)
+    page.insert_text((190, 90), "33'-4\"", fontsize=8)
+    fp = detect_footprint(page, ScaleEstimate(mm_per_pt=50.8, source=ScaleSource.DIMENSION_CHAIN))
+    assert fp is not None and (fp.width_m, fp.depth_m) == (10.16, 5.08)

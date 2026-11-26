@@ -39,7 +39,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
 import pymupdf
+import shapely
 
 from ecarbon.geometry.scale import DimLabel, ScaleEstimate, _chains, find_dimension_labels
 
@@ -182,9 +184,27 @@ def _extent_m(segs: list[Segment], scale: float) -> tuple[float, float]:
     )
 
 
+def _boxes(segs: list[Segment], grow: float) -> np.ndarray:
+    return shapely.box(
+        *np.array([(min(s.x0, s.x1) - grow, min(s.y0, s.y1) - grow,
+                    max(s.x0, s.x1) + grow, max(s.y0, s.y1) + grow) for s in segs]).T
+    )
+
+
 def _clusters(segs: list[Segment], gap_pt: float) -> list[list[Segment]]:
-    """Segments grouped by touching bounding boxes, grown by `gap_pt`."""
-    parent = list(range(len(segs)))
+    """Segments grouped by touching bounding boxes, grown by `gap_pt`.
+
+    The boxes are merged into shapes and each segment labelled by the shape it
+    meets, not compared pair by pair: a hatched Victorian sheet carries 142k
+    segments of one weight and 197M touching pairs (138 s pairwise, 3 s here).
+    A box that meets two shapes (corner contact) joins them.
+    """
+    if not segs:
+        return []
+    boxes = _boxes(segs, gap_pt)
+    shapes = shapely.get_parts(shapely.unary_union(boxes))
+    seg_i, shape_i = shapely.STRtree(shapes).query(boxes, predicate="intersects")
+    parent = list(range(len(shapes)))
 
     def root(i: int) -> int:
         while parent[i] != i:
@@ -192,20 +212,15 @@ def _clusters(segs: list[Segment], gap_pt: float) -> list[list[Segment]]:
             i = parent[i]
         return i
 
-    boxes = sorted(
-        (min(s.x0, s.x1) - gap_pt, min(s.y0, s.y1) - gap_pt, max(s.x0, s.x1) + gap_pt,
-         max(s.y0, s.y1) + gap_pt, i)
-        for i, s in enumerate(segs)
-    )
-    for a, box_a in enumerate(boxes):
-        for box_b in boxes[a + 1 :]:
-            if box_b[0] > box_a[2]:
-                break
-            if box_a[1] <= box_b[3] and box_b[1] <= box_a[3]:
-                parent[root(box_a[4])] = root(box_b[4])
+    first: dict[int, int] = {}
+    for si, pi in zip(seg_i.tolist(), shape_i.tolist(), strict=True):
+        if si in first:
+            parent[root(pi)] = root(first[si])
+        else:
+            first[si] = pi
     out: dict[int, list[Segment]] = {}
-    for i, s in enumerate(segs):
-        out.setdefault(root(i), []).append(s)
+    for i, sg in enumerate(segs):
+        out.setdefault(root(first[i]), []).append(sg)
     return list(out.values())
 
 
@@ -216,19 +231,16 @@ def _without_spurs(runs: list[Segment], touch: list[Segment], tol_pt: float) -> 
     grid-line stub drawn at the wall weight hangs off it to its bubble with one
     free end (Santa Cruz 2: grid 2.2 added 1.7 m to the depth).
     """
-
-    def near(x: float, y: float, sg: Segment) -> bool:
-        lo_x, hi_x = sorted((sg.x0, sg.x1))
-        lo_y, hi_y = sorted((sg.y0, sg.y1))
-        return lo_x - tol_pt <= x <= hi_x + tol_pt and lo_y - tol_pt <= y <= hi_y + tol_pt
-
-    def free_end(sg: Segment) -> bool:
-        return any(
-            not any(o is not sg and near(x, y, o) for o in touch)
-            for x, y in ((sg.x0, sg.y0), (sg.x1, sg.y1))
-        )
-
-    return [sg for sg in runs if not free_end(sg)]
+    if not runs or not touch:
+        return []
+    index = {id(o): i for i, o in enumerate(touch)}
+    ends = shapely.points([(x, y) for sg in runs for x, y in ((sg.x0, sg.y0), (sg.x1, sg.y1))])
+    end_i, hit_i = shapely.STRtree(_boxes(touch, tol_pt)).query(ends, predicate="intersects")
+    # An end is held when it meets a segment other than its own.
+    own = np.array([index.get(id(runs[e // 2]), -1) for e in end_i.tolist()], dtype=np.int64)
+    held = np.zeros(len(runs) * 2, dtype=bool)
+    held[end_i[hit_i != own]] = True
+    return [sg for k, sg in enumerate(runs) if held[2 * k] and held[2 * k + 1]]
 
 
 def _string_totals_m(labels: list[DimLabel], mm_per_pt: float) -> list[float]:
@@ -429,14 +441,23 @@ def detect_footprint(
         parts = _clusters([sg for sg in all_segs if sg.width == width], CLUSTER_GAP_MM / s)
         # Only the largest drawing: the main plan outweighs its vignettes, and
         # offering every small cluster let a stair or a unit match some chain.
-        part = max(parts, key=lambda p: sum(sg.length_mm >= MIN_SEGMENT_MM for sg in p))
-        runs = [sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM]
-        candidates = [runs] if len(runs) < len(groups[width]) else []
-        # The same drawing less its free-ended spurs, offered alongside; the
-        # dimension agreement decides between them.
-        trimmed = _without_spurs(runs, part, SPUR_TOUCH_MM / s)
-        if 0 < len(trimmed) < len(runs):
-            candidates.append(trimmed)
+        by_runs = max(parts, key=lambda p: sum(sg.length_mm >= MIN_SEGMENT_MM for sg in p))
+        # A detail vignette can carry more long runs than the plan (Toronto's
+        # studio laneway suite: a grab-bar detail, 31 runs, beside a 25-run
+        # plan), so the drawing of widest extent is offered too.
+        by_extent = max(parts, key=lambda p: math.prod(_extent_m(p, s)))
+        candidates = []
+        for part in [by_runs] + ([by_extent] if by_extent is not by_runs else []):
+            runs = [sg for sg in part if sg.length_mm >= MIN_SEGMENT_MM]
+            if not runs:
+                continue
+            if len(runs) < len(groups[width]):
+                candidates.append(runs)
+            # The same drawing less its free-ended spurs, offered alongside;
+            # the dimension agreement decides between them.
+            trimmed = _without_spurs(runs, part, SPUR_TOUCH_MM / s)
+            if 0 < len(trimmed) < len(runs):
+                candidates.append(trimmed)
         for cand in candidates:
             ranked = rank(width, cand)
             if ranked and (best is None or ranked[0] < best[0]):
