@@ -79,6 +79,22 @@
   "The IFC model is not ground truth either: on AB_Fourplex_01 it omits the 76 mm below-grade rigid insulation that the drawings' F1 slab assembly calls for, so a rigid-insulation 'over-count' there is the model's gap, not ours.",
   "Material gaps the tool already reports as not counted: floor joists and roof trusses (wood framing), foundation walls (concrete), steel studs, and the cladding and roofing placeholders."
  ],
+ "carbon_vs_cmhc": {
+  "counted_a1_a3": {
+   "n": 44,
+   "median_ratio": 0.54,
+   "within_10pct": 3,
+   "within_20pct": 5,
+   "within_30pct": 11
+  },
+  "complete_a1_a5": {
+   "n": 44,
+   "median_ratio": 0.7,
+   "within_10pct": 5,
+   "within_20pct": 11,
+   "within_30pct": 18
+  }
+ },
  "carbon_vs_ifc_same_factors": {
   "n": 38,
   "median_ratio": 0.9,
@@ -115,7 +131,7 @@
   },
   "external_walls": {
    "n": 43,
-   "median": 7.9
+   "median": 8.2
   },
   "windows_doors": {
    "n": 43,
@@ -123,7 +139,7 @@
   },
   "interiors": {
    "n": 36,
-   "median": -8.1
+   "median": -7.8
   },
   "stairs": {
    "n": 30,

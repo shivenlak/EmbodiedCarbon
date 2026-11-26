@@ -90,6 +90,7 @@ def takeoff_csv(
     header: bool = False,
     chosen: dict | None = None,
     spec: dict | None = None,
+    complete: dict | None = None,
 ) -> str:
     """The bill of quantities as CSV, with provenance and the calculation per line.
 
@@ -112,6 +113,14 @@ def takeoff_csv(
             ("# factor region", geography or "Canada (default)"),
             ("# total kgCO2e", f"{carbon.total_kg_co2e:.2f}"),
             ("# total kgCO2e without interior partitions", f"{carbon.total_kg_co2e - partitions:.2f}"),
+            *(
+                [
+                    ("# complete estimate kgCO2e (A1-A5, assumed additions)",
+                     f"{complete['total_kg_co2e']:.2f} (range {complete['low_kg_co2e']:.0f}-{complete['high_kg_co2e']:.0f})"),
+                    *[(f"#   + {i['label']}", f"{i['kg_co2e']:.2f}; {i['basis']}; {i['source']}") for i in complete["items"]],
+                ]
+                if complete else []
+            ),
             ("# units", "carbon in kgCO2e; mass in kg (mass); quantities in the unit column"),
             ("# generated", f"{date.today().isoformat()} by ecarbon {_version()}"),
         ):
@@ -286,7 +295,7 @@ def _audit_rows(takeoff: TakeoffResult, traces: dict) -> str:
 
 def report_html(
     takeoff: TakeoffResult, carbon: CarbonResult, decisions=(), traces: dict | None = None,
-    spec: dict | None = None,
+    spec: dict | None = None, complete: dict | None = None,
 ) -> str:
     """A printable report. Scope and limits come before the total.
 
@@ -427,6 +436,23 @@ choice closes it.</p>
         f"specification {spec['spec_kg_co2e']:,.0f} kg CO&#8322;e.</p>"
         if spec and spec.get("rows") else ""
     )
+    complete_html = (
+        "<h2>Complete estimate (A1&ndash;A5)</h2>"
+        "<p class='muted'>The counted total is what the drawings state (A1&ndash;A3). A whole-building "
+        "LCA also carries what they leave open and what happens between factory and site; each "
+        "addition below is assumed and says how it was calculated.</p>"
+        "<table><thead><tr><th>Item</th><th>How</th><th class='num'>kg CO&#8322;e</th></tr></thead><tbody>"
+        f"<tr><td>Counted from the drawings (A1&ndash;A3)</td><td></td><td class='num'>{complete['counted_kg_co2e']:,.0f}</td></tr>"
+        + "".join(
+            f"<tr><td>+ {_esc(i['label'])}</td><td class='muted'>{_prose(i['basis'])}. {_esc(i['source'])}</td>"
+            f"<td class='num'>{i['kg_co2e']:,.0f}</td></tr>"
+            for i in complete["items"]
+        )
+        + f"<tr><td><b>Complete estimate</b></td><td class='muted'>range {complete['low_kg_co2e']:,.0f} "
+        f"to {complete['high_kg_co2e']:,.0f}</td><td class='num'><b>{complete['total_kg_co2e']:,.0f}</b></td></tr>"
+        "</tbody></table>"
+        if complete and complete.get("items") else ""
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -547,7 +573,7 @@ one without restating both to the same modules.</p>
 
 <h2>Factor sources</h2>
 <ul>{factor_html or '<li>No factors were applied.</li>'}</ul>
-{audit_html}{spec_html}
+{complete_html}{audit_html}{spec_html}
 
 <footer>
   Quantities are measured from the vector drawings and labelled

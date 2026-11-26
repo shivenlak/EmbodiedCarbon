@@ -166,8 +166,42 @@ def unspecified_choices(
                     options=options,
                 )
             )
+    floor = floor_finish_choice(takeoff, by_category)
+    if floor is not None and not any(c.category == FLOORING for c in out):
+        out.append(floor)
     out.sort(key=lambda c: c.spread_kg_co2e, reverse=True)
     return out
+
+
+FLOORING = "Flooring"
+FLOOR_FINISH_TAG = "FLOORS"
+
+
+def floor_finish_choice(takeoff: TakeoffResult, by_category: dict) -> UnspecifiedChoice | None:
+    """The floor finish, over the floor area: the drawings almost never name it
+    ("FLOOR FINISH" with no material, or nothing), so it is an open decision
+    like the cladding, priced across the flooring the factor store holds."""
+    if any("FLOOR FIN" in (ln.material or "").upper() and ln.quantity for ln in takeoff.lines
+           if ln.unit.value == "m2" and ln.element_class.value != "floor_assembly"):
+        return None
+    area = takeoff.project.gfa_m2
+    if not area or area <= 0:
+        return None
+    options = [
+        Option(factor=f, kg_co2e=round(area * f.gwp_value, 1))
+        for f in by_category.get(FLOORING, [])
+        if f.declared_unit == "m2"
+    ]
+    if not options:
+        return None
+    options.sort(key=lambda o: o.kg_co2e)
+    return UnspecifiedChoice(
+        assembly_tag=FLOOR_FINISH_TAG,
+        category=FLOORING,
+        drawing_says="floor finish (no material named)",
+        area_m2=round(area, 1),
+        options=options,
+    )
 
 
 def _factors_by_category(factors) -> dict[str, list[FactorRef]]:

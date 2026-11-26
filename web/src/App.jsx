@@ -2116,6 +2116,7 @@ export default function App() {
   // Every line's calculation, step by step (/calc), refetched whenever the
   // carbon changes, so a number and its explanation can never disagree.
   const [calc, setCalc] = useState(null);
+  const [complete, setComplete] = useState(null);
   const [swaps, setSwaps] = useState([]);
   const [decisions, setDecisions] = useState([]);
   const [trace, setTrace] = useState(null);
@@ -2278,6 +2279,9 @@ export default function App() {
     getJSON(`/projects/${projectId}/calc`)
       .then((c) => live && setCalc(c))
       .catch(() => live && setCalc(null));
+    getJSON(`/projects/${projectId}/complete`)
+      .then((c) => live && setComplete(c))
+      .catch(() => live && setComplete(null));
     return () => {
       live = false;
     };
@@ -2325,7 +2329,11 @@ export default function App() {
     (next) => {
       setScenario((sc) => {
         const value = typeof next === "function" ? next(sc) : next;
-        if (projectId) postJSON(`/projects/${projectId}/scenario`, value).catch(() => null);
+        if (projectId)
+          postJSON(`/projects/${projectId}/scenario`, value)
+            .then(() => getJSON(`/projects/${projectId}/complete`))
+            .then(setComplete)
+            .catch(() => null);
         return value;
       });
     },
@@ -2344,12 +2352,13 @@ export default function App() {
   const calcCtx = useMemo(
     () => ({
       calc,
+      complete,
       onTrace: (lineId) => showTraceRef.current?.(lineId),
       projectId,
       api: { get: getJSON, post: postJSON, url: authedUrl },
       afterEdit,
     }),
-    [calc, projectId, afterEdit],
+    [calc, complete, projectId, afterEdit],
   );
   const showTraceRef = useRef(null);
   const showTrace = useCallback(

@@ -117,6 +117,16 @@ def score(design, truth: dict, provider, ifc_conc: dict | None = None) -> dict:
     t0 = time.time()
     takeoff = build_takeoff(design, facts_for(design))
     carbon = calculate_carbon(takeoff, provider)
+    # The complete estimate (A1-A5): what CMHC's figure is actually comparable to.
+    from ecarbon.carbon.complete import complete_estimate
+    from ecarbon.carbon.unspecified import unspecified_choices
+    from ecarbon.extract.assemblies import assemblies_for
+
+    try:
+        decisions = unspecified_choices(takeoff, assemblies_for(design)[0], provider)
+    except Exception:
+        decisions = []
+    complete = complete_estimate(takeoff, carbon, provider, decisions)
     lines = {ln.id: ln for ln in takeoff.lines}
     q = lambda lid: lines[lid].effective_quantity if lid in lines else None  # noqa: E731
 
@@ -227,6 +237,10 @@ def score(design, truth: dict, provider, ifc_conc: dict | None = None) -> dict:
             "ours_a1_a3_kg": round(total, 0),
             "bpr_a1_a5_kg": a1_a5_kg,
             "ratio_to_a1_a5": round(total / a1_a5_kg, 3) if a1_a5_kg and total else None,
+            "complete_a1_a5_kg": round(complete.total_kg_co2e, 0) if total else None,
+            "complete_ratio_to_a1_a5": (
+                round(complete.total_kg_co2e / a1_a5_kg, 3) if a1_a5_kg and total else None
+            ),
             "ours_kg_m2": round(ours_int, 1) if ours_int else None,
             "bpr_a1_a5_kg_m2": round(bpr_int, 1) if bpr_int else None,
             "intensity_ratio": round(ours_int / bpr_int, 3) if ours_int and bpr_int else None,
@@ -288,6 +302,24 @@ def summarise(rows: list[dict]) -> dict:
     ]
 
     ratios = [r["carbon"]["ratio_to_a1_a5"] for r in rows if r["carbon"]["ratio_to_a1_a5"]]
+
+    def bands(xs):
+        return {
+            "n": len(xs),
+            "median_ratio": round(statistics.median(xs), 2) if xs else None,
+            "within_10pct": sum(0.9 <= x <= 1.1 for x in xs),
+            "within_20pct": sum(0.8 <= x <= 1.2 for x in xs),
+            "within_30pct": sum(0.7 <= x <= 1.3 for x in xs),
+        }
+
+    # Against CMHC's A1-A5, like for like: the counted A1-A3, and the complete
+    # estimate (open decisions at mid-range, rebar, A4, A5), all assumed additions.
+    out["carbon_vs_cmhc"] = {
+        "counted_a1_a3": bands(ratios),
+        "complete_a1_a5": bands(
+            [r["carbon"]["complete_ratio_to_a1_a5"] for r in rows if r["carbon"].get("complete_ratio_to_a1_a5")]
+        ),
+    }
     same = [
         (r["carbon"]["ours_same_materials_kg"], r["carbon"]["ifc_at_our_factors_kg"])
         for r in rows
