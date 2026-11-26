@@ -293,10 +293,11 @@ def test_unmeasurable_partitions_are_assumed_from_floor_area_and_say_so():
         build_takeoff,
     )
 
-    # ATL_ADU_01's linework gives 2 m2 of run, a failed reading. (ON_Fourplex_01
-    # used to be the example; its schedule depths now read and its run
-    # measures 328 m2 against the IFC's 345.)
-    t = build_takeoff(get_design("ATL_ADU_01"))
+    # ON_Stacked_Townhouse_01 outlines two floors at a lighter stroke than its
+    # walls and measures no run. (ATL_ADU_01 was the example until its studs
+    # read 140 mm deep rather than 38, and its 14.8 m of partitions measured;
+    # ON_Fourplex_01 before that, until its schedule depths read.)
+    t = build_takeoff(get_design("ON_Stacked_Townhouse_01"))
     parts = [ln for ln in t.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
     assert parts and all(ln.confidence is Confidence.ASSUMED for ln in parts)
     assert any(f"{PARTITION_M2_PER_FLOOR_M2} m2 per m2 of floor" in a for a in parts[0].assumptions)
