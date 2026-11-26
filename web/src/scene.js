@@ -458,7 +458,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     // here rather than baked in, so a spec swap recolours without a rebuild.
     heatI: intensity, hotI, coolI, hatch: [],
     // 0 → SPLIT_STOREYS opens the storeys; on to 1 takes it to pieces.
-    split: 0, splitTween: false,
+    split: 0, splitTween: false, direct: false,
     // The class pressed in the parts list: its blocks fly back home.
     selected: null,
     // The parts list, in its order, and where each row's slot is on screen.
@@ -564,8 +564,10 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
   }
 
   function layout(dt) {
-    const liftK = clamp01(splitShown / SPLIT_STOREYS);
-    const bd = clamp01((splitShown - SPLIT_STOREYS) / (1 - SPLIT_STOREYS));
+    // "Break it apart" (direct) goes straight to the pieces: no storeys
+    // opening first (user, 26 Nov). The slider keeps the two phases.
+    const liftK = state.direct ? 0 : clamp01(splitShown / SPLIT_STOREYS);
+    const bd = state.direct ? clamp01(splitShown) : clamp01((splitShown - SPLIT_STOREYS) / (1 - SPLIT_STOREYS));
     // Explode lifts each storey by a share of its own height, so the floor
     // plans open like drawers and every partition can be read from above.
     const lift = (s) => (s == null ? 0 : s * liftK * 3.2);
@@ -830,7 +832,7 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
     }
     // An exploded building is taller; the aim point rises with it so the
     // top storey does not leave the frame.
-    const lift = clamp01(splitShown / SPLIT_STOREYS) * 3.2 * Math.max(0, heights.length - 1) * 0.5;
+    const lift = (state.direct ? 0 : clamp01(splitShown / SPLIT_STOREYS)) * 3.2 * Math.max(0, heights.length - 1) * 0.5;
     const dl = lift - liftApplied;
     if (dl) {
       controls.target.y += dl;
@@ -855,7 +857,12 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       for (const cls of next.pulse || []) pulses[cls] = performance.now();
       if ("split" in next && next.split !== state.split) {
         tween = next.splitTween
-          ? { from: splitShown, to: next.split, start: null, dur: Math.max(0.8, (next.split > splitShown ? 6 : 4.5) * Math.abs(next.split - splitShown)) }
+          ? {
+              from: splitShown, to: next.split, start: null,
+              dur: next.direct
+                ? (next.split > splitShown ? 2.2 : 1.6) * Math.max(0.3, Math.abs(next.split - splitShown))
+                : Math.max(0.8, (next.split > splitShown ? 6 : 4.5) * Math.abs(next.split - splitShown)),
+            }
           : null;
       }
       Object.assign(state, next);

@@ -476,13 +476,13 @@ export default function Showcase({
 
   function breakApart() {
     splitRef.current = 1;
-    sceneRef.current?.set({ split: 1, splitTween: true });
+    sceneRef.current?.set({ split: 1, splitTween: true, direct: true });
     setBroken(true);
   }
   function rebuild() {
     setPicked(null);
     splitRef.current = 0;
-    sceneRef.current?.set({ split: 0, splitTween: true });
+    sceneRef.current?.set({ split: 0, splitTween: true, direct: true });
     setBroken(false);
   }
 
@@ -704,19 +704,35 @@ export default function Showcase({
           </label>
         </div>
         <div className="sc-top-actions">
-          <div className="glass sc-units" role="group" aria-label="Units">
-            {[["metric", "m"], ["imperial", "ft"]].map(([sys, lab]) => (
-              <button
-                key={sys}
-                className={U.system === sys ? "is-on" : ""}
-                aria-pressed={U.system === sys}
-                onClick={() => U.setSystem(sys)}
-                title={sys === "metric" ? "Metres, m², m³" : "Feet, ft², yd³"}
+          {region && onRegion && (
+            <label className="glass sc-btn sc-regionpick" title="Whose carbon factors to use">
+              <span className="sc-regionpick-lab">Region</span>
+              <select
+                aria-label="Your region"
+                value={region.options?.some((o) => o.geography === region.geography) ? region.geography || "" : ""}
+                onChange={(e) => onRegion(e.target.value || null)}
               >
-                {lab}
-              </button>
-            ))}
-          </div>
+                <optgroup label="Canada">
+                  {(region.options || [])
+                    .filter((o) => !o.geography || o.geography.startsWith("CA"))
+                    .map((o) => (
+                      <option key={o.geography || "default"} value={o.geography || ""}>
+                        {o.geography ? o.label.replace(/^Canada \((.*)\)$/, "$1") : "Canada (all provinces)"}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="Outside Canada">
+                  {(region.options || [])
+                    .filter((o) => o.geography && !o.geography.startsWith("CA"))
+                    .map((o) => (
+                      <option key={o.geography} value={o.geography}>
+                        {o.label}
+                      </option>
+                    ))}
+                </optgroup>
+              </select>
+            </label>
+          )}
           {exportHref && (
             <a className="glass sc-btn sc-hide-phone" href={exportHref} download>
               Download CSV
@@ -759,16 +775,6 @@ export default function Showcase({
             <b>{dec(U.perArea(carbon?.intensity_kg_co2e_per_m2), U.imperial ? 2 : 1)}</b> <CO2e per={U.areaLabel} /> over{" "}
             {p.gfa_m2 ? int(U.v(p.gfa_m2, "m2")) : "—"} {U.areaLabel}
           </span>
-          {partitions > 0 && (
-            <span>
-              <b>{int(shownLean)}</b> <CO2e /> without the inferred partitions
-            </span>
-          )}
-          {p.units > 1 && (
-            <span>
-              <b>{int(total / p.units)}</b> <CO2e /> per home, over {p.units}
-            </span>
-          )}
         </div>
         <div className="sc-sub sc-complete">
           <CompleteLine />
@@ -781,93 +787,12 @@ export default function Showcase({
             />
           )}
         </div>
-        {restsOn && (
-          <div className="sc-rests" onMouseLeave={() => setRestsHover(null)}>
-            <div className="sc-rests-bar" style={{ "--open": restsOn.open[1] / (restsOn.counted + restsOn.open[1]) }}>
-              {RESTS.map((k) =>
-                restsOn.kg[k] ? (
-                  <button
-                    key={k}
-                    className={`is-${k}${restsHover === k ? " is-on" : ""}`}
-                    style={{ flexGrow: restsOn.kg[k] }}
-                    onMouseEnter={() => setRestsHover(k)}
-                    onFocus={() => setRestsHover(k)}
-                    onBlur={() => setRestsHover(null)}
-                    aria-label={`${k}: ${int(restsOn.kg[k])} kgCO₂e`}
-                  />
-                ) : null,
-              )}
-              {restsOn.open[2] > 0 && (
-                <button
-                  className={`is-open${restsHover === "open" ? " is-on" : ""}`}
-                  style={{ flexGrow: restsOn.open[1] }}
-                  onMouseEnter={() => setRestsHover("open")}
-                  onFocus={() => setRestsHover("open")}
-                  onBlur={() => setRestsHover(null)}
-                  aria-label="not counted"
-                />
-              )}
-            </div>
-            <div className="sc-rests-key">
-              {restsHover && restsHover !== "open" ? (
-                <span>
-                  <b className={`is-${restsHover}`}>{restsHover}</b>{" "}
-                  {restsOn.top[restsHover].map((t) => `${t.name} ${int(t.kg)} kgCO₂e`).join(" · ")}
-                </span>
-              ) : restsHover === "open" ? (
-                <span>
-                  <b>not counted</b> {restsOn.open[2]} placeholder{restsOn.open[2] > 1 ? "s" : ""} the drawings leave open,{" "}
-                  {int(restsOn.open[0])}–{int(restsOn.open[1])} <CO2e />, not in the total
-                </span>
-              ) : (
-                <>
-                  {RESTS.filter((k) => restsOn.kg[k]).map((k) => (
-                    <span key={k}>
-                      <b className={`is-${k}`}>{k}</b> {Math.round((100 * restsOn.kg[k]) / restsOn.counted)}%
-                    </span>
-                  ))}
-                  {restsOn.open[2] > 0 && (
-                    <span>
-                      <b>+ not counted</b> {int(restsOn.open[0])}–{int(restsOn.open[1])} <CO2e />
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-        {region && (
-          <div className="sc-region">
-            <span>Factors:</span>
-            <b>{region.label}</b>
-            <em>
-              {region.source === "title block"
-                ? "from the title block"
-                : region.source === "jurisdiction"
-                  ? "from the location you gave"
-                  : region.source === "chosen"
-                    ? "you chose"
-                    : "default"}
-            </em>
-            {onRegion && region.options?.length > 1 && (
-              <label className="sc-region-pick">
-                <span>change</span>
-                <select
-                  aria-label="Whose carbon factors to use"
-                  value={region.options.some((o) => o.geography === region.geography) ? region.geography || "" : ""}
-                  onChange={(e) => onRegion(e.target.value || null)}
-                >
-                  {region.options.map((o) => (
-                    <option key={o.geography || "default"} value={o.geography || ""}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {region.note && <span className="sc-region-note">{region.note}</span>}
-          </div>
-        )}
+        {region?.note && <div className="sc-region-note sc-hero-note">{region.note}</div>}
+        <div className="sc-howto" aria-label="What you can do">
+          <span>Click any <span className="sc-howto-num">number</span> to see how it was calculated</span>
+          <button type="button" onClick={() => setBuildup(byClass[0]?.[0] || "exterior_wall")}>See what each part is made of</button>
+          <button type="button" onClick={() => setPlanEdit(true)}>Edit the plan</button>
+        </div>
         {scenarioActive && (
           <button className="sc-spec-chip" onClick={() => goTo(4)}>
             Your spec <b>{int(shownSpec)}</b> <CO2e />
@@ -1420,7 +1345,7 @@ export default function Showcase({
               onChange={(e) => {
                 const v = Number(e.target.value);
                 splitRef.current = v;
-                sceneRef.current?.set({ split: v, splitTween: false });
+                sceneRef.current?.set({ split: v, splitTween: false, direct: false });
                 const apartNow = v > SPLIT_STOREYS + 0.001;
                 if (apartNow !== brokenRef.current) setBroken(apartNow);
               }}

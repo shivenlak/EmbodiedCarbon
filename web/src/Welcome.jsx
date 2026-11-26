@@ -5,65 +5,26 @@
 // the same workspace without a name -- because a judge given the link should
 // be one press from the model, not a form away from it.
 
-import { useEffect, useRef, useState } from "react";
-import { account, heatColour, surfaceIntensity, openingsOf } from "./App.jsx";
-import { createScene } from "./scene.js";
+import { useEffect, useState } from "react";
+import { account } from "./App.jsx";
 import "./showcase.css";
 
 const BACKDROP = "/projects/AB_Fourplex_01_Technical_Design_Package/cover.jpg";
-// The building that assembles behind the card: the sponsor's own fourplex
-// where it is bundled, else the first Alberta set.
-const FEATURED = "AB_Fourplex_01_Technical_Design_Package";
-const STILL =
-  typeof window !== "undefined" &&
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
-// The real model of a bundled set, heat on, so the first screen shows what
-// the product does rather than describing it. Any failure leaves the plain
-// backdrop: this is decoration and must never block the way in.
-function useBackdropModel(canvasRef) {
+// How many plan sets are ready to open. The intro screen is deliberately
+// plain (user, 26 Nov): no model building itself behind the form.
+function useSetCount() {
   const [sets, setSets] = useState(null);
-  const [live, setLive] = useState(false);
   useEffect(() => {
-    let handle;
     let gone = false;
-    (async () => {
-      try {
-        const list = await (await fetch("/projects")).json();
-        if (gone) return;
-        setSets(list.length);
-        const pick = list.find((x) => x.id === FEATURED) || list.find((x) => x.id.startsWith("AB_")) || list[0];
-        const get = async (path) => {
-          const r = await fetch(`/projects/${pick.id}/${path}`);
-          if (!r.ok) throw new Error(r.status);
-          return r.json();
-        };
-        const [massing, takeoff] = await Promise.all([get("massing"), get("takeoff")]);
-        if (gone || !canvasRef.current) return;
-        const openings = openingsOf(takeoff);
-        const heat = surfaceIntensity(massing, openings);
-        handle = createScene(canvasRef.current, massing, {
-          heatColour,
-          intensity: heat.intensity,
-          hotI: heat.hotI,
-          coolI: heat.coolI,
-          still: STILL,
-          openings,
-        });
-        handle.set({ heat: true });
-        // One frame on the ground first, so the blocks are seen to rise.
-        requestAnimationFrame(() => handle?.set({ build: true }));
-        setLive(true);
-      } catch {
-        /* the plain backdrop stays */
-      }
-    })();
+    fetch("/projects")
+      .then((r) => r.json())
+      .then((list) => !gone && setSets(list.length))
+      .catch(() => null);
     return () => {
       gone = true;
-      handle?.dispose();
     };
-  }, [canvasRef]);
-  return { sets, live };
+  }, []);
+  return sets;
 }
 
 export default function Welcome({ onSignedIn }) {
@@ -73,8 +34,7 @@ export default function Welcome({ onSignedIn }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [cover, setCover] = useState(false);
-  const canvasRef = useRef(null);
-  const { sets, live } = useBackdropModel(canvasRef);
+  const sets = useSetCount();
 
   useEffect(() => {
     const img = new Image();
@@ -108,13 +68,12 @@ export default function Welcome({ onSignedIn }) {
   const form = mode !== "guest";
 
   return (
-    <div className={`sc sc-welcome${live ? " is-live" : ""}`}>
+    <div className="sc sc-welcome">
       <div
         className={`sc-backdrop${cover ? " has-cover" : ""}`}
         style={cover ? { backgroundImage: `url(${BACKDROP})` } : undefined}
         aria-hidden="true"
       />
-      <canvas ref={canvasRef} className="sc-canvas wl-model" aria-hidden="true" />
       <div className="sc-veil" aria-hidden="true" />
 
       <main className="wl">

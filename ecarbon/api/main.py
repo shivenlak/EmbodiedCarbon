@@ -1664,6 +1664,10 @@ def _region_out(p: Project) -> RegionOut:
     for code in sorted(_CA_PROVINCES, key=lambda c: _CA_PROVINCES[c]):
         geo = f"CA-{code}"
         options.append(RegionOption(geography=geo, label=label_of(geo), n_factors=national + geos.get(geo, 0)))
+    # Outside Canada is offered, and said to be indicative (user, 26 Nov:
+    # "what is your region: Canada, US, etc.").
+    options.append(RegionOption(geography="US", label="United States (indicative)",
+                                n_factors=national + geos.get("US", 0)))
     outside = bool(p.geography) and not p.geography.upper().startswith("CA")
     return RegionOut(
         geography=p.geography, label=label_of(p.geography), source=p.region_source, options=options,
