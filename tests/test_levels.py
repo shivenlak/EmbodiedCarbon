@@ -387,3 +387,16 @@ class TestStoreysFromFloorPlans:
         assert no_datum_single_storey(StoreyHeights(), self._sheets("FLOOR PLAN", "BASEMENT PLAN"), object()) is None
         assert no_datum_single_storey(StoreyHeights(), self._sheets("FLOOR PLAN", "FLOOR PLAN"), object()) is None
         assert no_datum_single_storey(StoreyHeights(), self._sheets("FLOOR PLAN"), None) is None
+
+
+@needs_data
+def test_elevations_with_only_a_floor_and_a_roof_feed_the_single_storey_fallback():
+    """SKMB_ADU_01 has no section datum; its elevations give T/O CONCRETE and
+    the roof midpoints. That is no storey height, but it is a floor and a ridge,
+    so the wall stands on the assumed plate instead of being left out."""
+    from ecarbon.config import get_design
+    from ecarbon.extract.levels import storey_heights_for
+    from ecarbon.takeoff.framing import single_storey_fallback
+
+    single = single_storey_fallback(storey_heights_for(get_design("SKMB_ADU_01")))
+    assert single is not None and single.assumed

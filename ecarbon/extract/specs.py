@@ -106,6 +106,17 @@ _BEAM_ALT_RE = re.compile(
 # already learned this lesson the expensive way: a looser form matched
 # "4-15M x 1200mm LG. DOWELS AT ALL PILE TO GRADE BEAM LOCATIONS" and reported
 # a 1200x1200 beam, a six-fold error on the largest concrete item.
+# SK/MB S101 states both as tables, read here in text order:
+#   "CONCRETE BEAM SCHEDULE MARK WIDTH DEPTH REINFORCING GB1 203 915 2-20M ..."
+#   "SLAB SCHEDULE MARK THICKNESS REINFORCING ... TOP BARS S1 152 15M @ 305 ..."
+# The first row (GB1, S1) is taken; the plan tags say where each mark applies.
+_BEAM_SCHED_RE = re.compile(
+    r"BEAM\s+SCHEDULE\s+MARK\s+WIDTH\s+DEPTH\s+\S+\s+(GB\d+)\s+(\d{3})\s+(\d{3,4})\b", re.I
+)
+_SLAB_SCHED_RE = re.compile(
+    r"SLAB\s+SCHEDULE\s+MARK\s+THICKNESS\b[A-Z\s]{0,60}?\b(S\d+)\s+(\d{2,3})\b", re.I
+)
+
 _FOOTING_RE = re.compile(r"FOOTING\s*:?\s*(\d{3,4})\s*[xX×]\s*(\d{2,4})\b", re.I)
 
 # BC states its footings in a schedule table instead, with dual units and the
@@ -454,7 +465,17 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
             if spec.slab_thickness_mm is None and (hit := _slab_inches_mm(flat)):
                 spec.slab_thickness_mm = hit
                 found.append(f"slab {hit:.0f}mm")
+            if spec.slab_thickness_mm is None and (m := _SLAB_SCHED_RE.search(flat)):
+                v = float(m.group(2))
+                if SLAB_MM_RANGE[0] <= v <= SLAB_MM_RANGE[1]:
+                    spec.slab_thickness_mm = v
+                    found.append(f"slab {v:.0f}mm (slab schedule {m.group(1)})")
 
+        if spec.grade_beam_width_mm is None and (m := _BEAM_SCHED_RE.search(flat)):
+            w, dp = float(m.group(2)), float(m.group(3))
+            if w < dp:
+                spec.grade_beam_width_mm, spec.grade_beam_depth_mm = w, dp
+                found.append(f"grade beam {w:.0f}x{dp:.0f} (beam schedule {m.group(1)})")
         if spec.grade_beam_width_mm is None:
             m = _BEAM_RE.search(flat) or _BEAM_ALT_RE.search(flat)
             if m:
@@ -547,6 +568,10 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
         if found:
             spec.sources.append(f"{sheet}: {', '.join(found)}")
 
+    # SK/MB's S001 boilerplate names a thickened-edge slab, but where the plan
+    # schedules a grade beam that beam is the perimeter; pricing both doubles it.
+    if spec.grade_beam_width_mm and spec.thickened_edge:
+        spec.thickened_edge = False
     if spec.designer_declined and spec.slab_thickness_mm is not None:
         spec.generic_slab_mm, spec.slab_thickness_mm = spec.slab_thickness_mm, None
     return spec

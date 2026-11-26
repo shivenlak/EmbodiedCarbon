@@ -52,7 +52,7 @@ def read_spans(
                 text = repair(s["text"].strip())[0]
                 if extra_repair is not None:
                     text = extra_repair(text)
-                rows.append((s["bbox"][1], s["bbox"][0], text))
+                rows.append((s["bbox"], text))
 
     if not rows:
         return []
@@ -60,15 +60,20 @@ def read_spans(
     # The page's own reading direction, by weight of text rather than by one
     # stray rotated label.
     dominant = max(turns, key=lambda k: turns[k])
+    # Row is the logical top edge, column the logical start of the text, so a
+    # left-aligned column stays aligned once turned. Taking the bbox's
+    # unrotated top-left instead gave rotated text its *end*: ATL_ADU_01's
+    # schedule columns scattered over 50 pt and no table read.
     if dominant == (0.0, -1.0):
-        # Text advances up the page, so a line of it runs along y: the logical
-        # column is -y and the logical row is x.
-        rows = [(x, -y, t) for y, x, t in rows]
+        # Text advances up the page: logical row is x0, column -y1.
+        out = [(b[0], -b[3], t) for b, t in rows]
     elif dominant == (0.0, 1.0):
-        rows = [(-x, y, t) for y, x, t in rows]
+        out = [(-b[2], b[1], t) for b, t in rows]
     elif dominant == (-1.0, 0.0):
-        rows = [(-y, -x, t) for y, x, t in rows]
-    return sorted(rows)
+        out = [(-b[3], -b[2], t) for b, t in rows]
+    else:
+        out = [(b[1], b[0], t) for b, t in rows]
+    return sorted(out)
 
 
 def join_rows(spans: list[tuple[float, float, str]], tol: float = 3.0) -> list[str]:

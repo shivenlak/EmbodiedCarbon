@@ -527,3 +527,46 @@ class TestThicknessInTheName:
         from ecarbon.extract.assemblies import thickness_in_name
 
         assert thickness_in_name(material) == (None, None)
+
+
+@needs_data
+class TestLayoutsThatReadNothing:
+    def test_a_rotated_schedule_keeps_its_columns(self):
+        """ATL_ADU_01's A001 is stored turned 90 degrees. Columns were taken
+        from each span's end rather than its start, scattered over 50 pt, and
+        no assembly read: the whole bill stood on standards."""
+        from ecarbon.extract.assemblies import assemblies_for
+
+        tags, _ = assemblies_for(get_design("ATL_ADU_01"))
+        assert {"W2", "R1", "P1"} <= set(tags)
+
+    def test_a_one_word_wrap_in_the_thickness_column_is_not_a_name(self):
+        """SKMB_ADU_02 wraps "SELF-ADHERED" into the thickness column, which
+        read as NOR's name-in-thickness layout and dropped F1-F3."""
+        from ecarbon.extract.assemblies import assemblies_for
+
+        tags, _ = assemblies_for(get_design("SKMB_ADU_02"))
+        assert {"F1", "F2"} <= set(tags)
+
+
+def test_a_glyph_encoded_material_cell_takes_the_sheets_own_shift():
+    """`RIGID INSULATION 1 (R-12.0` under 0x1D has no thickness, so the shift
+    loop moved on to +2, whose `3"` passed as one: six sets' rigid and cavity
+    insulation read as `TKIKF"KPUWNCVKQP...` and priced nothing."""
+    from ecarbon.extract.assemblies import repair_schedule_cell
+
+    enc = "".join(chr(ord(c) - 0x1D) for c in "RIGID INSULATION 1 (R-12.0")
+    assert repair_schedule_cell(enc) == "RIGID INSULATION 1 (R-12.0"
+    thick = "".join(chr(ord(c) - 0x1D) if c not in "m" else chr(ord("P")) for c in '3/4"/19mm')
+    assert repair_schedule_cell(thick) == '3/4"/19mm'
+
+
+@needs_data
+def test_a_blank_cavity_fill_takes_the_stud_depth_beside_it():
+    """SKMB_ADU_01 W1 states `5 1/2"/140mm WOOD STUD FRAMING` and leaves the
+    infill insulation's cell blank; the fill is that cavity."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    w1 = assemblies_for(get_design("SKMB_ADU_01"))[0]["W1"]
+    fill = next(lay for lay in w1.layers if "INFILL" in lay.material.upper())
+    assert fill.thickness_mm == 140.0 and "no depth stated" in fill.note

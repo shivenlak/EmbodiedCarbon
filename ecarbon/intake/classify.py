@@ -82,7 +82,8 @@ TYPE_RULES: tuple[tuple[tuple[str, ...], SheetType], ...] = (
     (("TITLE PAGE", "TITLE SHEET"), SheetType.TITLE),
     (("COVER SHEET", "COVER PAGE", "DRAWINGS COVER", "COVER"), SheetType.COVER),
     (("SITE PLAN",), SheetType.SITE_PLAN),
-    (("FOUNDATION PLAN", "FOOTING PLAN"), SheetType.FOUNDATION_PLAN),
+    # SK/MB S101 "FOUNDATION / FRAMING PLAN" is the foundation plan first.
+    (("FOUNDATION PLAN", "FOOTING PLAN", "FOUNDATION / FRAMING", "FOUNDATION/FRAMING"), SheetType.FOUNDATION_PLAN),
     (("ROOF PLAN",), SheetType.ROOF_PLAN),
     (("FRAMING PLAN", "FLOOR FRAMING", "ROOF FRAMING"), SheetType.FRAMING_PLAN),
     # UK/AU "GENERAL ARRANGEMENT" (GA) plans are the floor plans.

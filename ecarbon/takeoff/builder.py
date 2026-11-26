@@ -143,6 +143,8 @@ class TakeoffInputs:
     footprint_uncorroborated: bool = False
     assemblies: dict[str, Assembly] = field(default_factory=dict)
     tag_refs: dict[str, int] = field(default_factory=dict)
+    # The same, counted on floor plans only: how the partition run is split by type.
+    plan_tag_refs: dict[str, int] = field(default_factory=dict)
     # Sheet number -> page, so a line that cites a sheet points at that sheet's
     # page. Without it a provenance can name S201 and carry the footprint's
     # page, which reads correctly in a table and sends click-to-trace to the
@@ -165,6 +167,11 @@ class TakeoffInputs:
     def assembly_for(self, letter: str, exclude: set[str] | None = None) -> Assembly | None:
         """The assembly of one group that this design actually uses."""
         tag = dominant_tag(self.tag_refs, letter, set(self.assemblies), exclude)
+        # The group's most-referenced tag was refused: a minor assembly must not
+        # stand in for it (ATL_Fourplex_01 would price its R2a roof as the R4 deck).
+        top = dominant_tag(self.tag_refs, letter, set(self.tag_refs), exclude)
+        if tag and self.tag_refs[top] > self.tag_refs[tag] and top not in self.assemblies:
+            return None
         return self.assemblies.get(tag) if tag else None
 
     @property
@@ -369,9 +376,25 @@ def gather(
     try:
         inputs.assemblies, rejected = assemblies_for(design)
         inputs.tag_refs = assembly_tags_used(design)
+        inputs.plan_tag_refs = assembly_tags_used(design, plans_only=True)
         for tag, asm in inputs.assemblies.items():
             if asm.from_legend:  # no tag on the plans to count; the legend is the reference
                 inputs.tag_refs.setdefault(tag, 1)
+        # BC plans tag the family ("W1", 21 times) while the schedule defines
+        # only its variants (W1.1-W1.3, one per energy step). The family's
+        # references go to its first variant, and the choice is said.
+        for refs in (inputs.tag_refs, inputs.plan_tag_refs):
+            for fam in list(refs):
+                variants = sorted(t for t in inputs.assemblies if t.startswith(fam + "."))
+                if fam in inputs.assemblies or not variants:
+                    continue
+                refs[variants[0]] = refs.get(variants[0], 0) + refs.pop(fam)
+                if refs is inputs.tag_refs:
+                    rejected.append(
+                        f"The plans tag {fam} but the schedule defines only its variants "
+                        f"({', '.join(variants)}); {variants[0]}, the first, is used for it. "
+                        f"Choose another if the project builds a different variant."
+                    )
         for message in rejected:
             gaps.append(
                 Gap(
@@ -1389,6 +1412,34 @@ def _assumed_partition_lines(
     return built, more
 
 
+def _partition_mix(measured, inputs: TakeoffInputs) -> list[tuple] | None:
+    """[(assembly, share of the run, metres)]: the measured run split across
+    the schedule's P types by how often the plans tag each one.
+
+    Pricing the whole run as the commonest type (the old rule) left out every
+    insulated demising wall. Tag shares were checked against the IFC's wall
+    area by type, counting floor plans only: AB_Fourplex_01 P1/P2/P3
+    70/17/8% vs 61/21/15%, AB_Sixplex P1/P3 50/30% vs 65/22%,
+    AB_Rowhouse_01 P1/P3 69/23% vs 64/28%. Counting every sheet put 40 points
+    too much on the demising walls, which sections repeat. The depth each wall
+    was paired at was tried too and put 263 m2 on AB_Fourplex_01's P3 against
+    the IFC's 63, so it is not used for this.
+    """
+    refs = inputs.plan_tag_refs
+    p_asms = {
+        t: a for t, a in inputs.assemblies.items()
+        if t.upper().startswith("P") and refs.get(t)
+    }
+    total = sum(refs[t] for t in p_asms)
+    if len(p_asms) < 2 or not total:
+        return None
+    run = measured.total_length_m
+    return [
+        (p_asms[t], refs[t] / total, run * refs[t] / total)
+        for t in sorted(p_asms, key=lambda t: (-refs[t], t))
+    ]
+
+
 def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], list[Gap]]:
     """Interior partitions, expanded from the assembly over a measured run.
 
@@ -1443,25 +1494,40 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
         f"is not broken down by type.",
     ]
 
-    built, more = _assembly_lines(
-        asm,
-        area,
-        ElementClass.INTERIOR_PARTITION,
-        confidence=Confidence.INFERRED,
-        area_note=(
-            f"Area is {measured.total_length_m:.1f} m of measured partition run x "
-            f"{height:.2f} m mean storey wall height ({building_height:.2f} m over "
-            f"{n_storeys} storeys), since each storey's run stands one storey tall."
-        ),
-        extra_assumptions=shared,
-    )
     from ecarbon.takeoff.framing import missing_layer_lines
 
-    faces, _ = missing_layer_lines(
-        "P", built, inputs, _assembly_lines, area, ElementClass.INTERIOR_PARTITION,
-        Confidence.ASSUMED, f"Area is the {area:.1f} m2 of partition measured.",
-    )
-    built += faces
+    mix = _partition_mix(measured, inputs) or [(asm, 1.0, measured.total_length_m)]
+    if len(mix) > 1:
+        split = ", ".join(f"{a.tag} {inputs.plan_tag_refs[a.tag]}" for a, _s, _m in mix)
+        shared[2] = (
+            f"The run is not measured by type, so it is split across the partition "
+            f"types in proportion to how often the floor plans tag each ({split}). On the "
+            f"Alberta reference models this tracks each type's area to within about "
+            f"15 points of share."
+        )
+    built, more = [], []
+    for a, share, metres in mix:
+        part = round(area * share, 2)
+        made, gaps = _assembly_lines(
+            a,
+            part,
+            ElementClass.INTERIOR_PARTITION,
+            confidence=Confidence.INFERRED,
+            area_note=(
+                f"Area is {metres:.1f} m of "
+                + (f"the measured partition run ({share:.0%}, {a.tag}'s share by tag count) x "
+                   if len(mix) > 1 else "measured partition run x ")
+                + f"{height:.2f} m mean storey wall height ({building_height:.2f} m over "
+                f"{n_storeys} storeys), since each storey's run stands one storey tall."
+            ),
+            extra_assumptions=shared,
+        )
+        faces, _ = missing_layer_lines(
+            "P", made, inputs, _assembly_lines, part, ElementClass.INTERIOR_PARTITION,
+            Confidence.ASSUMED, f"Area is the {part:.1f} m2 of {a.tag} partition measured.",
+        )
+        built += made + faces
+        more += gaps
     for line in built:
         line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
 

@@ -193,11 +193,12 @@ class TestEndToEnd:
 
 @needs_data
 class TestSingleStoreyLimitation:
-    def test_a_one_storey_design_assumes_its_wall_height(self):
-        """A single-storey plan has one floor datum and a ridge, never a
-        plate. The wall was omitted; it now stands on an assumed 2.74 m plate,
-        capped 1 m under the stated ridge (not the ridge itself, which would
-        include the roof pitch), and is ASSUMED with the reason on the line."""
+    def test_a_one_storey_design_reads_its_wall_height_off_the_elevation(self):
+        """AB_ADU_01's sections give one floor datum and a ridge, never a
+        plate, so the wall stood on an assumed 2.74 m plate. Its elevations
+        state U/S ROOF FRAMING at 3.0 m, which levels.py now reads, so the
+        wall height is inferred from the drawing (SKMB_ADU_01, whose
+        elevations state no plate, still takes the assumed one)."""
         from ecarbon.models import ProjectFacts
         from ecarbon.takeoff.builder import build_takeoff
 
@@ -206,8 +207,8 @@ class TestSingleStoreyLimitation:
             ProjectFacts(name="AB_ADU_01", gfa_m2=73.0, gfa_basis="gross", storeys=1),
         )
         wall = next(ln for ln in t.lines if ln.id == "ln-exterior-wall")
-        assert wall.confidence.value == "assumed"
-        assert any("wall height is assumed 2.74 m" in a for a in wall.assumptions)
+        assert wall.confidence.value != "assumed"
+        assert not any("wall height is assumed" in a for a in wall.assumptions)
         covered, missing = coverage_report(t.lines)
         assert ElementClass.EXTERIOR_WALL not in missing
 
@@ -215,15 +216,17 @@ class TestSingleStoreyLimitation:
 @needs_data
 def test_a_slab_is_counted_once_and_its_insulation_layer_separately():
     # SK/MB's F1 states 152 mm of rigid insulation under a concrete slab whose
-    # thickness it defers to structural. The concrete is the one assumed slab;
-    # the insulation is its own inferred line, not a second slab.
+    # thickness it defers to structural; S101's slab schedule states it (S1,
+    # 152 mm). The concrete is the one slab, read rather than assumed; the
+    # insulation is its own line, not a second slab.
     from ecarbon.takeoff.builder import build_takeoff
 
     takeoff = build_takeoff(get_design("SKMB_Fourplex_01"))
     slab = [ln for ln in takeoff.lines if ln.id.startswith("ln-slab-on-grade")]
     concrete = [ln for ln in slab if ln.material and "Concrete" in ln.material]
     assert [ln.id for ln in concrete] == ["ln-slab-on-grade"]
-    assert concrete[0].confidence is Confidence.ASSUMED
+    assert concrete[0].confidence is not Confidence.ASSUMED
+    assert "152 mm" in concrete[0].description
     assert any(ln.material == "CMHC_Insulation, Rigid" for ln in slab)
 
 
@@ -249,9 +252,10 @@ def test_an_unreadable_foundation_takes_a_standard_one_marked_assumed():
 def test_a_named_system_is_never_replaced_by_the_standard():
     from ecarbon.takeoff.builder import build_takeoff
 
+    # SK/MB: the scheduled grade beam on screw piles (S101), not a strip footing.
     edge = build_takeoff(get_design("SKMB_Fourplex_01"))
     ids = {ln.id for ln in edge.lines}
-    assert "ln-thickened-edge" in ids
+    assert "ln-grade-beam" in ids
     assert not ids & {"ln-strip-footing", "ln-foundation-wall"}
 
     alberta = build_takeoff(get_design("AB_Fourplex_01"))
@@ -289,7 +293,10 @@ def test_unmeasurable_partitions_are_assumed_from_floor_area_and_say_so():
         build_takeoff,
     )
 
-    t = build_takeoff(get_design("ON_Fourplex_01"))
+    # ATL_ADU_01's linework gives 2 m2 of run, a failed reading. (ON_Fourplex_01
+    # used to be the example; its schedule depths now read and its run
+    # measures 328 m2 against the IFC's 345.)
+    t = build_takeoff(get_design("ATL_ADU_01"))
     parts = [ln for ln in t.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
     assert parts and all(ln.confidence is Confidence.ASSUMED for ln in parts)
     assert any(f"{PARTITION_M2_PER_FLOOR_M2} m2 per m2 of floor" in a for a in parts[0].assumptions)
@@ -327,3 +334,28 @@ def test_standard_stand_ins_name_the_code_of_the_country():
     assert unread_foundation_note(us) == UNREAD_FOUNDATION_US
     assert "Part 9" not in UNREAD_FOUNDATION_US and "frost wall" not in UNREAD_FOUNDATION_US
     assert unread_foundation_note(ca) == unread_foundation_note(unknown) == UNREAD_FOUNDATION
+
+
+@needs_data
+def test_a_family_tag_uses_its_first_scheduled_variant_and_says_so():
+    """BC plans tag W1 and R1; the schedule defines only W1.1-W1.2 and
+    R1.1-R1.3. The standard wall stood in for a wall the drawings state."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("BC_Sixplex"))
+    ids = {ln.id for ln in t.lines}
+    assert any(i.startswith("ln-exterior-wall-w1.1-") for i in ids)
+    assert not any(i.startswith("ln-exterior-wall-std-") for i in ids)
+    assert any("plans tag W1" in g.message and "W1.1, the first" in g.message for g in t.gaps)
+
+
+@needs_data
+def test_a_refused_main_roof_is_not_priced_as_a_minor_one():
+    """ATL_Fourplex_01 Option 2 tags R2a 13 times and the R4 deck 3; R2a is
+    refused, so the roof is the assumed standard, not R4 over the footprint."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("ATL_Fourplex_01_Technical_Design_Package_Option2"))
+    ids = {ln.id for ln in t.lines}
+    assert not any(i.startswith("ln-roof-assembly-r4-") for i in ids)
+    assert any(i.startswith("ln-roof-assembly-std-r-") for i in ids)

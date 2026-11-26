@@ -206,12 +206,18 @@ class TestInTheTakeoff:
             ln for ln in takeoff.lines if ln.id.startswith(PARTITION_LINE_PREFIX)
         )
         # 16 mm board over one face: volume / thickness is the area it covers.
-        assert board.quantity / 0.016 == pytest.approx(run * 5.334 / 2, rel=0.02)
+        # The run is split across P1/P2/... by floor-plan tag count, and the
+        # first line is the commonest type's share of it.
+        from ecarbon.takeoff.builder import _partition_mix, gather
 
-    def test_a_single_storey_design_gets_assumed_partitions(self):
-        """No second floor datum means no stated wall height. Partitions were
-        left out; they now stand on an assumed 2.74 m plate under the stated
-        ridge (takeoff/framing.py) and every one says so."""
+        share = (_partition_mix(partitions_for(design), gather(design)[0]) or [(None, 1.0)])[0][1]
+        assert board.quantity / 0.016 == pytest.approx(run * share * 5.334 / 2, rel=0.02)
+
+    def test_a_single_storey_design_reads_its_wall_height_off_the_elevation(self):
+        """AB_ADU_01 has no second floor datum, so partitions used to stand on
+        an assumed 2.74 m plate. Its elevations state U/S ROOF FRAMING at
+        3.0 m, which levels.py now reads, so the height is inferred from the
+        drawing rather than assumed."""
         from ecarbon.models import ProjectFacts
         from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX, build_takeoff
 
@@ -222,5 +228,5 @@ class TestInTheTakeoff:
         parts = [ln for ln in takeoff.lines if ln.id.startswith(PARTITION_LINE_PREFIX)]
         assert parts
         for ln in parts:
-            assert ln.confidence.value == "assumed"
-            assert any("wall height is assumed" in a for a in ln.assumptions)
+            assert ln.confidence.value == "inferred"
+            assert "3.00 m mean storey wall height" in ln.basis.note
