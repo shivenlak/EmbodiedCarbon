@@ -807,19 +807,24 @@ def _walls(project_id: str) -> dict:
     doc = pymupdf.open(design.drawings_pdf)
     try:
         for run in measured.runs:
-            longs = [max(r[2] - r[0], r[3] - r[1]) for r in run.rects]
-            tot = sum(longs) or 1.0
-            order = sorted(range(len(run.rects)), key=lambda i: (round(run.rects[i][1]), run.rects[i][0]))
             page = doc[run.page]
-            out["pages"].append({
-                "page": run.page, "sheet_no": run.sheet,
-                "page_width": page.rect.width, "page_height": page.rect.height,
-                "length_m": run.length_m,
-                "walls": [
+            own = getattr(run, "walls", None)
+            if own:
+                # Per-wall lengths measured from the geometry itself (C7).
+                walls = [{"id": w.id, "rect": list(w.rect), "length_m": w.length_m} for w in own]
+            else:
+                longs = [max(r[2] - r[0], r[3] - r[1]) for r in run.rects]
+                tot = sum(longs) or 1.0
+                order = sorted(range(len(run.rects)), key=lambda i: (round(run.rects[i][1]), run.rects[i][0]))
+                walls = [
                     {"id": f"p{run.page}-w{n}", "rect": list(run.rects[i]),
                      "length_m": round(run.length_m * longs[i] / tot, 3)}
                     for n, i in enumerate(order)
-                ],
+                ]
+            out["pages"].append({
+                "page": run.page, "sheet_no": run.sheet,
+                "page_width": page.rect.width, "page_height": page.rect.height,
+                "length_m": run.length_m, "walls": walls,
             })
     finally:
         doc.close()
