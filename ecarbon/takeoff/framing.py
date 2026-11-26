@@ -238,15 +238,15 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
     fasm = inputs.assembly_for("F", exclude=slab_tags)
     if fasm is None or _deferred_framing(fasm) is None:
         fasm = (standard or {}).get("F") or fasm
-    flayer = _deferred_framing(fasm) if fasm is not None else None
-    if flayer is not None and upper > 0 and _JOIST_RE.search(flayer.material or ""):
-        area = fp.area_m2 * upper
+    def floor_joists(fasm, area, where):
+        flayer = _deferred_framing(fasm) if fasm is not None else None
+        if flayer is None or area <= 0 or not _JOIST_RE.search(flayer.material or ""):
+            return
         marker = f"{fasm.tag} layer {flayer.index + 1} '{flayer.material}'"
         common = [
             f"The drawings name '{flayer.material}' in {fasm.tag} and defer it to the "
             f"structural drawings, which give no quantity; this is a standard, not a reading.",
-            f"Applied to {area:.1f} m2: the {fp.area_m2:.1f} m2 footprint over {upper} "
-            f"suspended floor{'s' if upper > 1 else ''}.",
+            f"Applied to {area:.1f} m2: {where}.",
             f"Includes {FRAMING_EXTRAS:.0%} for rim boards, blocking and doubled members.",
         ]
         if _IJOIST_RE.search(flayer.material or ""):
@@ -271,7 +271,6 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                 f"Assumed standard: {std}, over the measured floor area.",
                 common, prov(fasm, flayer),
             ))
-            covered[marker] = fid
         else:
             std = f"38 x 235 mm (2x10) joists at {JOIST_SPACING_MM:.0f} mm centres"
             fid = f"ln-floor-joists-{fasm.tag.lower()}"
@@ -281,7 +280,19 @@ def framing_lines(inputs, built=(), standard=None) -> tuple[list[TakeoffLine], d
                 f"Assumed standard: {std}, over the measured floor area.",
                 common, prov(fasm, flayer),
             ))
-            covered[marker] = fid
+        covered[marker] = fid
+
+    # The ground floor framed over a crawl space (Quebec's F2) has joists too.
+    crawl = getattr(inputs, "crawl_floor", None)
+    same = crawl is not None and fasm is not None and crawl.tag == fasm.tag
+    n = upper + (1 if same else 0)
+    if n > 0:
+        where = f"the {fp.area_m2:.1f} m2 footprint over {upper} suspended floor{'s' if upper != 1 else ''}"
+        if same:
+            where += " and the ground floor over the crawl space"
+        floor_joists(fasm, fp.area_m2 * n, where)
+    if crawl is not None and not same:
+        floor_joists(crawl, fp.area_m2, f"the {fp.area_m2:.1f} m2 footprint, the ground floor over the crawl space")
 
     # ---- roof framing ------------------------------------------------------
     rasm = inputs.assembly_for("R")

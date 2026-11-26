@@ -454,3 +454,15 @@ def test_a_floor_over_a_crawl_space_is_the_ground_floor_not_a_slab():
     assert any(
         g.message.startswith("No slab on grade is counted. F2") for g in t.gaps
     )
+
+
+@needs_data
+def test_the_floor_over_a_crawl_space_gets_its_joists():
+    """F2's I-joists defer to Structural; like the upper floors, they are
+    estimated over the footprint rather than left out (A's ask, 26 Nov)."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("QC_ADU_01"))
+    joists = [ln for ln in t.lines if ln.id.startswith("ln-floor-joists-f2")]
+    assert joists and all(ln.confidence.value == "assumed" for ln in joists)
+    assert any("crawl space" in a for ln in joists for a in ln.assumptions)
