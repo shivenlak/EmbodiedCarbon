@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from ecarbon.models import Confidence, ElementClass
+from ecarbon.models import Confidence, ElementClass, GapSeverity
 from ecarbon.takeoff.builder import ELEMENT_CARBON_SHARE, coverage_report
 
 try:
@@ -466,3 +466,15 @@ def test_a_floor_over_a_crawl_space_is_the_ground_floor_not_a_slab():
     assert any(
         g.message.startswith("No slab on grade is counted. F2") for g in t.gaps
     )
+
+
+@needs_data
+def test_a_missing_foundation_plan_does_not_deny_a_measured_slab():
+    """SKMB_ADU_01 has no foundation plan but states its slab and grade beam on
+    the sections; the note said those 'cannot be produced' beside them."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("SKMB_ADU_01"))
+    gap = next(g for g in t.gaps if g.message.startswith("No readable foundation plan"))
+    assert "cannot be produced" not in gap.message
+    assert gap.severity is GapSeverity.WARNING and "ln-slab-on-grade" in gap.affects

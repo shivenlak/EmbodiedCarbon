@@ -2057,6 +2057,13 @@ def build_takeoff(
             "the exterior wall is read from the drawings' own wall notes instead; "
             "other assemblies are assumed where noted",
         ),
+        # SK/MB state the slab and grade beam on the sections; "cannot be
+        # produced" sat beside a measured slab.
+        "No readable foundation plan": (
+            [ln.id for ln in lines if ln.material == "CMHC_Concrete, CIP"
+             and ln.confidence != Confidence.ASSUMED],
+            "the foundation concrete is read from the sections and notes instead",
+        ),
     }
     # A sheet the rules could not read may still have been read as an image.
     for start, readings, classes, what in (
