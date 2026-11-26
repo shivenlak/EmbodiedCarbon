@@ -1377,6 +1377,9 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
 _MATERIAL_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"METAL\s+(STUD|Z-?GIRT|FRAMING)|FURRING\s+CHANNEL", re.I), "CMHC_Metal Framing"),
     (re.compile(r"GYPSUM", re.I), "CMHC_Gypsum Board"),
+    # Plywood is combustible, so "NON-COMBUSTIBLE EXTERIOR SHEATHING" is not it: the
+    # ON IFC models that layer as glass-fibre gypsum board, the nearest factor held.
+    (re.compile(r"NON-?\s*COMBUSTIBLE\b.*\bSHEATHING", re.I), "CMHC_Gypsum Board"),
     (re.compile(r"PLYWOOD|EXTERIOR\s+SHEATHING|OSB", re.I), "CMHC_Plywood"),
     # A subfloor or roof deck named only as sheathing: Atlantic's floors say
     # "T&G SHEATHING", 16 mm, and it was dropped. A sheathing *membrane* is a

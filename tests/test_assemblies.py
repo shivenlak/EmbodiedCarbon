@@ -723,3 +723,16 @@ def test_a_stud_size_gives_its_depth_and_furring_its_thickness():
     qc, _ = assemblies_for(get_design("QC_ADU_01"))
     furring = next(lay for lay in qc["W1"].layers if "FURRING" in lay.material)
     assert furring.thickness_mm == 19.0
+
+
+def test_non_combustible_sheathing_is_not_plywood():
+    """AB/ON W2 'NON-COMBUSTIBLE EXTERIOR SHEATHING': plywood burns, and the ON
+    IFC models the layer as glass-fibre gypsum board."""
+    from ecarbon.extract.assemblies import Layer, cmhc_material
+
+    def mat(name):
+        return cmhc_material(Layer(index=0, material=name, thickness_mm=16.0))
+
+    assert mat("NON-COMBUSTIBLE EXTERIOR SHEATHING") == "CMHC_Gypsum Board"
+    assert mat("EXTERIOR GRADE PLYWOOD SHEATHING") == "CMHC_Plywood"
+    assert mat("EXTERIOR SHEATHING") == "CMHC_Plywood"
