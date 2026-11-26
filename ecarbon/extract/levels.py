@@ -54,7 +54,7 @@ _LEVEL_LABEL_RE = re.compile(
     # T/O CONCRETE / T/O SLAB: SK/MB's ground datum is the top of the slab.
     # US sets dot it: T.O.S. / T.O. SLAB (Santa Cruz's 0'-0" under PLATE 8'-1");
     # FINISHED FLOOR: the US sections' "0'-0" FINISHED FLOOR" datum.
-    r"(?i)\b(T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|T\.\s*O\.\s*(?:S|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+FLOOR|MAIN\s+FLOOR|FINISHED\s+FLOOR|SECOND|THIRD|FOURTH"
+    r"(?i)\b(T/O\s*F/F|T/O\s*(?:CONC(?:RETE)?|SLAB)|T\.\s*O\.\s*(?:S|SLAB)|TOP\s+OF|U/S\s*OF|GROUND\s+(?:FLOOR|LEVEL)|MAIN\s+FLOOR|FINISHED\s+FLOOR|SECOND|THIRD|FOURTH"
     r"|BASEMENT|ROOF|TRUSS|PLATE|CEILING|GRADE|LEVEL\s*\d)\b"
 )
 # Labels that mark a reference line rather than a constructed floor level.
