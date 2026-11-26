@@ -213,10 +213,11 @@ def openings_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Openi
     """Every door and window row on one openings-schedule sheet."""
     spans = _spans(page)
     # The two tables are stacked, each under its own title.
+    # skmb_rowhouse titles its table "WINDOW SCHEDULE (SINGLE)", and lost every window.
     titles = [
         (y, t.upper())
         for y, _x, t in spans
-        if t.upper() in ("DOOR SCHEDULE", "WINDOW SCHEDULE")
+        if re.match(r"^(DOOR|WINDOW) SCHEDULE(\s*\([^)]*\))?$", t.strip().upper())
     ]
     if not titles:
         return []
