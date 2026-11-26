@@ -1576,6 +1576,28 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
     return built, more
 
 
+_MASONRY_RE = re.compile(r"\b(MASONRY|CMU|CONCRETE\s+BLOCK)", re.I)
+
+
+def _name_masonry_foundation(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
+    """Say so when the foundation wall line stands in for a stated block wall.
+
+    ON_Fourplex_01's N1 states 190 mm concrete masonry units; the store has no
+    masonry factor, so the line prices solid cast concrete, which overstates it.
+    """
+    wall = next((ln for ln in lines if ln.id == "ln-foundation-wall"), None)
+    asm = inputs.assembly_for("N")
+    layer = next((lay for lay in asm.layers if _MASONRY_RE.search(lay.material)), None) if asm else None
+    if wall is None or layer is None:
+        return
+    depth = f"{layer.thickness_mm:.0f} mm " if layer.thickness_mm else ""
+    wall.assumptions.append(
+        f"{asm.tag} states the foundation wall as {depth}'{layer.material}', but no masonry "
+        f"factor is in the store, so it is priced as solid cast-in-place concrete. A "
+        f"hollow-core block wall carries less, so this line overstates it."
+    )
+
+
 # A standard timber stair: three 38 x 286 mm (2x12) stringers, 38 mm treads
 # 254 mm deep, 914 mm (36") wide. Only the count and risers are read.
 STAIR_WIDTH_M, STAIR_RUN_M, STAIR_TREAD_M, STRINGER_M2 = 0.914, 0.254, 0.038, 0.038 * 0.286
@@ -1775,6 +1797,7 @@ def build_takeoff(
     gaps += std_gaps
     framed, covered = framing_lines(inputs, lines, std_used)
     lines += framed
+    _name_masonry_foundation(lines, inputs)
     lines += _stair_lines(design)
     for gap in gaps:
         for marker, line_id in covered.items():

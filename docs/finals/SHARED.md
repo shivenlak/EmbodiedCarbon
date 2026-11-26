@@ -422,3 +422,7 @@ Both fields are already in every row. Nothing new is needed from A.
 
 Demising walls (a schedule name with DEMISING or PARTY: AB/BC/ON/SKMB P tags, ATL W6/W7) are priced as `element_class: "party_wall"`. Their line IDs keep the `ln-interior-partition-` prefix, because their area is a share of the same measured or assumed partition run, so "total without partitions" still drops them. Totals are unchanged except ATL, where W6/W7 were not priced before.
 - **Ask:** add `party_wall: "Party walls"` to `CLASS_LABEL` in web/src/App.jsx. It currently falls back to "Party Wall". `scripts/accuracy.py` already maps it to interiors.
+
+### A → B, 26 Nov: a CMU factor, please
+
+ON_Fourplex_01's N1 foundation states `190 CONCRETE MASONRY UNITS`, but the store has no masonry factor, so `ln-foundation-wall` prices an assumed 200 mm solid cast-in-place wall. That overstates a hollow-core block wall. **Ask:** a `CMHC_Concrete Masonry Unit` (or generic CMU per m³ or m²) factor in `carbon/seed_factors.json`. A will then read the N1 CMU layer into the foundation line. Until then the line will say what it stands in for.

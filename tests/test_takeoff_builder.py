@@ -385,3 +385,11 @@ def test_stairs_are_counted_off_the_plans_and_say_how():
     assert st.element_class.value == "stair" and st.confidence.value == "assumed"
     assert "2 flight(s) of 16 risers" in st.description
     assert "riser label" in st.basis.note
+
+
+@needs_data
+def test_a_stated_block_foundation_says_it_is_priced_as_cast_concrete():
+    from ecarbon.takeoff.builder import build_takeoff
+
+    wall = build_takeoff(get_design("ON_Fourplex_01")).line("ln-foundation-wall")
+    assert any("CONCRETE MASONRY UNITS" in a and "overstates" in a for a in wall.assumptions)
