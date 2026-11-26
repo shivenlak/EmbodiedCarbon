@@ -65,6 +65,11 @@ See "START HERE" in SHARED.md for the UX findings, contracts C7–C10 and the sc
   - The layers the drawings name that no line prices (membranes, underlays, resilient channels) are listed with a reason, from the takeoff's own gaps; a sized layer with no factor now raises an INFO gap instead of vanishing.
   - In `/complete` (`scope`), the CSV header block, the report ("What is included"), and the complete-estimate popover (`?complete=1` opens it).
   - Named layers now priced: "ROCK OR SLAG FIBRE" and stand-alone "IN-FILL" insulation (mineral wool), cellulose (Kootenay factor), Atlantic's "T&G SHEATHING" subfloor, wood decking. 15 CMHC sets rise 1–16% (BC roof in-fill, ATL subfloor); Alberta unchanged.
+- [x] **B17. UX transcript follow-ups. Thu 26.** (user's transcript of the 25 Nov session)
+  - Swaps say where they come from: a fixed curated list in the factor store or the builder's own list, never a model ("how did you decide on those substitutions?"). Tags: on your list / new to your list (only when a list exists), Canadian factor or not, and the factor's source.
+  - Build-up per element (`/buildup/{class}`, "Build-up" beside each element, `?buildup=exterior_wall`): every drawn layer in schedule order, priced ones clickable to their calculation and editable, the rest (vapour barrier, air barrier, placeholders) with why they carry none.
+  - Framing spacing disclosed: a "From the drawn build-up" calculation step, area × thickness × timber share, and the spacing as stated or as assumed (400 mm centres, 9.5% studs + 5.5% plates and blocking).
+  - The plan set, fully interactive ("Edit the plan", `?planedit=1`, `/plan`): select any measured wall, count it or leave it out, reclassify it partition ↔ exterior, measure anything at the sheet's scale, draw a missed wall as a partition or exterior wall. Partitions rescale by length counted; the exterior wall grows by length × storey height; every changed line says so. Undo restores the total exactly.
 - [ ] **B15. Accuracy and submission. Thu night → Fri.**
   - Refresh accuracy.json after A8; a "how to audit this number" walkthrough.
   - `docs/benchmark.md`, `docs/FINALS.md`, `docs/ARCHITECTURE.md` flowchart.

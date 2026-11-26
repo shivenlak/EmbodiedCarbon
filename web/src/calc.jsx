@@ -336,3 +336,120 @@ export function ScopeTable({ scope }) {
     </div>
   );
 }
+
+// One element's build-up, layer by layer (UX session: "if I click the
+// exterior wall it should show the composite of the wall and how you
+// calculate it"). Each priced layer opens its own calculation.
+export function BuildupDrawer({ element, label, onClose }) {
+  const { api, projectId, onEdit } = useContext(CalcContext);
+  const [b, setB] = useState(null);
+  const [err, setErr] = useState(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const { calc } = useContext(CalcContext); // refetch after an edit changes the figures
+  useEffect(() => {
+    let live = true;
+    api
+      .get(`/projects/${projectId}/buildup/${element}`)
+      .then((r) => live && setB(r))
+      .catch((e) => live && setErr(e.message));
+    const esc = (e) => e.key === "Escape" && closeRef.current();
+    window.addEventListener("keydown", esc);
+    return () => {
+      live = false;
+      window.removeEventListener("keydown", esc);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, element, calc]);
+  return createPortal(
+    <div className="le-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <aside className="le bu" role="dialog" aria-label={`Build-up of ${label}`}>
+        <header className="le-head">
+          <div>
+            <div className="sc-eyebrow">What it is made of</div>
+            <h2>
+              {label}
+              {b && (
+                <span className="bu-total">
+                  {fmt(b.kg_co2e, 0)} <CO2e />
+                </span>
+              )}
+            </h2>
+          </div>
+          <button type="button" className="calc-x" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
+        {err && <p className="le-err">{err}</p>}
+        {!b && !err && <p className="calc-empty">Loading…</p>}
+        {b?.assemblies.map((a) => (
+          <section className="le-sec" key={a.tag}>
+            <h3>
+              {a.name || a.tag}
+              {a.sheet && <span className="bu-sheet"> · schedule on {a.sheet}</span>}
+            </h3>
+            <ol className="bu-layers">
+              {a.layers.map((l) => (
+                <li key={l.n} className={`bu-l is-${l.status.replace(/\s+/g, "-")}`}>
+                  <span className="bu-n">{l.n}</span>
+                  <div className="bu-body">
+                    <div className="bu-mat">{l.material}</div>
+                    <div className="calc-detail">
+                      {l.status === "priced"
+                        ? `${fmt(l.quantity)} ${l.unit === "m3" ? "m³" : l.unit === "m2" ? "m²" : l.unit} · ${l.confidence}`
+                        : l.reason}
+                    </div>
+                  </div>
+                  <div className="bu-kg">
+                    {l.kg_co2e != null ? (
+                      <Carbon value={l.kg_co2e} lineId={l.line_id} />
+                    ) : (
+                      <span className="bu-st">{l.status}</span>
+                    )}
+                    {l.line_id && onEdit && (
+                      <button type="button" className="sc-link bu-edit" onClick={() => onEdit(l.line_id)}>
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))}
+        {b?.other_lines?.length > 0 && (
+          <section className="le-sec">
+            <h3>Measured or estimated on their own lines</h3>
+            <ol className="bu-layers">
+              {b.other_lines.map((o) => (
+                <li key={o.line_id} className="bu-l">
+                  <span className="bu-n">·</span>
+                  <div className="bu-body">
+                    <div className="bu-mat">{o.material}</div>
+                    <div className="calc-detail">
+                      {fmt(o.quantity)} {o.unit === "m3" ? "m³" : o.unit === "m2" ? "m²" : o.unit === "kg" ? "kg (mass)" : o.unit} · {o.confidence}
+                      {o.kg_co2e == null ? " · the area the layers above are priced over" : ""}
+                    </div>
+                  </div>
+                  <div className="bu-kg">
+                    {o.kg_co2e != null && <Carbon value={o.kg_co2e} lineId={o.line_id} />}
+                    {o.kg_co2e != null && onEdit && (
+                      <button type="button" className="sc-link bu-edit" onClick={() => onEdit(o.line_id)}>
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+        <p className="calc-detail bu-foot">
+          Click any figure for its calculation. Layers the drawings name with no thickness (membranes, barriers) or as
+          a placeholder carry no carbon here and say why.
+        </p>
+      </aside>
+    </div>,
+    document.body,
+  );
+}

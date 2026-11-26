@@ -219,3 +219,79 @@ def scope_declaration(takeoff, carbon, complete=None) -> Scope:
         seen.add((layer.upper(), reason))
         sc.not_priced.append(NotPriced(tag, layer, reason))
     return sc
+
+
+# ---- the build-up of one element, layer by layer (UX session, 26 Nov) -------
+#
+# "If I click the exterior wall it should show what the composite of the wall
+# is and how you calculate it": framing, sheathing, insulation, vapour barrier,
+# drywall, poly. Each drawn layer in its schedule order, the priced ones with
+# their line and kgCO2e, the rest with the reason they carry none.
+
+_LINE_LAYER_RE = re.compile(r"-l(\d+)$")
+_GAP_LAYER_RE = re.compile(r"^(\S+) layer (\d+) '([^']+)'(.*)$", re.S)
+
+
+def buildup(takeoff, carbon, element_class: str) -> dict:
+    kg = {c.line_id: c.kg_co2e for c in carbon.lines}
+    mine = [ln for ln in takeoff.lines if ln.element_class.value == element_class]
+    tags = []
+    for ln in mine:
+        if ln.assembly_tag and ln.assembly_tag not in tags:
+            tags.append(ln.assembly_tag)
+    assemblies = []
+    used: set[str] = set()
+    for tag in tags:
+        layers: dict[int, dict] = {}
+        sheet = name = None
+        for ln in mine:
+            m = _LINE_LAYER_RE.search(ln.id)
+            if ln.assembly_tag != tag or not m:
+                continue
+            used.add(ln.id)
+            sheet = sheet or ln.provenance.sheet_no
+            name = name or ln.provenance.detail
+            layers[int(m.group(1)) + 1] = {
+                "n": int(m.group(1)) + 1,
+                "material": ln.description,
+                "line_id": ln.id,
+                "quantity": ln.effective_quantity,
+                "unit": ln.unit.value,
+                "confidence": ln.confidence.value,
+                "kg_co2e": kg.get(ln.id),
+                "status": "priced" if kg.get(ln.id) is not None else "not counted",
+                "reason": None if kg.get(ln.id) is not None else "no factor applied",
+            }
+        for g in takeoff.gaps:
+            m = _GAP_LAYER_RE.match(g.message)
+            if not m or m.group(1) != tag:
+                continue
+            n = int(m.group(2))
+            if n in layers:
+                continue
+            rest = m.group(4)
+            reason = _reason(rest)
+            status = "not priced"
+            if reason.startswith("left open"):
+                status = "open decision"
+            elif "estimated from" in rest:
+                status = "estimated on its own line"
+                reason = "estimated from a stated standard on its own line (see the framing estimate below)"
+            layers[n] = {"n": n, "material": m.group(3).title(), "line_id": None, "quantity": None,
+                         "unit": None, "confidence": None, "kg_co2e": None, "status": status, "reason": reason}
+        assemblies.append({
+            "tag": tag, "name": name, "sheet": sheet,
+            "layers": [layers[k] for k in sorted(layers)],
+            "kg_co2e": round(sum(v["kg_co2e"] or 0 for v in layers.values()), 1),
+        })
+    other = [
+        {"line_id": ln.id, "material": ln.description, "quantity": ln.effective_quantity,
+         "unit": ln.unit.value, "confidence": ln.confidence.value, "kg_co2e": kg.get(ln.id)}
+        for ln in mine if ln.id not in used
+    ]
+    return {
+        "element_class": element_class,
+        "assemblies": assemblies,
+        "other_lines": other,
+        "kg_co2e": round(sum(kg.get(ln.id) or 0 for ln in mine), 1),
+    }

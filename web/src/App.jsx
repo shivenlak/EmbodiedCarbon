@@ -965,6 +965,11 @@ function Substitutions({ swaps, takeoff, scenario, onScenario }) {
     });
   return (
     <div className="swaps">
+      <p className="swap-intro muted">
+        How these are chosen: each is a fixed, hand-picked like-for-like swap in the factor store
+        (same kind of product, same declared unit), or a material from your own uploaded list. No model
+        picks them. They are ranked by saving: the line's quantity × the difference in factor.
+      </p>
       {swaps.map((s, i) => {
         const on = scenario.swaps[s.line_id] === s.to_material;
         const rival = !on && scenario.swaps[s.line_id] != null;
@@ -991,6 +996,20 @@ function Substitutions({ swaps, takeoff, scenario, onScenario }) {
                     envelope still meets code
                   </div>
                 )}
+              <div className="swap-why">
+                {(s.roster_known || s.on_roster) && (
+                  <span className={`swap-tag ${s.origin === "library" || s.on_roster ? "is-roster" : "is-new"}`}>
+                    {s.origin === "library" || s.on_roster ? "on your list" : "new to your list"}
+                  </span>
+                )}
+                <span className={`swap-tag ${/^CA/.test(s.to_geography || "") ? "is-ca" : "is-far"}`}>
+                  {/^CA/.test(s.to_geography || "") ? `Canadian factor (${s.to_geography})` : "not a Canadian factor"}
+                </span>
+                <span className="swap-src">
+                  {s.origin === "library" ? "From your materials list" : "Curated like-for-like swap"} · factor from{" "}
+                  {s.to_source}
+                </span>
+              </div>
               {rival && (
                 <div className="swap-rival">
                   replaces the other swap applied to this line
@@ -2357,9 +2376,11 @@ export default function App() {
       projectId,
       api: { get: getJSON, post: postJSON, url: authedUrl },
       afterEdit,
+      onEdit: (lineId) => setEditing(lineId),
     }),
     [calc, complete, projectId, afterEdit],
   );
+  const [editing, setEditing] = useState(null);
   const showTraceRef = useRef(null);
   const showTrace = useCallback(
     async (lineId, provenance) => {
@@ -2557,6 +2578,11 @@ export default function App() {
         />
       </Suspense>
       {dialogs}
+      {editing && takeoff && (() => {
+        const ln = (takeoff.lines || []).find((l) => l.id === editing);
+        const res = (carbon?.lines || []).find((c) => c.line_id === editing);
+        return ln ? <LineEditor line={ln} carbonLine={res} onClose={() => setEditing(null)} /> : null;
+      })()}
      </CalcContext.Provider>
     </UnitsContext.Provider>
   );

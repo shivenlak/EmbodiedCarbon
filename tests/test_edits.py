@@ -197,3 +197,91 @@ def test_the_csv_and_report_carry_the_scope(client):
     assert "# scope declared against" in csv and "#   D Services" in csv
     html = client.get("/projects/demo/report.html").text
     assert "What is included" in html
+
+
+@pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+def test_the_plan_is_fully_editable_reclassify_and_draw():
+    """UX session, 26 Nov: select, deselect, reclassify, measure anything. A
+    wall reclassified as exterior leaves the partitions and grows the exterior
+    wall by length x storey height; a drawn wall's length is its two clicks at
+    the sheet's scale; undoing everything restores the total exactly."""
+    from ecarbon.api.main import _sign
+
+    c = TestClient(app)
+    me = {"x-ecarbon-session": _sign("plan-me")}
+    pid = "AB_Fourplex_01_Technical_Design_Package"
+    plan = c.get(f"/projects/{pid}/plan", headers=me).json()
+    assert plan["storey_height_m"] > 2 and plan["classes"] == ["partition", "exterior"]
+    pg = plan["pages"][0]
+    wall = pg["walls"][0]
+    base = c.get(f"/projects/{pid}/carbon", headers=me).json()["total_kg_co2e"]
+    scale = c.get(f"/projects/{pid}/pages/{pg['page']}/scale", headers=me).json()["mm_per_pt"]
+    assert scale and scale > 0
+
+    after = c.post(f"/projects/{pid}/plan", headers=me, json={
+        "classes": {wall["id"]: "exterior"},
+        "added": [{"page": pg["page"], "x0": 100, "y0": 100, "x1": 400, "y1": 100, "as": "partition"}],
+    }).json()
+    st = c.get(f"/projects/{pid}/plan", headers=me).json()
+    assert st["exterior_added_m"] == pytest.approx(wall["length_m"], abs=0.01)
+    assert st["added"][0]["length_m"] == pytest.approx(300 * scale / 1000, abs=0.01)
+    assert st["counted_m"] == pytest.approx(plan["total_m"] - wall["length_m"] + st["added"][0]["length_m"], abs=0.02)
+    lines = c.get(f"/projects/{pid}/takeoff", headers=me).json()["lines"]
+    ext = next(x for x in lines if x["id"] == "ln-exterior-wall")
+    assert "counted as exterior on the plan" in ext["override_note"]
+    assert ext["user_override"] == pytest.approx(ext["quantity"] + wall["length_m"] * plan["storey_height_m"], rel=1e-3)
+    assert after["total_kg_co2e"] != base
+
+    bad = c.post(f"/projects/{pid}/plan", headers=me, json={"classes": {wall["id"]: "roof"}})
+    assert bad.status_code == 422
+    back = c.post(f"/projects/{pid}/plan", headers=me, json={}).json()
+    assert back["total_kg_co2e"] == pytest.approx(base)
+
+
+@pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+def test_an_element_build_up_lists_every_drawn_layer():
+    """UX session: click the exterior wall and see every layer it is made of,
+    including the vapour barrier the bill cannot price, and why."""
+    c = TestClient(app)
+    b = c.get("/projects/AB_Fourplex_01_Technical_Design_Package/buildup/exterior_wall").json()
+    a = b["assemblies"][0]
+    ns = [x["n"] for x in a["layers"]]
+    assert ns == sorted(ns) and len(ns) >= 6
+    assert any(x["status"] == "priced" and x["line_id"] for x in a["layers"])
+    assert any("BARRIER" in x["material"].upper() and x["reason"] for x in a["layers"])
+    assert any(x["status"] == "open decision" for x in a["layers"])
+    priced = sum(x["kg_co2e"] or 0 for x in a["layers"]) + sum(o["kg_co2e"] or 0 for o in b["other_lines"])
+    assert priced == pytest.approx(b["kg_co2e"], abs=1.0)
+
+
+def test_swaps_say_where_they_come_from(client):
+    """Not a model: a curated list, or the builder's own."""
+    for s in client.get("/projects/demo/substitutions").json():
+        assert s["origin"] in ("curated", "library") and s["why"] and s["to_source"]
+
+
+@pytest.mark.skipif(not _HAVE_DATA, reason="$EC_DATA catalogue not present")
+def test_a_layer_calculation_discloses_its_framing_spacing():
+    """Mélanie: the framing spacing must be disclosed and checkable."""
+    from ecarbon.api.main import _sign
+
+    c = TestClient(app)
+    me = {"x-ecarbon-session": _sign("framing-me")}
+    pid = "AB_Fourplex_01_Technical_Design_Package"
+    # Rebuild so the takeoff carries this build's notes, not a prebuilt cache.
+    from ecarbon.api.main import _get
+    from ecarbon.config import get_design
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("AB_Fourplex_01"))
+    step = None
+    from ecarbon.carbon.calc_trace import explain
+
+    for ln in t.lines:
+        tr = explain(ln, None)
+        step = next((s for s in tr.steps if s.label.startswith("From the drawn build-up") and "Framing:" in s.detail), None)
+        if step:
+            break
+    assert step is not None
+    assert "400 mm centres" in step.detail and "m³" in step.detail
+    assert _get(pid) is not None and c.get(f"/projects/{pid}/calc", headers=me).status_code == 200

@@ -33,8 +33,9 @@ import {
   AppFooter,
 } from "./App.jsx";
 import { canHelp, modeFor } from "./HelpRead.jsx";
-import { CO2e, Carbon, CalcButton, CompleteLine } from "./calc.jsx";
+import { BuildupDrawer, CO2e, Carbon, CalcButton, CompleteLine } from "./calc.jsx";
 import LineEditor from "./LineEditor.jsx";
+import PlanEditor from "./PlanEditor.jsx";
 import { useUnits } from "./units.js";
 import ACCURACY from "./accuracy.json";
 import "./showcase.css";
@@ -118,6 +119,10 @@ export default function Showcase({
   const deckRef = useRef(null);
   const [panel, setPanel] = useState(0);
   const [focus, setFocus] = useState(null);
+  // ?buildup=exterior_wall opens one element's build-up (screenshot review).
+  const [buildup, setBuildup] = useState(() => new URLSearchParams(window.location.search).get("buildup"));
+  // ?planedit=1 opens the plan editor (screenshot review).
+  const [planEdit, setPlanEdit] = useState(() => new URLSearchParams(window.location.search).has("planedit"));
   const [hover, setHover] = useState(null);
   const [storey, setStorey] = useState(null);
   // The pitched roof: its ridge is measured, its shape illustrative. Only
@@ -767,6 +772,14 @@ export default function Showcase({
         </div>
         <div className="sc-sub sc-complete">
           <CompleteLine />
+          {planEdit && <PlanEditor onClose={() => setPlanEdit(false)} />}
+          {buildup && (
+            <BuildupDrawer
+              element={buildup}
+              label={CLASS_LABEL[buildup] || titleCase(buildup)}
+              onClose={() => setBuildup(null)}
+            />
+          )}
         </div>
         {restsOn && (
           <div className="sc-rests" onMouseLeave={() => setRestsHover(null)}>
@@ -1051,6 +1064,14 @@ export default function Showcase({
                           className={swatch ? "" : "is-none"}
                         />
                         {CLASS_LABEL[cls] || titleCase(cls)}
+                        <button
+                          type="button"
+                          className="sc-link sc-bu-btn"
+                          onClick={() => setBuildup(cls)}
+                          title="Every layer it is made of, and how each is calculated"
+                        >
+                          Build-up
+                        </button>
                       </span>
                       <span className="sc-bar-track">
                         <s style={{ width: `${(kg / topKg) * 100}%`, background: swatch || undefined }} />
@@ -1147,6 +1168,10 @@ export default function Showcase({
                         <span>
                           <b>{nameOf(s.line_id)}</b>
                           {s.to_material}
+                          <small className="sc-swap-why">
+                            {s.origin === "library" || s.on_roster ? "on your list" : s.roster_known ? "curated swap · new to your list" : "curated swap"}
+                            {/^CA/.test(s.to_geography || "") ? " · Canadian factor" : ""}
+                          </small>
                         </span>
                         <em>{int(s.delta_kg_co2e)} kgCO₂e</em>
                       </button>
@@ -1414,6 +1439,12 @@ export default function Showcase({
               )}
             </svg>
             <span>{broken ? "Rebuild" : "Break it apart"}</span>
+          </button>
+          <button className="sc-break" onClick={() => setPlanEdit(true)} title="Select, leave out, reclassify, measure or draw walls on the plan set">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+              <path d="M3 21l4-1 12-12-3-3L4 17l-1 4zM14 6l3 3" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Edit the plan</span>
           </button>
           <div className="sc-seg" role="group" aria-label="Camera">
             {["top", "front", "side", "under"].map((v) => (

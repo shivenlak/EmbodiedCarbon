@@ -16,6 +16,7 @@ report all read.
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 
 from ecarbon.carbon.calculate import STUD_DEPTH_M, _is_framing_by_area, reconcile_units
@@ -86,6 +87,40 @@ def factor_source(f: FactorRef) -> str:
     return "; ".join(str(b) for b in bits if b)
 
 
+_LAYER_RE = re.compile(r"^(\S+) layer (\d+) of (\d+) from the assemblies schedule; ([\d.]+) mm over ([\d.]+) m2")
+_SHARE_RE = re.compile(r"takes? (\d+)% of (?:it|the)")
+_COVER_RE = re.compile(r"at ([\d.]+)% coverage")
+_FRAMING_RE = re.compile(r"Framing: (.+?)\.(?:\s|$)")
+
+
+def _buildup_step(line: TakeoffLine) -> Step | None:
+    """For a layer of a drawn assembly: area x thickness x share, with the
+    framing spacing said, so the volume can be checked against the drawing."""
+    note = line.basis.note or ""
+    m = _LAYER_RE.search(note)
+    if not m or line.unit.value != "m3":
+        return None
+    tag, i, n, mm, area = m.group(1), m.group(2), m.group(3), float(m.group(4)), float(m.group(5))
+    parts = [f"{_num(area)} m² × {mm / 1000:.4g} m"]
+    share = _SHARE_RE.search(note)
+    if share:
+        parts.append(f"× {share.group(1)}%")
+    cover = _COVER_RE.search(line.description or "")
+    if cover:
+        parts.append(f"× {cover.group(1)}% coverage")
+    detail = " ".join(parts) + f" = {_num(line.quantity)} m³"
+    fr = _FRAMING_RE.search(note)
+    if fr:
+        detail += f". Framing: {fr.group(1)}"
+    return Step(
+        label=f"From the drawn build-up: {tag} layer {i} of {n}",
+        value=line.quantity,
+        unit=unit_word("m3"),
+        detail=detail,
+        source=(line.provenance.sheet_no or f"page {line.provenance.page + 1}") + f", assembly {tag}",
+    )
+
+
 def explain(line: TakeoffLine, cline: CarbonLine | None, chosen: str | None = None) -> CalcTrace:
     """The steps from the drawing to this line's kgCO2e."""
     qty_unit = line.unit.value
@@ -100,6 +135,9 @@ def explain(line: TakeoffLine, cline: CarbonLine | None, chosen: str | None = No
         detail=line.basis.note or "",
         source=where,
     ))
+    buildup = _buildup_step(line)
+    if buildup is not None:
+        t.steps.append(buildup)
     qty = line.effective_quantity
     if line.user_override is not None:
         t.steps.append(Step(
