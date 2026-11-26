@@ -108,6 +108,9 @@ def tag_prefix(tag: str) -> str:
     return m.group(1).upper() if m else ""
 # A metric thickness anywhere in the cell, which is the reliable signal.
 _MM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*mm", re.I)
+# A member size, two figures: ATL's stud '2 x 6 /38mm x140mm', QC's furring
+# '19mm x 64mm'. Which one is the wall depth depends on the member (see the layer loop).
+_MM_BY_MM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*mm\s*[x\u00d7]\s*(\d+(?:\.\d+)?)\s*mm", re.I)
 # Imperial: the digits, spaces and slashes immediately before an inch mark.
 # Parsed afterwards rather than in the pattern, because the sheet writes whole
 # inches (8"), fractions (3/4") and mixed numbers (5 1/2") interchangeably and
@@ -1003,6 +1006,12 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                             and bool(current.layers) and current.layers[-1].thickness_mm is None)
                 if mm is None and (paired is None or cw_alone) and not defer:
                     mm, note = thickness_in_name(material)
+                member = _MM_BY_MM_RE.search(paired or "")
+                if member and _FRAMING_RE.search(material):
+                    # A stud stands on edge, so the wall takes its larger figure (ATL
+                    # '38mm x140mm'); furring lies flat and keeps the first.
+                    mm = max(float(member.group(1)), float(member.group(2)))
+                    note = "stud size stated as two figures; the wall depth is the larger"
                 current.layers.append(
                     Layer(
                         index=len(current.layers),

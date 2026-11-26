@@ -709,3 +709,17 @@ def test_a_refer_also_row_does_not_split_studs_from_their_batt():
     assert not any("REFER ALSO" in m for m in mats)
     studs, batt = a["P2"].layers[1], a["P2"].layers[2]
     assert batt.shares_cavity_with == studs.index and not studs.deferred_to
+
+
+@needs_data
+def test_a_stud_size_gives_its_depth_and_furring_its_thickness():
+    """ATL states studs as '2 x 6 /38mm x140mm' (on edge: 140 deep); QC states
+    furring as '19mm x 64mm' (flat: 19 thick)."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    atl, _ = assemblies_for(get_design("ATL_Sixplex"))
+    studs = next(lay for lay in atl["W1"].layers if "STUD FRAMING" in lay.material)
+    assert studs.thickness_mm == 140.0
+    qc, _ = assemblies_for(get_design("QC_ADU_01"))
+    furring = next(lay for lay in qc["W1"].layers if "FURRING" in lay.material)
+    assert furring.thickness_mm == 19.0
