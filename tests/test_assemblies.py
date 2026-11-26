@@ -570,3 +570,19 @@ def test_a_blank_cavity_fill_takes_the_stud_depth_beside_it():
     w1 = assemblies_for(get_design("SKMB_ADU_01"))[0]["W1"]
     fill = next(lay for lay in w1.layers if "INFILL" in lay.material.upper())
     assert fill.thickness_mm == 140.0 and "no depth stated" in fill.note
+
+
+class TestInsulationByName:
+    """Foam boards by name, and mineral wool never priced as foam (26 Nov)."""
+
+    @pytest.mark.parametrize("name", ["EXTRUDED POLYSTYRENE INSULATION", "XPS INSULATION", "EPS BOARD", "POLYISO INSULATION", "RIGID INSULATION (R-20.0)"])
+    def test_foam_boards_are_rigid(self, name):
+        from ecarbon.extract.assemblies import Layer, cmhc_material
+
+        assert cmhc_material(Layer(index=0, material=name, thickness_mm=76.0)) == "CMHC_Insulation, Rigid"
+
+    @pytest.mark.parametrize("name", ["SEMI-RIGID INSULATION", "SEMI-RIGID MINERAL WOOL", "MINERAL WOOL BOARD", "ROCKWOOL COMFORTBOARD"])
+    def test_mineral_wool_is_not_foam(self, name):
+        from ecarbon.extract.assemblies import Layer, cmhc_material
+
+        assert cmhc_material(Layer(index=0, material=name, thickness_mm=51.0)) == "CMHC_Insulation, Mineral Wool Semi-Rigid"
