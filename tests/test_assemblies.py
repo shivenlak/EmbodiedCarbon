@@ -584,3 +584,14 @@ def test_a_wrapped_description_line_joins_the_layer_above():
     assert any("W/ ICE AND WATER SHIELD" in n and "AIR BARRIER" in n for n in names)
     wood = next(lay for lay in r1a.layers if lay.material.upper().startswith("ENGINEERED WOOD"))
     assert wood.deferred_to == "Structural"
+
+
+@needs_data
+def test_a_stray_material_row_above_the_name_does_not_name_the_block():
+    """BC's F2 block began on a 'GYPSUM WALL BOARD, TYPE X' row above its real
+    name, so the floor most of the plans tag was refused."""
+    from ecarbon.config import get_design
+    from ecarbon.extract.assemblies import assemblies_for
+
+    asm = assemblies_for(get_design("BC_Fourplex_02"))[0]
+    assert asm["F2"].name.startswith("FLOOR, SAME UNIT")

@@ -192,6 +192,7 @@ MAX_PLAUSIBLE_DEPTH_MM = 800.0
 # "2x6 WOOD STUD W/ EXTERIOR INSULATION", and an `INSULATION$` rule refused it
 # along with its whole group. The tokens kept here are ones that only ever name
 # a single layer.
+_ASSEMBLY_NAME_RE = re.compile(r"^(FLOOR|WALL|ROOF|CEILING|PARTITION)\b", re.I)
 _MATERIAL_LIKE_NAME_RE = re.compile(
     r"GYPSUM|PLACEHOLDER|PLACE\s?HOLDER|AIR\s+BARRIER|VAPOU?R\s+(?:CONTROL|BARRIER)"
     r"|STRAPPING|MEMBRANE|SHEATHING|PLYWOOD|PARGING|JOISTS?\s*@|CONCRETE\s*$"
@@ -925,6 +926,12 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 continue
             # The topmost row of a block names the assembly; the rest are its
             # layers, outside in.
+            # BC's F2 block starts on a stray "GYPSUM WALL BOARD" row above its
+            # real name "FLOOR, SAME UNIT": the name is the row that reads as one.
+            if (len(rows) > 1 and _MATERIAL_LIKE_NAME_RE.search(rows[0][1])
+                    and _ASSEMBLY_NAME_RE.search(rows[1][1])
+                    and not any(abs(ty - rows[1][0]) <= ROW_DY for ty in thicknesses)):
+                rows = rows[1:]
             name_y_val, name_text = rows[0]
             current = Assembly(
                 tag="",
