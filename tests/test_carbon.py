@@ -344,7 +344,8 @@ class TestUnspecifiedChoices:
 
     def test_the_open_decisions_are_found(self, choices):
         found, _ = choices
-        assert {c.category for c in found} == {"Cladding", "Roofing"}
+        # The drawings' placeholders, plus the floor finish they never name.
+        assert {c.category for c in found} == {"Cladding", "Roofing", "Flooring"}
 
     def test_the_area_matches_the_rest_of_the_bill(self, choices):
         """Quoting a range over a different surface than the takeoff used

@@ -605,6 +605,32 @@ def get_calc(project_id: str) -> dict:
     return {k: v.to_dict() for k, v in explain_all(p.takeoff, p.carbon, p.material_edits).items()}
 
 
+def _complete(project_id: str):
+    from ecarbon.carbon.calc_trace import explain_all
+    from ecarbon.carbon.complete import complete_estimate
+    p = _get(project_id)
+    # Choices already made in "Your spec" count at the option chosen.
+    picks = p.scenario.get("picks", {})
+    decisions = []
+    for c in get_unspecified(project_id):
+        chosen = next((o for o in c.options if o.factor_id == picks.get(f"{c.assembly_tag}-{c.category}")), None)
+        if chosen is not None:
+            c = c.model_copy(update={"low_kg_co2e": chosen.kg_co2e, "high_kg_co2e": chosen.kg_co2e})
+        decisions.append(c)
+    return complete_estimate(
+        p.takeoff, p.carbon, p.factors, decisions,
+        traces=explain_all(p.takeoff, p.carbon, p.material_edits),
+    )
+
+
+@app.get("/projects/{project_id}/complete")
+def get_complete(project_id: str) -> dict:
+    """The counted total plus what a whole-building LCA adds (A1-A5): open
+    decisions at mid-range, typical rebar, transport and construction losses.
+    Every item is assumed and says how it was calculated."""
+    return _complete(project_id).to_dict()
+
+
 @app.get("/projects/{project_id}/lines/{line_id}/calc")
 def get_line_calc(project_id: str, line_id: str) -> dict:
     from ecarbon.carbon.calc_trace import explain
@@ -1032,7 +1058,8 @@ def export_csv(project_id: str) -> PlainTextResponse:
 
     p = _get(project_id)
     return PlainTextResponse(
-        takeoff_csv(p.takeoff, p.carbon, p.geography, header=True, chosen=p.material_edits, spec=_spec(project_id)),
+        takeoff_csv(p.takeoff, p.carbon, p.geography, header=True, chosen=p.material_edits, spec=_spec(project_id),
+                    complete=_complete(project_id).to_dict()),
         media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{project_id}-takeoff.csv"'
@@ -1051,6 +1078,7 @@ def export_report(project_id: str) -> HTMLResponse:
     return HTMLResponse(report_html(
         p.takeoff, p.carbon, get_unspecified(project_id),
         traces=explain_all(p.takeoff, p.carbon, p.material_edits), spec=_spec(project_id),
+        complete=_complete(project_id).to_dict(),
     ))
 
 

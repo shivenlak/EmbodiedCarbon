@@ -549,6 +549,182 @@
       "data_type": "industry_avg",
       "uncertainty_pct": 15.0,
       "attribution": "Steel Framing Industry Association. 2,620 kg CO2e per metric ton of industry-average cold-formed steel framing (A1 2,460, A2 118, A3 35)."
+    },
+    {
+      "factor_id": "koot-floor-engineered-wood",
+      "material_key": "flooring_engineered_wood",
+      "name": "Engineered Wood Flooring",
+      "source_id": "flooring/engineered-wood",
+      "declared_unit": "m2",
+      "density_kg_m3": null,
+      "gwp_value": 6.85,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-floor-hardwood",
+      "material_key": "flooring_hardwood",
+      "name": "Hardwood Flooring",
+      "source_id": "flooring/hardwood",
+      "declared_unit": "m2",
+      "density_kg_m3": null,
+      "gwp_value": 9.79,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-floor-lvt",
+      "material_key": "flooring_lvt",
+      "name": "Luxury Vinyl Tile Flooring",
+      "source_id": "flooring/luxury-vinyl-tile",
+      "declared_unit": "m2",
+      "density_kg_m3": null,
+      "gwp_value": 11.9,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-floor-carpet",
+      "material_key": "flooring_carpet",
+      "name": "Carpet (average)",
+      "source_id": "flooring/carpet-average",
+      "declared_unit": "m2",
+      "density_kg_m3": null,
+      "gwp_value": 12.04,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-floor-ceramic",
+      "material_key": "flooring_ceramic",
+      "name": "Ceramic Tile Flooring (average)",
+      "source_id": "flooring/ceramic-tile-average",
+      "declared_unit": "m2",
+      "density_kg_m3": null,
+      "gwp_value": 14.1,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-floor-rigid-core-vinyl",
+      "material_key": "flooring_rigid_core_vinyl",
+      "name": "Rigid Core Vinyl Flooring",
+      "source_id": "flooring/rigid-core-vinyl",
+      "declared_unit": "m2",
+      "density_kg_m3": null,
+      "gwp_value": 20.5,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-rebar-steel-15m",
+      "material_key": "rebar_steel_15m",
+      "name": "Steel Rebar, 15 mm",
+      "source_id": "rebar/steel-15mm",
+      "declared_unit": "m",
+      "density_kg_m3": null,
+      "gwp_value": 1.34,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
+    },
+    {
+      "factor_id": "koot-rebar-steel-10m",
+      "material_key": "rebar_steel_10m",
+      "name": "Steel Rebar, 10 mm",
+      "source_id": "rebar/steel-10mm",
+      "declared_unit": "m",
+      "density_kg_m3": null,
+      "gwp_value": 0.67,
+      "source": "Kootenay Construction Material Impact Guide (2026)",
+      "gwp_unit": "kgCO2e",
+      "modules": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "geography": "CA",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "data_type": "industry_avg",
+      "uncertainty_pct": 15.0,
+      "attribution": "Builders for Climate Action"
     }
   ],
   "cmhc_mappings": {
@@ -704,6 +880,33 @@
       "to_factor_id": "koot-sheathing-osb",
       "description": "Replace 1/2 in softwood plywood sheathing with 1/2 in OSB. Both values are from the same guide so the difference is the material, not the database.",
       "category": "Sheathing"
+    },
+    {
+      "swap_id": "swap-floor-lvt-engwood",
+      "title": "Engineered Wood instead of Luxury Vinyl Tile",
+      "target_material": "Floor finish",
+      "from_factor_id": "koot-floor-lvt",
+      "to_factor_id": "koot-floor-engineered-wood",
+      "description": "Engineered Wood instead of Luxury Vinyl Tile, per the Kootenay guide's flooring comparison (A1-A3 per 100 m2).",
+      "category": "Flooring"
+    },
+    {
+      "swap_id": "swap-floor-carpet-hardwood",
+      "title": "Hardwood instead of Carpet",
+      "target_material": "Floor finish",
+      "from_factor_id": "koot-floor-carpet",
+      "to_factor_id": "koot-floor-hardwood",
+      "description": "Hardwood instead of Carpet, per the Kootenay guide's flooring comparison (A1-A3 per 100 m2).",
+      "category": "Flooring"
+    },
+    {
+      "swap_id": "swap-floor-rcv-ceramic",
+      "title": "Ceramic Tile instead of Rigid Core Vinyl",
+      "target_material": "Floor finish",
+      "from_factor_id": "koot-floor-rigid-core-vinyl",
+      "to_factor_id": "koot-floor-ceramic",
+      "description": "Ceramic Tile instead of Rigid Core Vinyl, per the Kootenay guide's flooring comparison (A1-A3 per 100 m2).",
+      "category": "Flooring"
     }
   ]
 }

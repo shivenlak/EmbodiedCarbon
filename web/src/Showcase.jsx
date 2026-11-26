@@ -33,7 +33,7 @@ import {
   AppFooter,
 } from "./App.jsx";
 import { canHelp, modeFor } from "./HelpRead.jsx";
-import { CO2e, Carbon, CalcButton } from "./calc.jsx";
+import { CO2e, Carbon, CalcButton, CompleteLine } from "./calc.jsx";
 import LineEditor from "./LineEditor.jsx";
 import { useUnits } from "./units.js";
 import ACCURACY from "./accuracy.json";
@@ -764,6 +764,9 @@ export default function Showcase({
               <b>{int(total / p.units)}</b> <CO2e /> per home, over {p.units}
             </span>
           )}
+        </div>
+        <div className="sc-sub sc-complete">
+          <CompleteLine />
         </div>
         {restsOn && (
           <div className="sc-rests" onMouseLeave={() => setRestsHover(null)}>
@@ -1572,7 +1575,6 @@ function AccuracyPanel() {
   const same = a.carbon_vs_ifc_same_factors;
   // Per m2: a report can cover one unit of a block the drawings show whole,
   // so totals across scopes compare nothing.
-  const cmhc = a.intensity_vs_cmhc_a1_a5 || a.carbon_vs_cmhc_a1_a5;
   const sign = (x) => (x > 0 ? `+${x}` : `${x}`);
   return (
     <section className="sc-panel sc-acc" aria-label="How accurate is it">
@@ -1615,13 +1617,41 @@ function AccuracyPanel() {
           </span>
         </p>
       )}
-      {cmhc && (
-        <p className="sc-acc-fig">
-          <b>{Math.round(cmhc.median_ratio * 100)}%</b>
-          <span>
-            of CMHC&apos;s reported A1–A5 per m² (median of {cmhc.n} designs). The rest is
-            transport and construction (A4–A5), CMHC&apos;s own factors, and the items below.
-          </span>
+      {a.carbon_vs_cmhc && (
+        <table className="sc-acc-table">
+          <thead>
+            <tr>
+              <th>Against CMHC&apos;s A1–A5 report</th>
+              <th>Median</th>
+              <th>Within 20%</th>
+              <th>Within 30%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ["Counted from the drawings (A1–A3)", a.carbon_vs_cmhc.counted_a1_a3],
+              ["Complete estimate (A1–A5)", a.carbon_vs_cmhc.complete_a1_a5],
+            ].map(([name, r]) => (
+              <tr key={name}>
+                <td>{name}</td>
+                <td>{Math.round(r.median_ratio * 100)}%</td>
+                <td>
+                  {r.within_20pct} of {r.n}
+                </td>
+                <td>
+                  {r.within_30pct} of {r.n}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {a.carbon_vs_cmhc && (
+        <p className="sc-acc-note">
+          The complete estimate adds what CMHC&apos;s figure includes and the drawings do not state: the
+          open decisions (cladding, roofing, floor finish) at mid-range, typical reinforcing steel, transport
+          to site (A4) and construction losses (A5). Each is assumed and shown with its calculation. What is
+          still missing is mostly upper floors and interiors the tool does not yet read.
         </p>
       )}
       <h3>Left out or estimated, and said so on every bill</h3>
@@ -1629,7 +1659,7 @@ function AccuracyPanel() {
         <li>Estimated, not read: frost walls and footings where strip footings are drawn without a section (marked assumed); full basements are not counted</li>
         <li>Estimated, not read: steel studs (a standard 18 ga section, priced from the SFIA EPD)</li>
         <li>Estimated, not read: a standard Part 9 wall, roof or floor build-up where the drawings&apos; own schedule cannot be read (marked assumed)</li>
-        <li>Priced as a range, not counted: cladding and roofing the drawings leave as placeholders</li>
+        <li>Priced as a range, not counted: cladding, roofing and floor finish the drawings leave open (in the complete estimate at mid-range)</li>
         <li>Estimated, not read: floor joists and roof trusses (a stated standard over measured spans, marked assumed)</li>
       </ul>
       {a.blind_holdout ? (
