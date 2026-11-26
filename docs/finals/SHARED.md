@@ -110,7 +110,12 @@ Ten non-CMHC Ontario sets are in `corpus/sources.yaml` and `~/ec-data/global/` (
 What the rules read today on the dev sets: 4 of 6 read nothing and 2 give only an assumed foundation and roof.
 - The Toronto suites have no sheet numbers in their title blocks, so classification falls back to content.
 - The Mississauga files are one sheet each, and most aren't typed.
-- **A8 should take these first:** they are the Canadian non-CMHC coverage the judges will ask about.
+- **Who does what (changed 25 Nov night, Shiven's call):** the plan sets are on Shiven's machine, so **B does the reading fixes on these six dev sets**. The blind protocol still holds:
+  - B wrote the holdout answer key first (`corpus/holdout_truth.yaml`, Canadian section, committed before any rule change);
+  - B tunes only on the dev sets and does not open the four multiplexes again until scoring.
+  - Before the key, B saw only one automatic run's summary of them (totals, line counts, element types), not the drawings' details.
+  - The judges are told the same team wrote the key and the rules.
+- A8 on CMHC accuracy stays with A.
 
 `scripts/fetch_corpus.py --split dev` fetches the dev sets. If the Mississauga entries fail there, the sheets are listed on its publication pages.
 
