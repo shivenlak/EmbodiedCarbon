@@ -180,7 +180,7 @@ class TestUploadingAPlanSet:
         # 20 lines until the deferred I-joists (flanges, webs) and trusses were
         # estimated (takeoff/framing.py): 23; 24 with the W2 steel-stud estimate;
         # 37 once the partitions were split by type (P1, P2, P3, P5).
-        assert body["n_lines"] == 37
+        assert body["n_lines"] == 38  # 37 + ln-stairs (A8)
         # The Alberta gate's figure: 38,501 since the joist and truss estimates
         # (38,075 before; framing at its stud share); 45,167 with steel studs;
         # 46,880 with the partitions split by type.
@@ -330,7 +330,7 @@ class TestUploadingSeveralFiles:
         assert resp.status_code == 201, resp.text
         body = resp.json()
         # The same drawings in two files give the same bill as one file.
-        assert body["n_lines"] == 37
+        assert body["n_lines"] == 38  # 37 + ln-stairs (A8)
         assert body["total_kg_co2e"] == pytest.approx(46880, rel=0.02)
         pages = client.get(f"/projects/{body['id']}/pages").json()
         assert len(pages) == src.page_count

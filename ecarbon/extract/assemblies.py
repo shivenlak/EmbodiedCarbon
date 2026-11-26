@@ -192,6 +192,7 @@ MAX_PLAUSIBLE_DEPTH_MM = 800.0
 # "2x6 WOOD STUD W/ EXTERIOR INSULATION", and an `INSULATION$` rule refused it
 # along with its whole group. The tokens kept here are ones that only ever name
 # a single layer.
+_ASSEMBLY_NAME_RE = re.compile(r"^(FLOOR|WALL|ROOF|CEILING|PARTITION)\b", re.I)
 _MATERIAL_LIKE_NAME_RE = re.compile(
     r"GYPSUM|PLACEHOLDER|PLACE\s?HOLDER|AIR\s+BARRIER|VAPOU?R\s+(?:CONTROL|BARRIER)"
     r"|STRAPPING|MEMBRANE|SHEATHING|PLYWOOD|PARGING|JOISTS?\s*@|CONCRETE\s*$"
@@ -307,6 +308,9 @@ class Layer:
     is_placeholder: bool = False
     # Index of the layer this one shares a cavity with, if any.
     shares_cavity_with: int | None = None
+    # A "C/W" fill inside a cavity whose depth is not stated: priced at its own
+    # stated depth, but not added to the built depth, which it sits inside.
+    in_cavity: bool = False
     # Set when the thickness cell is there and says VAR, VARIES, N/A or "-":
     # the drawing declining to give a depth, not a depth we failed to read.
     stated_no_thickness: bool = False
@@ -423,7 +427,7 @@ class Assembly:
         seen: set[int] = set()
         total = 0.0
         for layer in self.layers:
-            if layer.thickness_mm is None or layer.index in seen:
+            if layer.thickness_mm is None or layer.index in seen or layer.in_cavity:
                 continue
             total += layer.thickness_mm
             if layer.shares_cavity_with is not None:
@@ -925,6 +929,12 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 continue
             # The topmost row of a block names the assembly; the rest are its
             # layers, outside in.
+            # BC's F2 block starts on a stray "GYPSUM WALL BOARD" row above its
+            # real name "FLOOR, SAME UNIT": the name is the row that reads as one.
+            if (len(rows) > 1 and _MATERIAL_LIKE_NAME_RE.search(rows[0][1])
+                    and _ASSEMBLY_NAME_RE.search(rows[1][1])
+                    and not any(abs(ty - rows[1][0]) <= ROW_DY for ty in thicknesses)):
+                rows = rows[1:]
             name_y_val, name_text = rows[0]
             current = Assembly(
                 tag="",
@@ -945,6 +955,9 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                 # simply not stated, which is a gap rather than a reason to drop
                 # the material from the build-up.
                 mm, note = parse_thickness(paired) if paired is not None else (None, None)
+                if paired is None and current.layers and _continues(current.layers[-1], text):
+                    _join(current.layers[-1], text)
+                    continue
                 material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", text)).strip(" ,")
                 if not material:
                     # The whole cell was a cross-reference, e.g. F1's bare
@@ -954,7 +967,11 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                         current.layers[-1].deferred_to = defer_match(text)
                     continue
                 defer = _DEFER_RE.search(text)
-                if mm is None and paired is None and not defer:
+                # A "C/W" cell shares the cavity above; where that layer states no
+                # depth either (BC F2's joists), the fill's own "5 1/2"" is the depth.
+                cw_alone = (paired is not None and paired.strip().upper() == "C/W"
+                            and bool(current.layers) and current.layers[-1].thickness_mm is None)
+                if mm is None and (paired is None or cw_alone) and not defer:
                     mm, note = thickness_in_name(material)
                 current.layers.append(
                     Layer(
@@ -964,6 +981,7 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
                         note=note,
                         deferred_to=defer.group(1).title() if defer else None,
                         is_placeholder=bool(_PLACEHOLDER_RE.search(text)),
+                        in_cavity=cw_alone and mm is not None,
                         stated_no_thickness=(
                             paired is not None
                             and paired.strip().upper() in _NO_THICKNESS
@@ -984,6 +1002,32 @@ def assemblies_on_page(page: pymupdf.Page, sheet: str | None = None) -> list[Ass
             asm.group_letter = tag_prefix(asm.tag)
         _mark_shared_cavities(asm.layers)
     return [a for a in out if a.layers and a.tag]
+
+
+# A wrapped description line, not a layer: ATL's R1a runs "ENGINEERED WOOD
+# STRUCTURE REFER TO / STRUCTURAL. MINIMUM TRUSS DEPTHS TO BE / COORDINATED ...
+# / DEPTHS." over four rows, which read as 16 layers and refused the roof.
+_CONT_END_RE = re.compile(r"(\b(TO|OF|AND|OR|WITH|FOR|BE|THE|IN|AT|ON|BETWEEN)|W/|[,&-])$", re.I)
+_CONT_START_RE = re.compile(r"^(W/|C/W|AT|AND|OR|WITH|TO|FOR|OF|IN|ON|BE)(?=\s|$)|^\d+\s*X\s*\d+", re.I)
+
+
+def _continues(prev: Layer, text: str) -> bool:
+    """Whether a row with no thickness cell is the layer above, wrapped."""
+    t = text.strip()
+    return bool(
+        _CONT_END_RE.search(prev.material.strip())
+        or _CONT_START_RE.match(t)
+        or re.fullmatch(r"[A-Z][A-Z-]+\.", t, re.I)
+    )
+
+
+def _join(prev: Layer, text: str) -> None:
+    merged = f"{prev.material} {text.strip()}"
+    defer = _DEFER_RE.search(merged)
+    if defer and not prev.deferred_to:
+        prev.deferred_to = defer.group(1).title()
+    prev.material = _CW_TAIL_RE.sub("", _DEFER_RE.sub("", merged)).strip(" ,")
+    prev.is_placeholder = prev.is_placeholder or bool(_PLACEHOLDER_RE.search(text))
 
 
 def _attach_tags(assemblies: list[Assembly], tags: list[tuple[float, float, str]]) -> None:

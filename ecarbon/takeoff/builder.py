@@ -38,6 +38,7 @@ above it and is taken from the storey below (RESEARCH S20).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -53,7 +54,13 @@ from ecarbon.extract.assemblies import (
     cmhc_material,
     dominant_tag,
 )
-from ecarbon.extract.levels import Level, StoreyHeights, storey_heights_for
+from ecarbon.extract.levels import (
+    LadderFooting,
+    Level,
+    StoreyHeights,
+    footing_on_ladder,
+    storey_heights_for,
+)
 from ecarbon.extract.specs import FoundationSpec, foundation_spec_for
 from ecarbon.geometry.footprint import REFUSE_PCT, Footprint, detect_footprint
 from ecarbon.geometry.scale import ScaleEstimate, ScaleSource, calibrate
@@ -143,6 +150,8 @@ class TakeoffInputs:
     footprint_uncorroborated: bool = False
     assemblies: dict[str, Assembly] = field(default_factory=dict)
     tag_refs: dict[str, int] = field(default_factory=dict)
+    # Top of footing measured off a datum ladder that prints no elevation for it.
+    ladder_footing: LadderFooting | None = None
     # The same, counted on floor plans only: how the partition run is split by type.
     plan_tag_refs: dict[str, int] = field(default_factory=dict)
     # Sheet number -> page, so a line that cites a sheet points at that sheet's
@@ -424,6 +433,16 @@ def gather(
         )
 
     inputs.spec = foundation_spec_for(design)
+    if inputs.spec.strip_footings and inputs.spec.foundation_wall_height_mm is None:
+        lf = footing_on_ladder(design)
+        # The same range a stated wall height must fall in; BC's 0.6 m crawlspace
+        # footing stays on the frost-depth estimate.
+        if lf and 1.5 <= -lf.elevation_m <= 3.6:
+            inputs.ladder_footing = lf
+            inputs.spec.foundation_wall_height_mm = round(-lf.elevation_m * 1000)
+            inputs.spec.sources.append(
+                f"{lf.sheet_no}: T/O FOOTING drawn at {lf.elevation_m:.2f} m on the datum ladder"
+            )
     # The floor assembly depth is what separates a gross wall height from a
     # thermal one; without it only the gross basis is available.
     inputs.heights = storey_heights_for(design, floor_assembly_mm=333.0)
@@ -1381,6 +1400,12 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
 # than read off a schedule, so they are named here for callers that report a
 # total with and without them.
 PARTITION_LINE_PREFIX = "ln-interior-partition"
+_PARTY_RE = re.compile(r"\b(DEMISING|PARTY)\b", re.I)
+
+
+def _is_party_wall(asm) -> bool:
+    """A demising (party) wall between units, by the schedule's own name."""
+    return bool(_PARTY_RE.search(asm.name or ""))
 
 
 # Partition wall area per m2 of floor, where the plans' linework cannot be
@@ -1432,26 +1457,42 @@ def _assumed_partition_lines(
             "No partition assembly could be read either, so a standard 38 x 89 mm stud "
             "partition with gypsum both faces is assumed."
         )
-    def expand(a, extra):
+    def expand(a, extra, area=est, cls=ElementClass.INTERIOR_PARTITION, note=""):
         return _assembly_lines(
             a,
-            est,
-            ElementClass.INTERIOR_PARTITION,
+            area,
+            cls,
             confidence=Confidence.ASSUMED,
-            area_note=f"Area assumed from the floor area: {est:.0f} m2 of partition wall.",
+            area_note=f"Area assumed from the floor area: {est:.0f} m2 of partition wall{note}.",
             extra_assumptions=assumptions + extra,
         )
 
-    built, more = expand(asm, [])
-    if drawn is not None:
-        from ecarbon.takeoff.framing import missing_layer_lines
-
-        faces, _ = missing_layer_lines(
-            "P", built, inputs, _assembly_lines, est, ElementClass.INTERIOR_PARTITION,
-            Confidence.ASSUMED, f"Area assumed from the floor area: {est:.0f} m2 of partition wall.",
-            assumptions,
+    # The same split by floor-plan tag count the measured run uses, so a
+    # demising wall is priced as itself rather than as P1.
+    mix = (_partition_mix(None, inputs) if drawn is not None else None) or [(asm, 1.0, 0.0)]
+    if len(mix) > 1:
+        split = ", ".join(f"{a.tag} {inputs.plan_tag_refs[a.tag]}" for a, _s, _m in mix)
+        assumptions.append(
+            f"It is split across the partition types in proportion to how often the "
+            f"floor plans tag each ({split})."
         )
-        built += faces
+    built, more = [], []
+    for a, share, _m in mix:
+        part = round(est * share, 2)
+        cls = ElementClass.PARTY_WALL if _is_party_wall(a) else ElementClass.INTERIOR_PARTITION
+        note = f", {share:.0%} of it {a.tag} by tag count" if len(mix) > 1 else ""
+        made, gaps = expand(a, [], part, cls, note)
+        more += gaps
+        if drawn is not None:
+            from ecarbon.takeoff.framing import missing_layer_lines
+
+            faces, _ = missing_layer_lines(
+                "P", made, inputs, _assembly_lines, part, cls, Confidence.ASSUMED,
+                f"Area assumed from the floor area: {part:.0f} m2 of {a.tag} partition wall.",
+                assumptions,
+            )
+            made += faces
+        built += made
     if not built and drawn is not None:
         # The drawn assembly states no layer depth that gives a volume.
         built, more = expand(_standard_assembly("P", inputs), [
@@ -1461,7 +1502,7 @@ def _assumed_partition_lines(
     if not built:
         return [], more
     for line in built:
-        line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
+        line.id = re.sub(r"^ln-(interior-partition|party-wall)-", f"{PARTITION_LINE_PREFIX}-", line.id)
     more.append(
         Gap(
             code=GapCode.GEOMETRY_AMBIGUOUS,
@@ -1494,12 +1535,12 @@ def _partition_mix(measured, inputs: TakeoffInputs) -> list[tuple] | None:
     refs = inputs.plan_tag_refs
     p_asms = {
         t: a for t, a in inputs.assemblies.items()
-        if t.upper().startswith("P") and refs.get(t)
+        if refs.get(t) and (t.upper().startswith("P") or _is_party_wall(a))
     }
     total = sum(refs[t] for t in p_asms)
     if len(p_asms) < 2 or not total:
         return None
-    run = measured.total_length_m
+    run = measured.total_length_m if measured is not None else 0.0
     return [
         (p_asms[t], refs[t] / total, run * refs[t] / total)
         for t in sorted(p_asms, key=lambda t: (-refs[t], t))
@@ -1574,10 +1615,11 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
     built, more = [], []
     for a, share, metres in mix:
         part = round(area * share, 2)
+        cls = ElementClass.PARTY_WALL if _is_party_wall(a) else ElementClass.INTERIOR_PARTITION
         made, gaps = _assembly_lines(
             a,
             part,
-            ElementClass.INTERIOR_PARTITION,
+            cls,
             confidence=Confidence.INFERRED,
             area_note=(
                 f"Area is {metres:.1f} m of "
@@ -1589,13 +1631,15 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
             extra_assumptions=shared,
         )
         faces, _ = missing_layer_lines(
-            "P", made, inputs, _assembly_lines, part, ElementClass.INTERIOR_PARTITION,
+            "P", made, inputs, _assembly_lines, part, cls,
             Confidence.ASSUMED, f"Area is the {part:.1f} m2 of {a.tag} partition measured.",
         )
         built += made + faces
         more += gaps
     for line in built:
-        line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
+        # A party wall's share comes out of the same measured run, so it keeps
+        # the partition prefix: the total "without partitions" still drops it.
+        line.id = re.sub(r"^ln-(interior-partition|party-wall)-", f"{PARTITION_LINE_PREFIX}-", line.id)
 
     more.append(
         Gap(
@@ -1614,6 +1658,86 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
         )
     )
     return built, more
+
+
+_MASONRY_RE = re.compile(r"\b(MASONRY|CMU|CONCRETE\s+BLOCK)", re.I)
+
+
+def _name_masonry_foundation(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
+    """Say so when the foundation wall line stands in for a stated block wall.
+
+    ON_Fourplex_01's N1 states 190 mm concrete masonry units; the store has no
+    masonry factor, so the line prices solid cast concrete, which overstates it.
+    """
+    wall = next((ln for ln in lines if ln.id == "ln-foundation-wall"), None)
+    asm = inputs.assembly_for("N")
+    layer = next((lay for lay in asm.layers if _MASONRY_RE.search(lay.material)), None) if asm else None
+    if wall is None or layer is None:
+        return
+    depth = f"{layer.thickness_mm:.0f} mm " if layer.thickness_mm else ""
+    wall.assumptions.append(
+        f"{asm.tag} states the foundation wall as {depth}'{layer.material}', but no masonry "
+        f"factor is in the store, so it is priced as solid cast-in-place concrete. A "
+        f"hollow-core block wall carries less, so this line overstates it."
+    )
+
+
+def _name_ladder_footing(lines: list[TakeoffLine], inputs: TakeoffInputs) -> None:
+    """Say the wall height was measured off the datum ladder, not printed."""
+    lf = inputs.ladder_footing
+    wall = next((ln for ln in lines if ln.id == "ln-foundation-wall"), None)
+    if lf is None or wall is None:
+        return
+    wall.assumptions.append(
+        f"The height is measured, not printed: sheet {lf.sheet_no} labels T/O FOOTING on its "
+        f"datum ladder with no elevation, and where it is drawn puts it {-lf.elevation_m:.2f} m "
+        f"below the ground floor. The wall is taken as running from there to the ground floor."
+    )
+
+
+# A standard timber stair: three 38 x 286 mm (2x12) stringers, 38 mm treads
+# 254 mm deep, 914 mm (36") wide. Only the count and risers are read.
+STAIR_WIDTH_M, STAIR_RUN_M, STAIR_TREAD_M, STRINGER_M2 = 0.914, 0.254, 0.038, 0.038 * 0.286
+
+
+def _stair_lines(design) -> list[TakeoffLine]:
+    """Stair flights counted off the floor plans, priced as a standard timber stair."""
+    from ecarbon.extract.stairs import stairs_on_plans
+
+    try:
+        st = stairs_on_plans(design)
+    except Exception:
+        return []
+    if st is None:
+        return []
+    n = st.risers
+    stringer = math.hypot((n - 1) * STAIR_RUN_M, n * st.rise_mm / 1000)
+    per = 3 * STRINGER_M2 * stringer + (n - 1) * STAIR_WIDTH_M * STAIR_RUN_M * STAIR_TREAD_M
+    return [TakeoffLine(
+        id="ln-stairs",
+        element_class=ElementClass.STAIR,
+        quantity=round(per * st.flights, 3),
+        unit=Unit.M3,
+        confidence=Confidence.ASSUMED,
+        material="CMHC_Wood Framing",
+        description=f"Stairs, estimated: {st.flights} flight(s) of {n} risers @ {st.rise_mm:.0f} mm",
+        basis=Basis(
+            sources=[BasisSource.DEFAULT_RULE],
+            note=(
+                f"Flights counted off the floor plans: {st.up_marks} UP arrow(s) and "
+                f"{st.riser_labels} riser label(s), each flight labelled on the floor it leaves "
+                f"and the one it reaches, so the larger of the arrows and half the labels. "
+                f"Risers per flight are the median stated."
+            ),
+        ),
+        assumptions=[
+            "Assumed standard: three 38 x 286 mm (2x12) stringers, 38 mm treads 254 mm deep, "
+            "914 mm wide, all timber; a concrete or steel stair would be far heavier.",
+            "On the CMHC models this count matched the IFC's flights or fell short, never "
+            "over (AB_Rowhouse_01 reads 1 of 4); landings, handrails and guards are not counted.",
+        ],
+        provenance=Provenance(page=st.page, sheet_no=st.sheet_no, detail="stair riser label", bbox=st.bbox),
+    )]
 
 
 def build_takeoff(
@@ -1773,6 +1897,9 @@ def build_takeoff(
     fw_lines, fw_gaps = _foundation_wall_layers(inputs, lines)
     lines += fw_lines
     gaps += fw_gaps
+    _name_masonry_foundation(lines, inputs)
+    _name_ladder_footing(lines, inputs)
+    lines += _stair_lines(design)
     for gap in gaps:
         for marker, line_id in covered.items():
             if marker in gap.message and gap.message.startswith("Foundation:"):

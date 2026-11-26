@@ -349,16 +349,60 @@ def test_a_family_tag_uses_its_first_scheduled_variant_and_says_so():
     assert any("plans tag W1" in g.message and "W1.1, the first" in g.message for g in t.gaps)
 
 
-@needs_data
 def test_a_refused_main_roof_is_not_priced_as_a_minor_one():
-    """ATL_Fourplex_01 Option 2 tags R2a 13 times and the R4 deck 3; R2a is
-    refused, so the roof is the assumed standard, not R4 over the footprint."""
+    """ATL_Fourplex_01 Option 2 tags R2a 13 times and the R4 deck 3. Were R2a
+    refused, R4 must not be priced over the whole footprint."""
+    from ecarbon.extract.assemblies import Assembly
+    from ecarbon.takeoff.builder import TakeoffInputs
+
+    deck = Assembly(tag="R4", name="DECK", layers=[])
+    inputs = TakeoffInputs(assemblies={"R4": deck}, tag_refs={"R2a": 13, "R4": 3})
+    assert inputs.assembly_for("R") is None
+    inputs.tag_refs = {"R2a": 2, "R4": 3}
+    assert inputs.assembly_for("R") is deck
+
+
+@needs_data
+def test_atl_prices_its_main_roof_not_the_deck():
     from ecarbon.takeoff.builder import build_takeoff
 
-    t = build_takeoff(get_design("ATL_Fourplex_01_Technical_Design_Package_Option2"))
-    ids = {ln.id for ln in t.lines}
+    ids = {ln.id for ln in build_takeoff(get_design("ATL_Fourplex_01_Technical_Design_Package_Option2")).lines}
+    assert any(i.startswith("ln-roof-assembly-r2a-") for i in ids)
     assert not any(i.startswith("ln-roof-assembly-r4-") for i in ids)
-    assert any(i.startswith("ln-roof-assembly-std-r-") for i in ids)
+
+
+@needs_data
+def test_demising_walls_are_party_walls_inside_the_partition_run():
+    """AB tags its demising wall P3, ATL tags W6; both are priced as party walls
+    but keep the partition prefix, so the total without partitions drops them."""
+    from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX, build_takeoff
+
+    for key, tag in (("AB_Fourplex_01", "p3"),
+                     ("ATL_Fourplex_01_Technical_Design_Package_Option2", "w6")):
+        party = [ln for ln in build_takeoff(get_design(key)).lines
+                 if ln.element_class.value == "party_wall"]
+        assert party and all(ln.id.startswith(PARTITION_LINE_PREFIX) for ln in party)
+        assert any(ln.id.startswith(f"{PARTITION_LINE_PREFIX}-{tag}-") for ln in party)
+
+
+@needs_data
+def test_stairs_are_counted_off_the_plans_and_say_how():
+    """AB_Fourplex_01's plans label each flight on both floors (4 riser labels,
+    1 UP arrow); its IFC has 2 flights."""
+    from ecarbon.takeoff.builder import build_takeoff
+
+    st = build_takeoff(get_design("AB_Fourplex_01")).line("ln-stairs")
+    assert st.element_class.value == "stair" and st.confidence.value == "assumed"
+    assert "2 flight(s) of 16 risers" in st.description
+    assert "riser label" in st.basis.note
+
+
+@needs_data
+def test_a_stated_block_foundation_says_it_is_priced_as_cast_concrete():
+    from ecarbon.takeoff.builder import build_takeoff
+
+    wall = build_takeoff(get_design("ON_Fourplex_01")).line("ln-foundation-wall")
+    assert any("CONCRETE MASONRY UNITS" in a and "overstates" in a for a in wall.assumptions)
 
 
 @needs_data
@@ -381,3 +425,18 @@ def test_an_untagged_slab_assembly_still_gives_its_layers():
 
     t = build_takeoff(get_design("ATL_ADU_01"))
     assert any(ln.id.startswith("ln-slab-on-grade-f1-") and ln.material == "CMHC_Insulation, Rigid" for ln in t.lines)
+
+
+@needs_data
+def test_a_footing_drawn_on_the_datum_ladder_sets_the_wall_height_and_says_so():
+    """QC labels T/O FOOTING on its elevations without an elevation; drawn
+    under GROUND FLOOR 0 / SECOND 3 / THIRD 6, it is at -2.44 m (the IFC's)."""
+    from ecarbon.extract.levels import footing_on_ladder
+    from ecarbon.takeoff.builder import build_takeoff
+
+    assert abs(footing_on_ladder(get_design("QC_Sixplex")).elevation_m + 2.438) < 0.01
+    wall = build_takeoff(get_design("QC_Sixplex")).line("ln-foundation-wall")
+    assert "2.44 m" in wall.description
+    assert any("measured, not printed" in a for a in wall.assumptions)
+    # Two dated datums cannot show the ladder is straight, so nothing is measured.
+    assert footing_on_ladder(get_design("QC_ADU_01")) is None

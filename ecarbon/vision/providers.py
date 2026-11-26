@@ -9,13 +9,30 @@ optional `vision` extra and are imported only when a provider is built.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
+from pathlib import Path
 from typing import Protocol
 
 from ecarbon.vision.tasks import PROMPTS, SCHEMAS, Task
 
 log = logging.getLogger(__name__)
+
+# $ per million tokens (input, output), first-party API rates, Nov 2026.
+PRICE_PER_MTOK = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0)}
+
+
+def _usage_log() -> Path:
+    return Path(os.environ.get("ECARBON_VISION_USAGE", "~/.cache/ecarbon/vision_usage.jsonl")).expanduser()
+
+
+def spent_usd() -> float:
+    """Dollars logged so far in the usage log (ECARBON_VISION_USAGE)."""
+    try:
+        return sum(json.loads(ln)["usd"] for ln in _usage_log().read_text().splitlines() if ln.strip())
+    except FileNotFoundError:
+        return 0.0
 
 
 class Provider(Protocol):
@@ -37,6 +54,11 @@ class ClaudeProvider:
     def read(self, png: bytes, task: Task) -> dict | None:
         import anthropic
 
+        # A hard stop, so an overnight run cannot spend past what was agreed.
+        budget = os.environ.get("ECARBON_VISION_BUDGET_USD")
+        if budget is not None and spent_usd() >= float(budget):
+            log.warning("vision (claude) budget $%s reached; %s not read", budget, task)
+            return None
         try:
             response = self._client.messages.parse(
                 model=self.model,
@@ -63,10 +85,20 @@ class ClaudeProvider:
         except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
             log.warning("vision (claude) %s failed: %s", task, e)
             return None
+        self._log_usage(task, response.usage)
         if response.stop_reason != "end_turn" or response.parsed_output is None:
             log.warning("vision (claude) %s stopped: %s", task, response.stop_reason)
             return None
         return response.parsed_output.model_dump()
+
+    def _log_usage(self, task: Task, usage) -> None:
+        pin, pout = PRICE_PER_MTOK.get(self.model, (4.0, 20.0))
+        usd = (usage.input_tokens * pin + usage.output_tokens * pout) / 1e6
+        path = _usage_log()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as f:
+            f.write(json.dumps({"model": self.model, "task": str(task), "in": usage.input_tokens,
+                                "out": usage.output_tokens, "usd": round(usd, 5)}) + "\n")
 
 
 class GeminiProvider:

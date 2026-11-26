@@ -572,6 +572,31 @@ def test_a_blank_cavity_fill_takes_the_stud_depth_beside_it():
     assert fill.thickness_mm == 140.0 and "no depth stated" in fill.note
 
 
+@needs_data
+def test_a_wrapped_description_line_joins_the_layer_above():
+    """ATL's R1a wraps four of its layers over two to four rows each; read row
+    by row it had 16 layers and was refused as merged blocks."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    r1a = assemblies_for(get_design("ATL_Fourplex_01_Technical_Design_Package_Option2"))[0]["R1a"]
+    names = [lay.material.upper() for lay in r1a.layers]
+    assert len(names) == 12
+    assert any("W/ ICE AND WATER SHIELD" in n and "AIR BARRIER" in n for n in names)
+    wood = next(lay for lay in r1a.layers if lay.material.upper().startswith("ENGINEERED WOOD"))
+    assert wood.deferred_to == "Structural"
+
+
+@needs_data
+def test_a_stray_material_row_above_the_name_does_not_name_the_block():
+    """BC's F2 block began on a 'GYPSUM WALL BOARD, TYPE X' row above its real
+    name, so the floor most of the plans tag was refused."""
+    from ecarbon.config import get_design
+    from ecarbon.extract.assemblies import assemblies_for
+
+    asm = assemblies_for(get_design("BC_Fourplex_02"))[0]
+    assert asm["F2"].name.startswith("FLOOR, SAME UNIT")
+
+
 class TestInsulationByName:
     """Foam boards by name, and mineral wool never priced as foam (26 Nov)."""
 
@@ -586,3 +611,18 @@ class TestInsulationByName:
         from ecarbon.extract.assemblies import Layer, cmhc_material
 
         assert cmhc_material(Layer(index=0, material=name, thickness_mm=51.0)) == "CMHC_Insulation, Mineral Wool Semi-Rigid"
+
+
+@needs_data
+def test_a_cavity_fill_with_its_own_depth_is_priced_but_not_added_to_the_depth():
+    """BC's F2 batt reads "C/W" beside joists that state no depth; the batt's
+    own 5 1/2" is its depth, and it sits inside the joist cavity."""
+    from ecarbon.config import get_design
+    from ecarbon.extract.assemblies import assemblies_for
+
+    f2 = assemblies_for(get_design("BC_Fourplex_02"))[0]["F2"]
+    batt = next(lay for lay in f2.layers if "BATT" in lay.material)
+    assert batt.thickness_mm == 139.7 and batt.in_cavity and batt.quantifiable
+    assert f2.total_thickness_mm == sum(
+        lay.thickness_mm for lay in f2.layers if lay.thickness_mm and not lay.in_cavity
+    )
