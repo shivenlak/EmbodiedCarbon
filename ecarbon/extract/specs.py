@@ -64,6 +64,12 @@ _SLAB_ALT_RES = (
     re.compile(r"(?<![\d.])(\d{2,3})\s*THK\.?\s*(?:CONC(?:RETE)?\.?\s*)?SLAB(?!\s*:)", re.I),
     # 'CONCRETE SLAB ON GRADE, 100mm THICK'
     re.compile(r"SLAB(?:\s+ON\s+GRADE)?\s*[,\-]?\s*(\d{2,3})\s*mm\s*THI?C?K", re.I),
+    # Ontario's OBC specification sheet (Toronto's suites): 'INTERIOR SLAB
+    # 25MPA CONCRETE, MINIMUM 3" (75MM) THICK OVER R10 RIGID INSULATION'.
+    re.compile(
+        r"\bSLAB\s+\d{2}\s*MPA\s+CONCRETE,?\s*MINIMUM\s+\d{1,2}\s*[\"\u201d]\s*\((\d{2,3})\s*MM\)\s*THI?C?K",
+        re.I,
+    ),
 )
 # US sets state inches only: 'G14 4" CONCRETE SLAB ON GRADE', '4" CONC SLAB W/
 # #4 @ 18" O.C.'. CONC is required, so a cover note ('2" CLR CVR @ 4" SLAB')

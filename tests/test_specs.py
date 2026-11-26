@@ -561,3 +561,12 @@ def test_no_structural_sheet_reads_the_whole_foundation_elsewhere(monkeypatch):
     monkeypatch.setattr(specs, "structural_texts", lambda design, structural=True: texts[structural])
     spec = specs.foundation_spec_for(None)
     assert spec.footing_width_mm == 610 and spec.foundation_wall_mm == 254.0
+
+
+def test_ontarios_specification_sheet_states_the_slab():
+    # Toronto's suites, A6: the slab is stated only in the OBC specification.
+    from ecarbon.extract.specs import parse_foundation_spec
+
+    spec = parse_foundation_spec({"A6": 'CONCRETE FLOOR SLABS x INTERIOR SLAB 25MPA CONCRETE, MINIMUM 3" (75MM) THICK OVER R10 RIGID INSULATION'})
+    assert spec.slab_thickness_mm == 75
+    assert parse_foundation_spec({"A6": "102mm (4') SLAB: 2.4 kPa"}).slab_thickness_mm is None
