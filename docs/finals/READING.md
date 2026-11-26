@@ -49,7 +49,7 @@ The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; tra
   - Headers are tolerant (case, spaces, units in brackets).
   - It returns a row-level error list instead of failing the whole file.
   - Optional, cut first: read one EPD PDF's declared unit and A1–A3 GWP by vision, with quote-and-locate, labelled inferred.
-- [ ] **A10. Hardening, Thu evening → freeze 10 pm.**
+- [x] **A10. Hardening, Thu evening → freeze 10 pm.** *(26 Nov: 53 sets, 0 crashes, none below `out/baseline.json`; median coverage 83 → 100%, mean 67.6 → 82.4%. Numbers handed to B in SHARED "A10 before/after".)*
   - `scripts/run_pipeline.py` plus the CMHC matrix: nothing below `out/baseline.json`.
   - Hand B the before and after numbers for the deck.
 
