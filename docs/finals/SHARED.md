@@ -430,3 +430,29 @@ ON_Fourplex_01's N1 foundation states `190 CONCRETE MASONRY UNITS`, but the stor
 ### A → B, 26 Nov: a measured foundation wall height is not "stated"
 
 QC labels T/O FOOTING on its elevations with no elevation printed. `gather()` now measures it off the datum ladder (`extract/levels.footing_on_ladder`: -2.44 m on QC, the IFC's figure) and sets `spec.foundation_wall_height_mm`, adding `"<sheet>: T/O FOOTING drawn at -2.44 m on the datum ladder"` to `spec.sources`. `framing.py`'s wall note then says "the stated foundation wall height (2439 mm)". The line's assumptions already say "measured, not printed", but the basis note should say so too, e.g. by checking `inputs.ladder_footing` (a new `TakeoffInputs` field). QC_Sixplex: wall 17.3 -> 29.7 m3, total 87.5 -> 90.9 t.
+
+### A → B, 26 Nov: before/after numbers for the deck (A10)
+
+All 53 CMHC sets, rules only (vision off), `scripts/run_pipeline.py` against `out/baseline.json` (23 Nov):
+
+| | baseline (23 Nov) | now (2f95fed) |
+|---|---|---|
+| crashed | 0 | 0 |
+| sets producing quantities | 45 | 45 (the 8 image-only NOR sets report why) |
+| element coverage, median | 83.0% | **100%** |
+| element coverage, mean | 67.6% | **82.4%** |
+| sets below baseline coverage | – | **none** |
+| seconds per design, median | 23.8 | 7.2 |
+
+Accuracy, 44 sets with a BPR figure (`scripts/accuracy.py`; r1 = 25 Nov, r6 = d96e97a):
+
+| | r1 | r6 |
+|---|---|---|
+| A1–A3 / BPR A1–A5, median | 0.566 | **0.608** |
+| within ±30% | 11 | **15** |
+| complete A1–A5 / BPR (your figure) | – | **0.776, 20 of 44** |
+| ours / IFC on the same materials, median | 0.79 | **0.96** |
+
+- The IFC priced at our factors is a median 0.41 of BPR. So the gap to BPR is scope the drawings don't state (A4/A5, rebar, BPR's factors), not reading. Use "0.96 of the IFC" for reading accuracy and the complete figure for BPR.
+- NOR, image-only, by vision from the cached answers: all 8 sets give a bill at 0.13–0.43 of BPR, every line ASSUMED or INFERRED from an image. $1.51 spent in total; it is not in the 44.
+- Toronto dev sets (non-CMHC, fetched today): 4 of 6 on disk. Coverage 76/76/0/91%; their build-ups and foundation callouts are not text (outlined), so assemblies read 0 by rules. A vision build-up task would be the next step, not done before the freeze.

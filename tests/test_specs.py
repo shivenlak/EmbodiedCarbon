@@ -593,3 +593,13 @@ def test_ontarios_specification_sheet_states_the_slab():
     spec = parse_foundation_spec({"A6": 'CONCRETE FLOOR SLABS x INTERIOR SLAB 25MPA CONCRETE, MINIMUM 3" (75MM) THICK OVER R10 RIGID INSULATION'})
     assert spec.slab_thickness_mm == 75
     assert parse_foundation_spec({"A6": "102mm (4') SLAB: 2.4 kPa"}).slab_thickness_mm is None
+
+
+def test_a_spec_sheet_frost_depth_in_both_units_reads():
+    from ecarbon.extract.specs import parse_foundation_spec
+
+    spec = parse_foundation_spec({"A9": (
+        "FOOTINGS SHALL BE MINIMUM 20MPA POURED  CONCRETE\nAND A MINIMUM OF 48\" "
+        "(1200MM) BELOW FINISHED GRADE."
+    )})
+    assert spec.frost_depth_mm == 1200

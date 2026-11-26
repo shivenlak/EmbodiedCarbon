@@ -434,7 +434,10 @@ def gather(
 
     inputs.spec = foundation_spec_for(design)
     if inputs.spec.strip_footings and inputs.spec.foundation_wall_height_mm is None:
-        lf = footing_on_ladder(design)
+        try:
+            lf = footing_on_ladder(design)
+        except Exception:  # a refinement only; the frost-depth estimate stands
+            lf = None
         # The same range a stated wall height must fall in; BC's 0.6 m crawlspace
         # footing stays on the frost-depth estimate.
         if lf and 1.5 <= -lf.elevation_m <= 3.6:

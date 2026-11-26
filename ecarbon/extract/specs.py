@@ -209,7 +209,9 @@ _FROST_RE = re.compile(r"(\d{2,4})\s*mm\s*FROST", re.I)
 _FROST_DEPTH_RE = re.compile(
     r"FROST\s+(?:PROTECTION|DEPTH|COVER)[^0-9]{0,25}(\d{3,4})"
     # Ontario's S001: 'FOUND ALL FOOTINGS AT 1200mm BELOW GRADE'.
-    r"|FOOTINGS?\s+AT\s+(\d{3,4})\s*mm\s+BELOW\s+(?:FINISHED\s+)?GRADE",
+    r"|FOOTINGS?\s+AT\s+(\d{3,4})\s*mm\s+BELOW\s+(?:FINISHED\s+)?GRADE"
+    # Toronto's spec sheet: 'FOOTINGS SHALL BE ... A MINIMUM OF 48" (1200MM) BELOW FINISHED GRADE'.
+    r"|FOOTINGS?\s+SHALL\s+BE\b.{0,60}?\(\s*(\d{3,4})\s*MM\s*\)\s+BELOW\s+(?:FINISHED\s+)?GRADE",
     re.I,
 )
 # Foundation wall thickness from a schedule: BC's S001
@@ -494,7 +496,7 @@ def parse_foundation_spec(texts: dict[str, str]) -> FoundationSpec:
                 found.append(f"pile dia {v:.0f}mm")
 
         if spec.frost_depth_mm is None and (m := _FROST_DEPTH_RE.search(flat)):
-            v = float(m.group(1) or m.group(2))
+            v = float(next(g for g in m.groups() if g))
             if 600 <= v <= 2400:
                 spec.frost_depth_mm = v
                 found.append(f"frost protection {v:.0f}mm")
