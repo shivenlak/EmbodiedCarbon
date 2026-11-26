@@ -1415,7 +1415,51 @@ def assemblies_for(design) -> tuple[dict[str, Assembly], list[str]]:
                         break
     finally:
         doc.close()
+    _resolve_per_references(found, rejected)
     return found, rejected
+
+
+_PER_REF_RE = re.compile(r"\bPER\s+E?([A-Z]{1,2}\d+)\b", re.I)
+
+
+def _resolve_per_references(found: dict, notes: list[str]) -> None:
+    """Take a backup wall stated as 'PER EW1' from that assembly.
+
+    BC's W2 states only its cladding and furring, then 'INSULATION PER EW1 ...'
+    and 'AIR BARRIER, SHEATHING, FRAMING, INSULATION, VAPOUR BARRIER AND GB PER
+    EW1': it gave no volume, so BC_ADU_01/02 priced an assumed standard wall.
+    The referenced family's first variant supplies the layers from the first
+    deferring layer's material inwards, and the choice is said.
+    """
+    import copy
+
+    for tag, asm in found.items():
+        hits = [(i, m) for i, x in enumerate(asm.layers) if (m := _PER_REF_RE.search(x.material))]
+        refs = {m.group(1).upper() for _, m in hits}
+        if len(refs) != 1:
+            continue
+        fam = refs.pop()
+        base_tag = fam if fam in found else next(iter(sorted(t for t in found if t.startswith(fam + "."))), None)
+        if base_tag in (None, tag):
+            continue
+        first = hits[0][0]
+        word = asm.layers[first].material.split()[0].upper()
+        base = found[base_tag].layers
+        start = next((j for j, x in enumerate(base) if word in x.material.upper()), None)
+        if start is None:
+            continue
+        taken = [copy.copy(x) for x in base[start:]]
+        for x in taken:
+            if x.shares_cavity_with is not None:
+                x.shares_cavity_with += first - start
+        asm.layers = asm.layers[:first] + taken
+        for n, layer in enumerate(asm.layers):
+            layer.index = n
+        notes.append(
+            f"{tag} states its backup wall as per {fam}; the layers of {base_tag}, "
+            f"{'the first variant, ' if base_tag != fam else ''}from '{base[start].material}' "
+            f"inwards are used. Choose another if the project builds a different one."
+        )
 
 
 # A layer's description, in the drawing's words, mapped to the catalogue's

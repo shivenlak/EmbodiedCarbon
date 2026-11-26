@@ -818,3 +818,18 @@ def test_a_name_between_the_thickness_and_material_columns_is_still_the_name():
     assert a["N1"].name == "FOUNDATION"
     assert any(x.thickness_mm == 419.0 for x in a["R1"].layers)  # cellulose to R-60
     assert not any(" N1 " in m for m in rejected)
+
+
+@needs_data
+def test_a_backup_wall_stated_per_another_assembly_is_taken_from_it():
+    """BC's W2 states its cladding and furring, then the rest 'PER EW1'. It gave
+    no volume, so BC_ADU_01 priced an assumed standard wall; W1.1's layers are
+    now used from its insulation inwards, the cavity still shared, and the choice said."""
+    from ecarbon.extract.assemblies import assemblies_for
+
+    a, notes = assemblies_for(get_design("BC_ADU_01"))
+    w2 = a["W2"]
+    assert w2.layers[1].material.startswith("HORIZONTAL METAL FURRING")
+    assert w2.layers[2].material == "SEMI-RIGID INSULATION"
+    assert w2.total_thickness_mm == 273.0  # 25 + 22 + W1.1's 51 + 19 + 140 cavity + 16
+    assert any(n.startswith("W2 states its backup wall as per W1") for n in notes)
