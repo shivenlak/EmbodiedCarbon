@@ -1315,6 +1315,12 @@ def _opening_lines(design) -> tuple[list[TakeoffLine], list[Gap]]:
 # than read off a schedule, so they are named here for callers that report a
 # total with and without them.
 PARTITION_LINE_PREFIX = "ln-interior-partition"
+_PARTY_RE = re.compile(r"\b(DEMISING|PARTY)\b", re.I)
+
+
+def _is_party_wall(asm) -> bool:
+    """A demising (party) wall between units, by the schedule's own name."""
+    return bool(_PARTY_RE.search(asm.name or ""))
 
 
 # Partition wall area per m2 of floor, where the plans' linework cannot be
@@ -1366,26 +1372,42 @@ def _assumed_partition_lines(
             "No partition assembly could be read either, so a standard 38 x 89 mm stud "
             "partition with gypsum both faces is assumed."
         )
-    def expand(a, extra):
+    def expand(a, extra, area=est, cls=ElementClass.INTERIOR_PARTITION, note=""):
         return _assembly_lines(
             a,
-            est,
-            ElementClass.INTERIOR_PARTITION,
+            area,
+            cls,
             confidence=Confidence.ASSUMED,
-            area_note=f"Area assumed from the floor area: {est:.0f} m2 of partition wall.",
+            area_note=f"Area assumed from the floor area: {est:.0f} m2 of partition wall{note}.",
             extra_assumptions=assumptions + extra,
         )
 
-    built, more = expand(asm, [])
-    if drawn is not None:
-        from ecarbon.takeoff.framing import missing_layer_lines
-
-        faces, _ = missing_layer_lines(
-            "P", built, inputs, _assembly_lines, est, ElementClass.INTERIOR_PARTITION,
-            Confidence.ASSUMED, f"Area assumed from the floor area: {est:.0f} m2 of partition wall.",
-            assumptions,
+    # The same split by floor-plan tag count the measured run uses, so a
+    # demising wall is priced as itself rather than as P1.
+    mix = (_partition_mix(None, inputs) if drawn is not None else None) or [(asm, 1.0, 0.0)]
+    if len(mix) > 1:
+        split = ", ".join(f"{a.tag} {inputs.plan_tag_refs[a.tag]}" for a, _s, _m in mix)
+        assumptions.append(
+            f"It is split across the partition types in proportion to how often the "
+            f"floor plans tag each ({split})."
         )
-        built += faces
+    built, more = [], []
+    for a, share, _m in mix:
+        part = round(est * share, 2)
+        cls = ElementClass.PARTY_WALL if _is_party_wall(a) else ElementClass.INTERIOR_PARTITION
+        note = f", {share:.0%} of it {a.tag} by tag count" if len(mix) > 1 else ""
+        made, gaps = expand(a, [], part, cls, note)
+        more += gaps
+        if drawn is not None:
+            from ecarbon.takeoff.framing import missing_layer_lines
+
+            faces, _ = missing_layer_lines(
+                "P", made, inputs, _assembly_lines, part, cls, Confidence.ASSUMED,
+                f"Area assumed from the floor area: {part:.0f} m2 of {a.tag} partition wall.",
+                assumptions,
+            )
+            made += faces
+        built += made
     if not built and drawn is not None:
         # The drawn assembly states no layer depth that gives a volume.
         built, more = expand(_standard_assembly("P", inputs), [
@@ -1395,7 +1417,7 @@ def _assumed_partition_lines(
     if not built:
         return [], more
     for line in built:
-        line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
+        line.id = re.sub(r"^ln-(interior-partition|party-wall)-", f"{PARTITION_LINE_PREFIX}-", line.id)
     more.append(
         Gap(
             code=GapCode.GEOMETRY_AMBIGUOUS,
@@ -1428,12 +1450,12 @@ def _partition_mix(measured, inputs: TakeoffInputs) -> list[tuple] | None:
     refs = inputs.plan_tag_refs
     p_asms = {
         t: a for t, a in inputs.assemblies.items()
-        if t.upper().startswith("P") and refs.get(t)
+        if refs.get(t) and (t.upper().startswith("P") or _is_party_wall(a))
     }
     total = sum(refs[t] for t in p_asms)
     if len(p_asms) < 2 or not total:
         return None
-    run = measured.total_length_m
+    run = measured.total_length_m if measured is not None else 0.0
     return [
         (p_asms[t], refs[t] / total, run * refs[t] / total)
         for t in sorted(p_asms, key=lambda t: (-refs[t], t))
@@ -1508,10 +1530,11 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
     built, more = [], []
     for a, share, metres in mix:
         part = round(area * share, 2)
+        cls = ElementClass.PARTY_WALL if _is_party_wall(a) else ElementClass.INTERIOR_PARTITION
         made, gaps = _assembly_lines(
             a,
             part,
-            ElementClass.INTERIOR_PARTITION,
+            cls,
             confidence=Confidence.INFERRED,
             area_note=(
                 f"Area is {metres:.1f} m of "
@@ -1523,13 +1546,15 @@ def _partition_lines(design, inputs: TakeoffInputs) -> tuple[list[TakeoffLine], 
             extra_assumptions=shared,
         )
         faces, _ = missing_layer_lines(
-            "P", made, inputs, _assembly_lines, part, ElementClass.INTERIOR_PARTITION,
+            "P", made, inputs, _assembly_lines, part, cls,
             Confidence.ASSUMED, f"Area is the {part:.1f} m2 of {a.tag} partition measured.",
         )
         built += made + faces
         more += gaps
     for line in built:
-        line.id = line.id.replace("ln-interior-partition-", f"{PARTITION_LINE_PREFIX}-")
+        # A party wall's share comes out of the same measured run, so it keeps
+        # the partition prefix: the total "without partitions" still drops it.
+        line.id = re.sub(r"^ln-(interior-partition|party-wall)-", f"{PARTITION_LINE_PREFIX}-", line.id)
 
     more.append(
         Gap(

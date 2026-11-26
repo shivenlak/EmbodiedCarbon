@@ -359,3 +359,17 @@ def test_a_refused_main_roof_is_not_priced_as_a_minor_one():
     ids = {ln.id for ln in t.lines}
     assert not any(i.startswith("ln-roof-assembly-r4-") for i in ids)
     assert any(i.startswith("ln-roof-assembly-std-r-") for i in ids)
+
+
+@needs_data
+def test_demising_walls_are_party_walls_inside_the_partition_run():
+    """AB tags its demising wall P3, ATL tags W6; both are priced as party walls
+    but keep the partition prefix, so the total without partitions drops them."""
+    from ecarbon.takeoff.builder import PARTITION_LINE_PREFIX, build_takeoff
+
+    for key, tag in (("AB_Fourplex_01", "p3"),
+                     ("ATL_Fourplex_01_Technical_Design_Package_Option2", "w6")):
+        party = [ln for ln in build_takeoff(get_design(key)).lines
+                 if ln.element_class.value == "party_wall"]
+        assert party and all(ln.id.startswith(PARTITION_LINE_PREFIX) for ln in party)
+        assert any(ln.id.startswith(f"{PARTITION_LINE_PREFIX}-{tag}-") for ln in party)

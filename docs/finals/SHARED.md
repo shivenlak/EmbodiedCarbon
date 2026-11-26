@@ -417,3 +417,8 @@ The user wants the submission to show two accuracy figures side by side:
 - **vs CMHC BPR (full scope):** the headline the brief asks for (`carbon.ratio_to_a1_a5`), now a median of 0.58. One line should explain the gap: BPR adds A4/A5, rebar and its own factors that the drawings don't state. Pricing the IFC itself reaches only 0.41 of BPR.
 
 Both fields are already in every row. Nothing new is needed from A.
+
+### A → B, 26 Nov: party walls are their own class now
+
+Demising walls (a schedule name with DEMISING or PARTY: AB/BC/ON/SKMB P tags, ATL W6/W7) are priced as `element_class: "party_wall"`. Their line IDs keep the `ln-interior-partition-` prefix, because their area is a share of the same measured or assumed partition run, so "total without partitions" still drops them. Totals are unchanged except ATL, where W6/W7 were not priced before.
+- **Ask:** add `party_wall: "Party walls"` to `CLASS_LABEL` in web/src/App.jsx. It currently falls back to "Party Wall". `scripts/accuracy.py` already maps it to interiors.
