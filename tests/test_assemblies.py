@@ -304,6 +304,12 @@ class TestPlausibilityGate:
         reason = self.assembly("EXTERIOR WALL", 8, 1280.0).implausible()
         assert reason and "depth" in reason
 
+    def test_a_crawl_space_air_layer_is_not_built_depth(self):
+        """QC's F2 states its 610 mm crawl space as an air-space layer."""
+        asm = self.assembly("WOOD FRAMED FLOOR ABOVE CONDITIONED CRAWL SPACE", 3, 240.0)
+        asm.layers.append(layer("INTERMEDIATE AIR SPACE", 610.0, 3))
+        assert asm.total_thickness_mm == 850.0 and asm.implausible() is None
+
     @pytest.mark.parametrize(
         "name",
         [
