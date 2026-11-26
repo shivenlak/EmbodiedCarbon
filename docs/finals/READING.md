@@ -21,7 +21,7 @@ The UX session changed the goal: see "START HERE" in SHARED.md. Canada only; tra
   - IDs are stable `p{page}-w{n}`, sorted by position.
   - Test: the walls' lengths sum to `length_m` on all Alberta sets.
   - Quantities don't change, so the gate doesn't either.
-- [ ] **A8. Canada coverage and accuracy. Thu, the main block.**
+- [x] **A8. Canada coverage and accuracy. Thu, the main block.** *(Closed 26 Nov late, target not met and not chased further: final r8 is A1–A3/BPR 0.592, 15 of 44 within ±30%; complete A1–A5 0.776, 20 of 44; ours/IFC on the same materials 1.12, 20 of 38 within ±30%. The IFC itself, priced at our factors, is 0.35 of BPR, so 0.65 on the counted figure would need scope the drawings don't state; a fudge factor would hide that. Numbers handed to B in SHARED "A10 before/after", r8 column.)*
   - Order the work by the CMHC gap matrix (ask B for the latest `matrix_*.json`, or use `scripts/run_pipeline.py`), largest gap first.
   - **SK/MB (0.37):** the assembly schedule format; the floor assemblies.
   - **ATL (0.46):** footing and frost-wall sections; `intake/locale.py` reads ATL as CA-ON, so fix the region. *(25 Nov night: region fixed. It was every CMHC set, not just ATL; see SHARED A → B.)*

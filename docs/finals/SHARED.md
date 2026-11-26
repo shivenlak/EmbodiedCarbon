@@ -444,16 +444,19 @@ All 53 CMHC sets, rules only (vision off), `scripts/run_pipeline.py` against `ou
 | sets below baseline coverage | – | **none** |
 | seconds per design, median | 23.8 | 7.2 |
 
-Accuracy, 44 sets with a BPR figure (`scripts/accuracy.py`; r1 = 25 Nov, r6 = d96e97a):
+Accuracy, 44 sets with a BPR figure (`scripts/accuracy.py`; r1 = 25 Nov, r6 = d96e97a, **r8 = final, PR #69**):
 
-| | r1 | r6 |
-|---|---|---|
-| A1–A3 / BPR A1–A5, median | 0.566 | **0.608** |
-| within ±30% | 11 | **15** |
-| complete A1–A5 / BPR (your figure) | – | **0.776, 20 of 44** |
-| ours / IFC on the same materials, median | 0.79 | **0.96** |
+| | r1 | r6 | **r8 (use this)** |
+|---|---|---|---|
+| A1–A3 / BPR A1–A5, median | 0.566 | 0.608 | **0.592** |
+| within ±30% | 11 | 15 | **15 of 44** |
+| complete A1–A5 / BPR (your figure) | – | 0.776, 20 of 44 | **0.776, 20 of 44** |
+| ours / IFC on the same materials, median (38 sets with an IFC) | 0.91 | 1.13 | **1.12 (IQR 0.86–1.51), 20 of 38 within ±30%** |
 
-- The IFC priced at our factors is a median 0.41 of BPR. So the gap to BPR is scope the drawings don't state (A4/A5, rebar, BPR's factors), not reading. Use "0.96 of the IFC" for reading accuracy and the complete figure for BPR.
+- **Correction (26 Nov late):** this table first said ours/IFC was 0.79 → 0.96. Recomputed from `out/accuracy_r*.json` with `accuracy.py`'s own formula (`carbon_vs_ifc_same_factors`), it is 0.91 → 1.13: we read slightly *more* than the architect's model on the materials both name, not less. The old figures don't reproduce; use the r8 column.
+- r6 → r8 is QC only (crawl-space floor, see the request below): the A1–A3/BPR dip is an assumed slab leaving, and every QC set moves toward its IFC.
+- The IFC priced at our factors is a median 0.35 of BPR (37 sets, r8). So the gap to BPR is scope the drawings don't state (A4/A5, rebar, BPR's factors), not reading. Use "1.12× the IFC, half the sets within 0.86–1.51" for reading accuracy and the complete figure (0.776) for BPR.
+- `web/src/accuracy.json` in git is from 25 Nov (counted 0.54, IFC 0.90): regenerate it with `scripts/accuracy.py` after #69 merges (B15).
 - NOR, image-only, by vision from the cached answers: all 8 sets give a bill at 0.13–0.43 of BPR, every line ASSUMED or INFERRED from an image. $1.51 spent in total; it is not in the 44.
 - Toronto dev sets (non-CMHC, fetched today): 4 of 6 on disk. Coverage 76/76/0/91%; their build-ups and foundation callouts are not text (outlined), so assemblies read 0 by rules. A vision build-up task would be the next step, not done before the freeze.
 
