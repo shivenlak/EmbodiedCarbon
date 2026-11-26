@@ -470,3 +470,15 @@ class TestSizeLabelsOnPlans:
         ])
         assert size_labels_on_page(page) == []
         doc.close()
+
+
+@needs_data
+def test_a_structural_plan_of_the_same_storey_is_not_called_an_option():
+    """BC_Duplex groups S102 with A102. S102 is the framing plan, not a design
+    option, so no note should tell the reader to choose between them; A102
+    alone is still the one counted."""
+    from ecarbon.extract.openings import openings_for
+
+    openings, notes = openings_for(get_design("BC_Duplex"))
+    assert not any("S102" in n or "S103" in n for n in notes)
+    assert not any("S102" in o.counts for o in openings)

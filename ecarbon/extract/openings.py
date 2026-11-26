@@ -473,8 +473,11 @@ def count_on_plans(design, openings: list[Opening]) -> tuple[dict[str, str], lis
             pick = members[0]
             base = pick.sheet_no or f"p{pick.page}"
             chosen[base] = pick.sheet_no or f"page {pick.page + 1}"
-            if len(members) > 1:
-                others = ", ".join(str(m.sheet_no) for m in members[1:])
+            # A structural plan of the same storey (BC's S102 beside A102) is
+            # not an option the builder chooses between, so it gets no note.
+            alts = [m for m in members[1:] if str(m.sheet_no)[:1] == str(pick.sheet_no)[:1]]
+            if alts:
+                others = ", ".join(str(m.sheet_no) for m in alts)
                 notes.append(
                     f"Sheets {pick.sheet_no} and {others} are alternative versions of the "
                     f"same storey, so only {pick.sheet_no} is counted. Counting both would "
