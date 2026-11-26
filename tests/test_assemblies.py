@@ -595,3 +595,19 @@ def test_a_stray_material_row_above_the_name_does_not_name_the_block():
 
     asm = assemblies_for(get_design("BC_Fourplex_02"))[0]
     assert asm["F2"].name.startswith("FLOOR, SAME UNIT")
+
+
+class TestInsulationByName:
+    """Foam boards by name, and mineral wool never priced as foam (26 Nov)."""
+
+    @pytest.mark.parametrize("name", ["EXTRUDED POLYSTYRENE INSULATION", "XPS INSULATION", "EPS BOARD", "POLYISO INSULATION", "RIGID INSULATION (R-20.0)"])
+    def test_foam_boards_are_rigid(self, name):
+        from ecarbon.extract.assemblies import Layer, cmhc_material
+
+        assert cmhc_material(Layer(index=0, material=name, thickness_mm=76.0)) == "CMHC_Insulation, Rigid"
+
+    @pytest.mark.parametrize("name", ["SEMI-RIGID INSULATION", "SEMI-RIGID MINERAL WOOL", "MINERAL WOOL BOARD", "ROCKWOOL COMFORTBOARD"])
+    def test_mineral_wool_is_not_foam(self, name):
+        from ecarbon.extract.assemblies import Layer, cmhc_material
+
+        assert cmhc_material(Layer(index=0, material=name, thickness_mm=51.0)) == "CMHC_Insulation, Mineral Wool Semi-Rigid"

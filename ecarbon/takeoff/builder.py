@@ -180,7 +180,12 @@ class TakeoffInputs:
         """The F assembly that is the ground slab, if the schedule has one."""
         slabs = {t: a for t, a in self.assemblies.items() if a.is_slab_on_grade}
         tag = dominant_tag(self.tag_refs, "F", set(slabs))
-        return slabs.get(tag) if tag else None
+        if tag:
+            return slabs.get(tag)
+        # The plans never tag the slab (Atlantic's F1 "SLAB ON GRADE" is in the
+        # schedule but not called out): the schedule's own slab-on-grade
+        # assembly is still the slab, when it is the only one.
+        return next(iter(slabs.values())) if len(slabs) == 1 else None
 
 
 def _roof_area_note(levels) -> str:
@@ -929,6 +934,67 @@ def _wall_lines(inputs: TakeoffInputs) -> list[TakeoffLine]:
     ]
 
     return lines
+
+
+_FW_NAME_RE = re.compile(r"(?i)\bFOUNDATION\s+WALL\b")
+_FW_RUN_RE = re.compile(r"x ([\d.]+) m over ([\d.]+) m")
+
+
+def _foundation_wall_assembly(inputs):
+    """The drawings' foundation-wall build-up: BC's FW1.x, Ontario's N1, or an
+    assembly named FOUNDATION WALL. The most-referenced one, as for walls."""
+    for letter in ("FW", "N", "FDN", "FND"):
+        asm = inputs.assembly_for(letter)
+        if asm is not None:
+            return asm
+    # Not tagged on the plans: the schedule's own foundation assembly, named
+    # FOUNDATION (WALL) and made of concrete (Atlantic's N1 "FOUNDATION").
+    named = [
+        a for a in inputs.assemblies.values()
+        if (_FW_NAME_RE.search(a.name or "") or re.fullmatch(r"(?i)\s*FOUNDATION\s*", a.name or ""))
+        and any("CONCRETE" in (lay.material or "").upper() for lay in a.layers)
+        and not a.is_slab_on_grade
+    ]
+    if not named:
+        return None
+    refs = inputs.tag_refs or {}
+    return max(named, key=lambda a: refs.get(a.tag, 0))
+
+
+def _foundation_wall_layers(inputs, built):
+    """The foundation wall's other layers over its area: the rigid insulation,
+    drainage board and dampproofing the drawings' foundation-wall assembly
+    states. The concrete is already a line of its own, so it is skipped.
+
+    The area is the foundation wall line's own height x run, so these layers
+    are ASSUMED whenever that wall is, and inherit its reason.
+    """
+    wall = next((ln for ln in built if ln.id == "ln-foundation-wall"), None)
+    asm = _foundation_wall_assembly(inputs) if wall is not None else None
+    if asm is None:
+        return [], []
+    m = _FW_RUN_RE.search(wall.description or "")
+    if not m:
+        return [], []
+    height, run = float(m.group(1)), float(m.group(2))
+    area = round(height * run, 2)
+    made, more = _assembly_lines(
+        asm,
+        area,
+        ElementClass.FOUNDATION_WALL,
+        confidence=Confidence.ASSUMED if wall.confidence is Confidence.ASSUMED else Confidence.INFERRED,
+        area_note=(
+            f"Area is the foundation wall's {height:.2f} m height x {run:.1f} m run "
+            f"(ln-foundation-wall)."
+        ),
+        extra_assumptions=[
+            f"Layers from {asm.tag} {asm.name}, the drawings' foundation-wall assembly; "
+            f"the concrete is counted on ln-foundation-wall, not again here.",
+            *wall.assumptions[:1],
+        ],
+    )
+    made = [ln for ln in made if "CONCRETE" not in (ln.material or "").upper()]
+    return made, [g for g in more if "defers to the structural" not in g.message]
 
 
 def _assembly_lines(
@@ -1797,6 +1863,9 @@ def build_takeoff(
     gaps += std_gaps
     framed, covered = framing_lines(inputs, lines, std_used)
     lines += framed
+    fw_lines, fw_gaps = _foundation_wall_layers(inputs, lines)
+    lines += fw_lines
+    gaps += fw_gaps
     _name_masonry_foundation(lines, inputs)
     lines += _stair_lines(design)
     for gap in gaps:

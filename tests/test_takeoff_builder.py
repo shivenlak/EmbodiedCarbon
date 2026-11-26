@@ -403,3 +403,25 @@ def test_a_stated_block_foundation_says_it_is_priced_as_cast_concrete():
 
     wall = build_takeoff(get_design("ON_Fourplex_01")).line("ln-foundation-wall")
     assert any("CONCRETE MASONRY UNITS" in a and "overstates" in a for a in wall.assumptions)
+
+
+@needs_data
+def test_the_foundation_walls_own_layers_are_counted_over_its_area():
+    # BC's FW1.x and Atlantic's N1 state rigid insulation on the foundation
+    # wall; the concrete is its own line and is not counted twice.
+    from ecarbon.takeoff.builder import build_takeoff
+
+    for key in ("BC_Fourplex_01", "ATL_ADU_01"):
+        t = build_takeoff(get_design(key))
+        fw = [ln for ln in t.lines if ln.element_class.value == "foundation_wall"]
+        assert sum(ln.material == "CMHC_Concrete, CIP" for ln in fw) == 1
+        assert any(ln.material == "CMHC_Insulation, Rigid" and ln.quantity > 0 for ln in fw), key
+
+
+@needs_data
+def test_an_untagged_slab_assembly_still_gives_its_layers():
+    # ATL_ADU_01's F1 "SLAB ON GRADE" carries 76 mm XPS under the slab.
+    from ecarbon.takeoff.builder import build_takeoff
+
+    t = build_takeoff(get_design("ATL_ADU_01"))
+    assert any(ln.id.startswith("ln-slab-on-grade-f1-") and ln.material == "CMHC_Insulation, Rigid" for ln in t.lines)
