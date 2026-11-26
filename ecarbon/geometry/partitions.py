@@ -91,6 +91,16 @@ FAILED_APPROACHES = (
 )
 
 
+@dataclass(frozen=True)
+class Wall:
+    """One measured partition: a stable id, its rectangle in page points, length, depth."""
+
+    id: str  # "p{page}-w{n}", numbered top to bottom then left to right
+    rect: tuple[float, float, float, float]
+    length_m: float
+    depth_mm: float
+
+
 @dataclass
 class PartitionRun:
     """Interior partition length measured on one plan sheet."""
@@ -102,6 +112,7 @@ class PartitionRun:
     # Page-point rectangles of the walls actually measured, so a reader can be
     # shown the linework the number came from rather than told to trust it.
     rects: list[tuple[float, float, float, float]] = field(default_factory=list)
+    walls: list[Wall] = field(default_factory=list)
 
 
 @dataclass
@@ -201,6 +212,7 @@ def partitions_on_page(
     total = 0.0
     walls = 0
     rects: list[tuple[float, float, float, float]] = []
+    found: list[tuple[tuple[float, float, float, float], float, float]] = []
     for horizontal in (True, False):
         pool = [s for s in wall_segs if (s.is_horizontal if horizontal else s.is_vertical)]
         if not pool:
@@ -212,7 +224,8 @@ def partitions_on_page(
                 separation = abs(offset_b - offset_a) * mm
                 if separation > widest + THICKNESS_TOL_MM:
                     break
-                if not any(abs(separation - d) <= THICKNESS_TOL_MM for d in depths_mm):
+                depth = min(depths_mm, key=lambda d: abs(separation - d))
+                if abs(separation - depth) > THICKNESS_TOL_MM:
                     continue
                 overlap = max(0.0, min(a1, b1) - max(a0, b0)) * mm
                 if overlap < MIN_WALL_MM:
@@ -235,6 +248,7 @@ def partitions_on_page(
                 rects.append(
                     (near, lo, far, hi) if horizontal else (lo, near, hi, far)
                 )
+                found.append((rects[-1], overlap / 1000.0, depth))
 
     if not walls:
         return None
@@ -244,6 +258,12 @@ def partitions_on_page(
         length_m=round(total, 2),
         n_walls=walls,
         rects=rects,
+        walls=[
+            Wall(f"p{page.number}-w{n}", r, round(m, 3), d)
+            for n, (r, m, d) in enumerate(
+                sorted(found, key=lambda w: (round(w[0][1], 1), round(w[0][0], 1)))
+            )
+        ],
     )
 
 

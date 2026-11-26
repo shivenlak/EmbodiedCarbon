@@ -125,6 +125,24 @@ class TestMeasuredAgainstTheModels:
         assert statistics.median(errors) <= 8.0
         assert sum(1 for e in errors if e <= 10.0) >= 6
 
+    @pytest.mark.parametrize("key", sorted(ALBERTA_TRUTH))
+    def test_each_wall_is_listed_with_a_stable_id(self, key):
+        """C7: the walls a run counted, one by one, so a reader can exclude one."""
+        from ecarbon.geometry.partitions import partitions_for
+
+        design = get_design(key)
+        measured = partitions_for(design)
+        runs = measured.runs
+        assert runs
+        for run in runs:
+            assert len(run.walls) == run.n_walls == len(run.rects)
+            assert abs(sum(w.length_m for w in run.walls) - run.length_m) <= 0.01
+            assert {w.rect for w in run.walls} == set(run.rects)
+            assert [w.id for w in run.walls] == [f"p{run.page}-w{n}" for n in range(run.n_walls)]
+            assert all(w.depth_mm in measured.depths_mm for w in run.walls)
+        again = partitions_for(design).runs
+        assert [w for r in again for w in r.walls] == [w for r in runs for w in r.walls]
+
     def test_the_depths_come_from_the_schedule(self):
         """Nothing here is a constant standing in for a measurement."""
         from ecarbon.extract.assemblies import assemblies_for
