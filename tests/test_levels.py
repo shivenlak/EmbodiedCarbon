@@ -354,3 +354,36 @@ class TestTopOfSlabDatum:
         from ecarbon.extract.levels import Level
 
         assert not Level("T.O.S.", 3.1).is_floor
+
+
+class TestStoreysFromFloorPlans:
+    """No level on any section: the storeys the floor plans name, at a stated
+    standard height, assumed."""
+
+    def _sheets(self, *titles):
+        from types import SimpleNamespace
+
+        return [SimpleNamespace(sheet_type=SimpleNamespace(value="floor_plan"), title=t) for t in titles]
+
+    def test_one_plan_is_one_assumed_storey(self):
+        from ecarbon.extract.levels import StoreyHeights
+        from ecarbon.takeoff.framing import SINGLE_STOREY_PLATE_M, no_datum_single_storey
+
+        h = no_datum_single_storey(StoreyHeights(), self._sheets("FOUNDATION, FLOOR AND ROOF PLANS"), object())
+        assert h.assumed and h.storey_heights_m() == [SINGLE_STOREY_PLATE_M]
+
+    def test_ground_and_second_are_two(self):
+        from ecarbon.extract.levels import StoreyHeights
+        from ecarbon.takeoff.framing import no_datum_single_storey
+
+        h = no_datum_single_storey(StoreyHeights(), self._sheets("FLOOR PLAN", "SECOND FLOOR PLAN"), object())
+        assert h.n_storeys == 2 and len(h.storey_heights_m()) == 2
+
+    def test_nothing_is_assumed_where_a_level_was_read_or_plans_are_unclear(self):
+        from ecarbon.extract.levels import Level, StoreyHeights
+        from ecarbon.takeoff.framing import no_datum_single_storey
+
+        assert no_datum_single_storey(StoreyHeights(levels=[Level("MAIN FLOOR", 0.0)]), self._sheets("FLOOR PLAN"), object()) is None
+        assert no_datum_single_storey(StoreyHeights(), self._sheets("FLOOR PLAN", "BASEMENT PLAN"), object()) is None
+        assert no_datum_single_storey(StoreyHeights(), self._sheets("FLOOR PLAN", "FLOOR PLAN"), object()) is None
+        assert no_datum_single_storey(StoreyHeights(), self._sheets("FLOOR PLAN"), None) is None

@@ -421,7 +421,11 @@ def detect_footprint(
     # displaced the wall cut on CMHC sheets at the same size, and the
     # partitions read walls at the footprint's stroke. Never width 0 (pochΓ©).
     floor = best[1].stroke_width or 0.0 if best else 0.0
-    for width in (w for w in groups if w > 0 and w >= floor):
+    # The poché (width 0) only when nothing else gave a footprint: Toronto's
+    # laneway suites fill their walls, and the same fill draws the parked car
+    # and a detail vignette beside the plan; its largest drawing is the
+    # building. Where any lineweight already agreed, it is never consulted.
+    for width in (w for w in groups if (w > 0 and w >= floor) or (w == 0 and best is None)):
         parts = _clusters([sg for sg in all_segs if sg.width == width], CLUSTER_GAP_MM / s)
         # Only the largest drawing: the main plan outweighs its vignettes, and
         # offering every small cluster let a stair or a unit match some chain.
