@@ -821,7 +821,7 @@ export default function Showcase({
             </span>
           )}
           {heat && unmeasured.includes(hover.cls) && (
-            <span className="sc-tip-sure">Not measured: its quantity is inferred or assumed</span>
+            <span className="sc-tip-sure">Hatched: no line of it was measured</span>
           )}
           <em>{broken ? "press to put it back on the building" : "press to see where it came from"}</em>
         </div>
@@ -964,8 +964,8 @@ export default function Showcase({
                   {specByClass && <p className="sc-legend-note">Hollow marks: where each part was before your spec.</p>}
                   {unmeasured.length > 0 && (
                     <p className="sc-legend-note">
-                      Hover a part to see whether it was measured; {unmeasured.length} of the
-                      parts coloured here are inferred or assumed, not measured.
+                      <i className="sc-hatch" /> Hatched: no line of it was measured off the drawings, so its
+                      quantity is inferred or assumed.
                     </p>
                   )}
                 </div>
