@@ -493,17 +493,15 @@ export function createScene(canvas, massing, { heatColour, intensity, hotI, cool
       const lit = state.focus == null || state.focus === p.cls;
       const hovered = state.hover === p;
       let op = p.baseOpacity;
-      // Heat map: solid colour. Half-transparent walls re-sorted every frame
-      // as the camera turned, so colours flickered through one another.
       if (state.heat && p.cls !== "interior_partition" && p.cls !== "footing" && p.cls !== "slab_on_grade") {
-        op = 1;
+        op = Math.max(op, 0.5);
       }
       // The colour lit from within as well as by the lamps, so shading and
       // what shows through a glass wall cannot shift its hue off the legend.
       const coloured = state.heat && state.heatI[p.cls] != null;
       p.glowColour = coloured ? m.color.clone() : null;
       p.glow = coloured && lit ? 0.32 : 0;
-      m.userData.hatch.value = 0; // stripes shimmered while spinning; the panel lists what was not measured
+      m.userData.hatch.value = state.heat && state.hatch.includes(p.cls) ? 1 : 0;
       if (!lit) op = Math.min(op, 0.07);
       // The frame loop owns the final opacity: a block in the parts list is
       // drawn solid whatever it was in the building.
