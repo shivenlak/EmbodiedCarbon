@@ -4,6 +4,10 @@ A plan set goes in; a traceable bill of quantities and an A1–A3 embodied-carbo
 
 ## The flow
 
+![ecarbon flowchart](flowchart.png)
+
+(The editable vector version is [flowchart.svg](flowchart.svg); it imports straight into Figma. The Mermaid chart below maps each step to its code.)
+
 ```mermaid
 flowchart TD
     U["Upload: one PDF, or several files of one set<br/><small>api/main.py · POST /projects/upload</small>"]
@@ -30,7 +34,10 @@ flowchart TD
     T --> S --> C
     T --> G
     L --> F --> C
-    C --> UI
+    CT["Calculation trace: every step, asserted to reproduce kgCO₂e<br/><small>carbon/calc_trace.py · carbon/complete.py · carbon/scope.py</small>"]
+    E["Your edits: plan walls, line material / thickness / quantity, your materials<br/><small>PlanEditor.jsx · LineEditor.jsx · POST /plan · POST /lines · /materials</small>"]
+    C --> CT --> UI
+    UI -- "you change it" --> E -- "stated" --> T
     G --> UI
     UI -. "every line" .-> I
     C -.-> A
