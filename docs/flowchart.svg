@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" font-family="Inter, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#94a3b8"/></marker>
+    <marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#f59e0b"/></marker>
+    <style>
+      .t{fill:#f8fafc;font-size:19px;font-weight:700}
+      .s{fill:#94a3b8;font-size:13.5px}
+      .h{fill:#f59e0b;font-size:13px;font-weight:700;letter-spacing:2px}
+      .box{fill:#111c2e;stroke:#24324a;stroke-width:1.5;rx:14}
+      .key{fill:#16243b;stroke:#f59e0b;stroke-width:2;rx:14}
+      .ln{stroke:#94a3b8;stroke-width:2;fill:none;marker-end:url(#a)}
+      .lo{stroke:#f59e0b;stroke-width:2;fill:none;stroke-dasharray:6 6;marker-end:url(#o)}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="#0a1220"/>
+  <text x="60" y="70" fill="#f8fafc" font-size="34" font-weight="800">ecarbon: plan set in, traceable embodied carbon out</text>
+  <text x="60" y="102" class="s" font-size="17">Every number is labelled measured, inferred or assumed, and traces back to its sheet, its factor and its source.</text>
+
+  <!-- column heads -->
+  <text x="60" y="160" class="h">1 · INTAKE</text>
+  <text x="380" y="160" class="h">2 · READ</text>
+  <text x="700" y="160" class="h">3 · TAKEOFF</text>
+  <text x="1020" y="160" class="h">4 · CARBON</text>
+  <text x="1300" y="160" class="h">5 · ANSWER</text>
+
+  <!-- intake -->
+  <rect class="box" x="60" y="180" width="270" height="96"/>
+  <text x="80" y="214" class="t">Upload vector PDF</text>
+  <text x="80" y="238" class="s">one file or several; locked or</text>
+  <text x="80" y="256" class="s">damaged sets fail cleanly</text>
+  <rect class="box" x="60" y="300" width="270" height="96"/>
+  <text x="80" y="334" class="t">Classify every sheet</text>
+  <text x="80" y="358" class="s">plan · elevation · section ·</text>
+  <text x="80" y="376" class="s">schedule; scale per sheet</text>
+  <rect class="box" x="60" y="420" width="270" height="96"/>
+  <text x="80" y="454" class="t">Region and units</text>
+  <text x="80" y="478" class="s">province, metric / imperial</text>
+  <text x="80" y="496" class="s">picks the factor set</text>
+
+  <!-- read -->
+  <rect class="box" x="380" y="180" width="270" height="96"/>
+  <text x="400" y="214" class="t">Geometry off linework</text>
+  <text x="400" y="238" class="s">footprint, walls, openings,</text>
+  <text x="400" y="256" class="s">partitions wall by wall</text>
+  <rect class="box" x="380" y="300" width="270" height="96"/>
+  <text x="400" y="334" class="t">What the sheets state</text>
+  <text x="400" y="358" class="s">assembly schedules, levels,</text>
+  <text x="400" y="376" class="s">specs, layer thicknesses</text>
+  <rect class="box" x="380" y="420" width="270" height="96"/>
+  <text x="400" y="454" class="t">Vision fallback</text>
+  <text x="400" y="478" class="s">image-only sheets, with a</text>
+  <text x="400" y="496" class="s">quote-and-locate check</text>
+
+  <!-- takeoff -->
+  <rect class="box" x="700" y="180" width="270" height="96"/>
+  <text x="720" y="214" class="t">Bill of quantities</text>
+  <text x="720" y="238" class="s">a line per element and layer,</text>
+  <text x="720" y="256" class="s">each with its sheet and region</text>
+  <rect class="box" x="700" y="300" width="270" height="96"/>
+  <text x="720" y="334" class="t">Stated standards</text>
+  <text x="720" y="358" class="s">studs, joists, trusses at the</text>
+  <text x="720" y="376" class="s">drawn spacing (ASSUMED)</text>
+  <rect class="box" x="700" y="420" width="270" height="96"/>
+  <text x="720" y="454" class="t">Gaps, said out loud</text>
+  <text x="720" y="478" class="s">"placeholder" cladding/roofing:</text>
+  <text x="720" y="496" class="s">range priced, decision handed back</text>
+
+  <!-- carbon -->
+  <rect class="box" x="1020" y="180" width="240" height="96"/>
+  <text x="1040" y="214" class="t">Canadian factors</text>
+  <text x="1040" y="238" class="s">EPDs + databases by region,</text>
+  <text x="1040" y="256" class="s">or your own materials list</text>
+  <rect class="key" x="1020" y="300" width="240" height="96"/>
+  <text x="1040" y="334" class="t">Calculation trace</text>
+  <text x="1040" y="358" class="s">qty × thickness × density ×</text>
+  <text x="1040" y="376" class="s">factor = kgCO₂e, checked</text>
+  <rect class="box" x="1020" y="420" width="240" height="96"/>
+  <text x="1040" y="454" class="t">Complete A1–A5</text>
+  <text x="1040" y="478" class="s">rebar, transport, waste;</text>
+  <text x="1040" y="496" class="s">NRC scope declared</text>
+
+  <!-- answer -->
+  <rect class="box" x="1300" y="180" width="240" height="96"/>
+  <text x="1320" y="214" class="t">3D model + total</text>
+  <text x="1320" y="238" class="s">break it apart into its</text>
+  <text x="1320" y="256" class="s">counted elements</text>
+  <rect class="box" x="1300" y="300" width="240" height="96"/>
+  <text x="1320" y="334" class="t">Click any number</text>
+  <text x="1320" y="358" class="s">its calculation, its sheet,</text>
+  <text x="1320" y="376" class="s">its source</text>
+  <rect class="box" x="1300" y="420" width="240" height="96"/>
+  <text x="1320" y="454" class="t">CSV + report</text>
+  <text x="1320" y="478" class="s">the full audit trail, ready</text>
+  <text x="1320" y="496" class="s">to recompute in Excel</text>
+
+  <!-- arrows across -->
+  <path class="ln" d="M330 228H378"/><path class="ln" d="M650 228H698"/><path class="ln" d="M970 228H1018"/><path class="ln" d="M1260 228H1298"/>
+  <path class="ln" d="M330 348H378"/><path class="ln" d="M650 348H698"/><path class="ln" d="M970 348H1018"/><path class="ln" d="M1260 348H1298"/>
+  <path class="ln" d="M330 468H378"/><path class="ln" d="M650 468H698"/><path class="ln" d="M970 468H1018"/><path class="ln" d="M1260 468H1298"/>
+
+  <!-- interaction loop -->
+  <rect x="60" y="600" width="1480" height="230" rx="18" fill="#0f1a2c" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="8 6"/>
+  <text x="90" y="640" class="h">YOU STAY IN CONTROL · EVERY CHANGE RECALCULATES AT ONCE AND IS LABELLED "STATED"</text>
+  <rect class="box" x="90" y="665" width="320" height="130"/>
+  <text x="112" y="702" class="t">Edit the plan</text>
+  <text x="112" y="728" class="s">select any wall: leave it out,</text>
+  <text x="112" y="747" class="s">reclassify interior ↔ exterior,</text>
+  <text x="112" y="766" class="s">measure, or draw a missing one</text>
+  <rect class="box" x="440" y="665" width="320" height="130"/>
+  <text x="462" y="702" class="t">Edit any line</text>
+  <text x="462" y="728" class="s">material, thickness, quantity;</text>
+  <text x="462" y="747" class="s">see the build-up layer by layer</text>
+  <rect class="box" x="790" y="665" width="320" height="130"/>
+  <text x="812" y="702" class="t">Your materials</text>
+  <text x="812" y="728" class="s">upload your supplier list / EPDs;</text>
+  <text x="812" y="747" class="s">swaps ranked by carbon saved</text>
+  <rect class="box" x="1140" y="665" width="370" height="130"/>
+  <text x="1162" y="702" class="t">Make the open decisions</text>
+  <text x="1162" y="728" class="s">cladding, roofing, flooring: pick</text>
+  <text x="1162" y="747" class="s">the product, the range collapses</text>
+  <path class="lo" d="M800 600V520"/>
+  <text x="815" y="570" fill="#f59e0b" font-size="14">back into the takeoff</text>
+</svg>

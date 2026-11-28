@@ -9,6 +9,18 @@ challenge *"Automated Embodied Carbon Accounting for Residential Builders"*
 
 **Live: https://ecarbon.fly.dev**: press *Continue as a guest*. No account needed; each visitor gets a private workspace.
 
+![How ecarbon works](docs/flowchart.png)
+
+## What it does
+
+- **Reads the drawings.** Every sheet is classified and scaled. Geometry comes off the linework, and assemblies, levels and specs come from what the sheets state. Image-only sheets fall back to a vision reader with a quote-and-locate check.
+- **Labels every number.** Each figure is marked **measured** (off the linework), **inferred** (from something a sheet states) or **assumed** (a stated standard). When the drawings say "placeholder", it prices the range and hands the decision back.
+- **Traces every number.** Click any figure to see quantity × thickness × density × factor = kgCO₂e, with its sheet, the region outlined on it, and the factor's source or EPD. The CSV export carries the same calculation for every line.
+- **Gives a complete estimate.** It reports A1–A3 as counted, plus a complete A1–A5 figure (rebar, transport, construction waste). Scope is declared against the NRC whole-building LCA guidelines: what is included, and what is named but not priced.
+- **Makes the plan set interactive.** Select any wall to leave it out, reclassify it between interior and exterior, measure it, or draw a missing one. The total updates at once.
+- **Lets you edit everything.** You can change any line's material, thickness or quantity, see each element's build-up layer by layer, and upload your own materials and EPDs. Swaps are ranked by carbon saved.
+- **Shows its accuracy.** It is benchmarked on 53 Canadian plan sets against the architects' IFC and energy models and CMHC's published Building Performance Reports ([docs/benchmark.md](docs/benchmark.md)).
+
 - **[docs/HANDOFF.md](docs/HANDOFF.md)** — picking this up? Start here. The constraints, the state, and what is deliberately unfinished.
 - **[docs/FOR_JUDGES.md](docs/FOR_JUDGES.md)** — the live service, what to click, and where the numbers are weak. Start here if you are reviewing this.
 - **[docs/benchmark.md](docs/benchmark.md)** — every accuracy figure, with the worst cases and the regressions.
